@@ -24,6 +24,35 @@ runs:
       with:
         python-version: '3.11'
     
+    - name: Install Google Bloaty
+      shell: bash
+      run: |
+        if [[ "$RUNNER_OS" == "Linux" ]]; then
+          # Linux: use Homebrew (bloaty not available in apt repositories)
+          if ! command -v brew &> /dev/null; then
+            echo "Installing Homebrew..."
+            /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+            echo 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"' >> ~/.bashrc
+            eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          fi
+          brew install bloaty
+          echo "Installed Bloaty via Homebrew on Linux"
+        elif [[ "$RUNNER_OS" == "macOS" ]]; then
+          # macOS: use Homebrew
+          brew install bloaty
+          echo "Installed Bloaty via Homebrew on macOS"
+        elif [[ "$RUNNER_OS" == "Windows" ]]; then
+          echo "Error: Bloaty is not supported on Windows runners"
+          echo "Please use Linux or macOS runners for memory analysis"
+          exit 1
+        else
+          echo "Error: Unsupported runner OS: $RUNNER_OS"
+          exit 1
+        fi
+        
+        # Verify installation
+        bloaty --version
+    
     - name: Run memory analysis
       shell: bash
       run: |

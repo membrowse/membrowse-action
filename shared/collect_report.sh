@@ -53,84 +53,15 @@ echo "Starting memory analysis for target: $TARGET_NAME"
 echo "ELF file: $ELF_PATH"
 echo "Linker scripts: $LD_SCRIPTS"
 
-# Install Google Bloaty if not already available
-install_bloaty() {
-    if command -v bloaty &> /dev/null; then
-        echo "Bloaty already installed: $(bloaty --version)"
-        return 0
-    fi
-    
-    echo "Installing Google Bloaty..."
-    
-    # Check if we're on GitHub Actions Ubuntu
-    if [[ "$RUNNER_OS" == "Linux" ]] || [[ -f "/etc/ubuntu-release" ]] || command -v apt-get &> /dev/null; then
-        # Install dependencies (skip packages that don't exist)
-        sudo apt-get update
-        sudo apt-get install -y \
-            build-essential \
-            cmake \
-            git \
-            pkg-config \
-            protobuf-compiler \
-            libprotobuf-dev || true
-        
-        # Try optional dependencies
-        sudo apt-get install -y \
-            libcapstone-dev \
-            libre2-dev \
-            libabsl-dev \
-            libbloaty-dev || true
-        
-        # Try to install from package manager first
-        if apt-cache search bloaty | grep -q "bloaty" && sudo apt-get install -y bloaty; then
-            echo "Installed Bloaty from package manager"
-        else
-            # Build from source as fallback
-            echo "Package manager installation failed, building from source..."
-            build_bloaty_from_source
-        fi
-    else
-        echo "Unsupported OS for automatic Bloaty installation"
-        exit 1
-    fi
-    
-    # Verify installation
-    if ! command -v bloaty &> /dev/null; then
-        echo "Error: Failed to install Bloaty"
-        exit 1
-    fi
-    
-    echo "Bloaty installed successfully: $(bloaty --version)"
-}
+# Verify Bloaty is available
+if ! command -v bloaty &> /dev/null; then
+    echo "Error: Bloaty not found. Please install Bloaty before running this script."
+    echo "For GitHub Actions, add the installation step to your workflow."
+    echo "For local usage, install with: sudo apt-get install bloaty"
+    exit 1
+fi
 
-build_bloaty_from_source() {
-    echo "Building Bloaty from source..."
-    
-    # Create temporary build directory
-    BUILD_DIR=$(mktemp -d)
-    cd "$BUILD_DIR"
-    
-    # Clone and build Bloaty
-    git clone --depth=1 https://github.com/google/bloaty.git
-    cd bloaty
-    
-    # Use system packages for dependencies
-    cmake -B build -S . \
-        -DCMAKE_BUILD_TYPE=Release \
-        -DBLOATY_ENABLE_CMAKETARGETS=ON
-    
-    cmake --build build --config Release
-    
-    # Install to system
-    sudo cmake --install build
-    
-    # Clean up
-    cd /
-    rm -rf "$BUILD_DIR"
-}
-
-# Install Bloaty
-install_bloaty
+echo "Using Bloaty: $(bloaty --version)"
 
 # Generate temporary files for bloaty output
 BLOATY_OUTPUT=$(mktemp)

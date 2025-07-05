@@ -75,12 +75,12 @@ class TestMemoryAnalysis(unittest.TestCase):
         
         self.assertTrue(gcc_available, "No suitable GCC compiler found")
         
-        # Check for Bloaty (we'll install it if not found)
+        # Check for Bloaty
         try:
             subprocess.run(['bloaty', '--version'], capture_output=True, check=True)
             print("Found Bloaty")
         except (subprocess.CalledProcessError, FileNotFoundError):
-            print("Bloaty not found - will be installed by collect_report.sh")
+            print("Bloaty not found - install it manually or via GitHub Actions")
     
     def test_02_compile_test_program(self):
         """Test compilation of the test program"""
@@ -186,6 +186,7 @@ class TestMemoryAnalysis(unittest.TestCase):
         except (subprocess.CalledProcessError, FileNotFoundError) as e:
             # If Bloaty is not available, create mock CSV data for testing
             print(f"Bloaty not available ({e}), creating mock data for testing")
+            print("Note: In GitHub Actions, Bloaty will be installed automatically")
             self._create_mock_bloaty_data()
     
     def _create_mock_bloaty_data(self):
@@ -420,9 +421,6 @@ LOAD,2816,2816
             # Run full collect_report.sh
             collect_script = shared_dir / 'collect_report.sh'
             
-            env = os.environ.copy()
-            env['RUNNER_OS'] = 'Linux'  # For Bloaty installation
-            
             result = subprocess.run([
                 'bash', str(collect_script),
                 str(elf_file),                    # ELF path
@@ -433,7 +431,7 @@ LOAD,2816,2816
                 'def456',                         # Base SHA
                 'test-branch',                    # Branch name
                 'test/repo'                       # Repo name
-            ], capture_output=True, text=True, env=env, timeout=120)
+            ], capture_output=True, text=True, timeout=120)
             
             if result.returncode == 0:
                 print("✓ Full integration test PASSED")
