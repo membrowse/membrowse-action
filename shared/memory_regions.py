@@ -21,6 +21,7 @@ class LinkerScriptParser:
     
     def __init__(self, ld_scripts: List[str]):
         self.ld_scripts = ld_scripts
+        self.variables = {}  # Store defined variables
         self._validate_scripts()
     
     def _validate_scripts(self):
@@ -33,11 +34,39 @@ class LinkerScriptParser:
         """Parse memory regions from linker scripts"""
         memory_regions = {}
         
+        # First pass: extract variables from all scripts
+        for script_path in self.ld_scripts:
+            self._extract_variables(script_path)
+        
+        # Second pass: parse memory regions using variables
         for script_path in self.ld_scripts:
             regions = self._parse_single_script(script_path)
             memory_regions.update(regions)
         
         return memory_regions
+    
+    def _extract_variables(self, script_path: str) -> None:
+        """Extract variable definitions from a linker script"""
+        with open(script_path, 'r') as f:
+            content = f.read()
+        
+        # Remove comments
+        content = self._clean_script_content(content)
+        
+        # Find variable assignments: var_name = value;
+        var_pattern = r'([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([^;]+);'
+        
+        for match in re.finditer(var_pattern, content):
+            var_name = match.group(1).strip()
+            var_value = match.group(2).strip()
+            
+            try:
+                # Try to evaluate the variable value
+                evaluated_value = self._evaluate_expression(var_value, set())
+                self.variables[var_name] = evaluated_value
+            except Exception:
+                # If evaluation fails, store as string for potential later resolution
+                self.variables[var_name] = var_value
     
     def _parse_single_script(self, script_path: str) -> Dict[str, Dict[str, Any]]:
         """Parse memory regions from a single linker script file"""
@@ -47,8 +76,8 @@ class LinkerScriptParser:
         # Remove comments and normalize whitespace
         content = self._clean_script_content(content)
         
-        # Find MEMORY block
-        memory_match = re.search(r'MEMORY\s*{([^}]+)}', content, re.IGNORECASE)
+        # Find MEMORY block (case insensitive)
+        memory_match = re.search(r'MEMORY\s*\{([^}]+)\}', content, re.IGNORECASE)
         if not memory_match:
             return {}
         
@@ -73,7 +102,10 @@ class LinkerScriptParser:
         # Also handles variations like:
         # - FLASH(rx): ORIGIN=0x08000000, LENGTH=512K
         # - RAM (rw) : ORIGIN = 0x20000000 , LENGTH = 128K
-        region_pattern = r'(\w+)\s*\(([^)]+)\)\s*:\s*ORIGIN\s*=\s*([^,]+),\s*LENGTH\s*=\s*([^,\s]+)'
+        # - FLASH (rx) : ORIGIN = 0x08000000, LENGTH = 512 * 1024
+        # Case insensitive for ORIGIN and LENGTH keywords
+        # Use non-greedy matching to stop at word boundaries or end of block
+        region_pattern = r'(\w+)\s*\(([^)]+)\)\s*:\s*(?:ORIGIN|origin)\s*=\s*([^,]+),\s*(?:LENGTH|length)\s*=\s*([^,}]+?)(?=\s+\w+\s*\(|$|\s*})'
         
         for match in re.finditer(region_pattern, memory_content):
             name = match.group(1).strip()
@@ -104,20 +136,35 @@ class LinkerScriptParser:
         return memory_regions
     
     def _parse_address(self, addr_str: str) -> int:
-        """Parse address string (supports hex and decimal)"""
+        """Parse address string (supports hex, decimal, variables, and expressions)"""
         addr_str = addr_str.strip()
         
-        if addr_str.startswith('0x') or addr_str.startswith('0X'):
-            return int(addr_str, 16)
-        elif addr_str.startswith('0') and len(addr_str) > 1:
-            # Octal notation
-            return int(addr_str, 8)
-        else:
-            return int(addr_str, 10)
+        # Try to evaluate as expression first (handles variables and arithmetic)
+        try:
+            return self._evaluate_expression(addr_str, set())
+        except Exception:
+            # Fallback to simple parsing
+            if addr_str.startswith('0x') or addr_str.startswith('0X'):
+                return int(addr_str, 16)
+            elif addr_str.startswith('0') and len(addr_str) > 1:
+                # Octal notation
+                return int(addr_str, 8)
+            else:
+                return int(addr_str, 10)
     
     def _parse_size(self, size_str: str) -> int:
-        """Parse size string (supports K, M, G suffixes)"""
-        size_str = size_str.strip().upper()
+        """Parse size string (supports K, M, G suffixes, variables, and expressions)"""
+        size_str = size_str.strip()
+        
+        # First, try to evaluate as expression (handles variables and arithmetic)
+        # This handles complex expressions like "512 * 1024" or variable references
+        try:
+            return self._evaluate_expression(size_str, set())
+        except Exception:
+            pass
+        
+        # If expression evaluation fails, try size suffixes
+        size_str_upper = size_str.upper()
         
         # Handle size multipliers
         multipliers = {
@@ -130,12 +177,18 @@ class LinkerScriptParser:
         }
         
         for suffix, multiplier in multipliers.items():
-            if size_str.endswith(suffix):
+            if size_str_upper.endswith(suffix):
                 base_value = size_str[:-len(suffix)]
-                return int(base_value) * multiplier
+                try:
+                    # Try to evaluate the base value (may contain variables/expressions)
+                    base_int = self._evaluate_expression(base_value, set())
+                    return base_int * multiplier
+                except Exception:
+                    # Fallback to simple parsing
+                    return int(base_value) * multiplier
         
-        # Handle hex or decimal without suffix
-        if size_str.startswith('0X'):
+        # Fallback to simple parsing
+        if size_str_upper.startswith('0X'):
             return int(size_str, 16)
         elif size_str.startswith('0') and len(size_str) > 1:
             return int(size_str, 8)
@@ -147,17 +200,17 @@ class LinkerScriptParser:
         name_lower = name.lower()
         attrs_lower = attributes.lower()
         
-        # Check name patterns first
-        if any(pattern in name_lower for pattern in ['flash', 'rom', 'code']):
-            return 'FLASH'
-        elif any(pattern in name_lower for pattern in ['ram', 'sram', 'data', 'heap', 'stack']):
-            return 'RAM'
-        elif 'eeprom' in name_lower:
+        # Check name patterns first (more specific patterns first)
+        if 'eeprom' in name_lower:
             return 'EEPROM'
-        elif 'ccm' in name_lower:  # Core Coupled Memory
+        elif 'ccmram' in name_lower or 'ccm' in name_lower:  # Core Coupled Memory
             return 'CCM'
         elif 'backup' in name_lower:
             return 'BACKUP'
+        elif any(pattern in name_lower for pattern in ['flash', 'rom', 'code']):
+            return 'FLASH'
+        elif any(pattern in name_lower for pattern in ['ram', 'sram', 'data', 'heap', 'stack']):
+            return 'RAM'
         
         # Check attributes if name is not conclusive
         elif 'x' in attrs_lower and 'w' not in attrs_lower:
@@ -171,6 +224,80 @@ class LinkerScriptParser:
             return 'ROM'
         else:
             return 'UNKNOWN'
+    
+    def _evaluate_expression(self, expr: str, resolving_vars: set = None) -> int:
+        """Evaluate a linker script expression (supports variables and basic arithmetic)"""
+        expr = expr.strip()
+        
+        # Initialize set to track variables being resolved (cycle detection)
+        if resolving_vars is None:
+            resolving_vars = set()
+        
+        # Replace variables with their values
+        for var_name, var_value in self.variables.items():
+            if var_name in expr:  # Only process variables that are actually in the expression
+                if isinstance(var_value, (int, float)):
+                    expr = expr.replace(var_name, str(var_value))
+                elif isinstance(var_value, str) and var_name not in resolving_vars:
+                    # Try to recursively evaluate string variables with cycle detection
+                    try:
+                        resolving_vars.add(var_name)
+                        resolved_value = self._evaluate_expression(var_value, resolving_vars)
+                        resolving_vars.remove(var_name)
+                        self.variables[var_name] = resolved_value  # Cache the resolved value
+                        expr = expr.replace(var_name, str(resolved_value))
+                    except Exception:
+                        if var_name in resolving_vars:
+                            resolving_vars.remove(var_name)
+                        pass  # Skip unresolvable variables
+        
+        # Handle size suffixes before arithmetic evaluation
+        expr = self._resolve_size_suffixes(expr)
+        
+        # Handle simple arithmetic expressions
+        # Security note: Using eval() with a restricted environment
+        # Only allow basic arithmetic operations and hex/decimal literals
+        
+        # Replace hex literals for eval
+        expr = re.sub(r'0[xX]([0-9a-fA-F]+)', lambda m: str(int(m.group(1), 16)), expr)
+        
+        # Only allow safe characters for evaluation
+        if re.match(r'^[0-9+\-*/() \t]+$', expr):
+            try:
+                # Safe evaluation with restricted builtins
+                return int(eval(expr, {"__builtins__": {}}, {}))
+            except Exception:
+                pass
+        
+        # Try to parse as single number
+        if expr.startswith('0x') or expr.startswith('0X'):
+            return int(expr, 16)
+        elif expr.startswith('0') and len(expr) > 1:
+            return int(expr, 8)
+        else:
+            return int(expr, 10)
+    
+    def _resolve_size_suffixes(self, expr: str) -> str:
+        """Resolve size suffixes (K, M, G) in expressions"""
+        # Handle size multipliers in expressions
+        multipliers = {
+            'K': 1024,
+            'M': 1024 * 1024,
+            'G': 1024 * 1024 * 1024,
+            'KB': 1024,
+            'MB': 1024 * 1024,
+            'GB': 1024 * 1024 * 1024
+        }
+        
+        # Pattern to match numbers with suffixes: 256K, 1M, etc.
+        pattern = r'(\d+)\s*([KMG]B?)\b'
+        
+        def replace_suffix(match):
+            number = int(match.group(1))
+            suffix = match.group(2).upper()
+            return str(number * multipliers[suffix])
+        
+        return re.sub(pattern, replace_suffix, expr, flags=re.IGNORECASE)
 
 
 def parse_linker_scripts(ld_scripts: List[str]) -> Dict[str, Dict[str, Any]]:
