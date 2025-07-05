@@ -64,25 +64,29 @@ install_bloaty() {
     
     # Check if we're on GitHub Actions Ubuntu
     if [[ "$RUNNER_OS" == "Linux" ]] || [[ -f "/etc/ubuntu-release" ]] || command -v apt-get &> /dev/null; then
-        # Install dependencies
+        # Install dependencies (skip packages that don't exist)
         sudo apt-get update
         sudo apt-get install -y \
             build-essential \
             cmake \
             git \
-            libbloaty-dev \
             pkg-config \
             protobuf-compiler \
-            libprotobuf-dev \
+            libprotobuf-dev || true
+        
+        # Try optional dependencies
+        sudo apt-get install -y \
             libcapstone-dev \
             libre2-dev \
-            libabsl-dev
+            libabsl-dev \
+            libbloaty-dev || true
         
         # Try to install from package manager first
-        if apt-cache search bloaty | grep -q "bloaty"; then
-            sudo apt-get install -y bloaty
+        if apt-cache search bloaty | grep -q "bloaty" && sudo apt-get install -y bloaty; then
+            echo "Installed Bloaty from package manager"
         else
             # Build from source as fallback
+            echo "Package manager installation failed, building from source..."
             build_bloaty_from_source
         fi
     else
