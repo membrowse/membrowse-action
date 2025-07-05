@@ -1,0 +1,52 @@
+name: 'MemBrowse Onboard Historical Analysis'
+description: 'Analyze memory usage across historical commits for embedded firmware onboarding'
+author: 'MemBrowse'
+
+inputs:
+  num_commits:
+    description: 'Number of historical commits to process'
+    required: true
+  build_script:
+    description: 'Shell command to build the firmware'
+    required: true
+  elf:
+    description: 'Path to generated ELF file after build'
+    required: true
+  ld:
+    description: 'Space-separated list of linker script paths'
+    required: true
+  target_name:
+    description: 'Target platform name'
+    required: true
+  api_key:
+    description: 'API key for MemBrowse'
+    required: true
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Fetch full git history
+      shell: bash
+      run: |
+        git fetch --unshallow || true
+        git fetch --all
+    
+    - name: Run historical analysis
+      shell: bash
+      run: |
+        ${{ github.action_path }}/entrypoint.sh \
+          "${{ inputs.num_commits }}" \
+          "${{ inputs.build_script }}" \
+          "${{ inputs.elf }}" \
+          "${{ inputs.ld }}" \
+          "${{ inputs.target_name }}" \
+          "${{ inputs.api_key }}"
+
+branding:
+  icon: 'clock'
+  color: 'green'

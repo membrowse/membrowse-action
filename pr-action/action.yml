@@ -1,0 +1,38 @@
+name: 'MemBrowse PR Memory Report'
+description: 'Analyze memory usage of embedded firmware and upload report to MemBrowse'
+author: 'MemBrowse'
+
+inputs:
+  elf:
+    description: 'Path to ELF file'
+    required: true
+  ld:
+    description: 'Space-separated list of linker script paths'
+    required: true
+  target_name:
+    description: 'Target name like esp32, stm32f4'
+    required: true
+  api_key:
+    description: 'API key for MemBrowse'
+    required: false
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Run memory analysis
+      shell: bash
+      run: |
+        ${{ github.action_path }}/entrypoint.sh \
+          "${{ inputs.elf }}" \
+          "${{ inputs.ld }}" \
+          "${{ inputs.target_name }}" \
+          "${{ inputs.api_key }}"
+
+branding:
+  icon: 'bar-chart-2'
+  color: 'blue'
