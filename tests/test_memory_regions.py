@@ -455,34 +455,40 @@ class TestMemoryRegions(unittest.TestCase):
     
     def test_address_parsing_edge_cases(self):
         """Test edge cases in address parsing"""
-        parser = LinkerScriptParser([])
+        from memory_regions import ExpressionEvaluator, MemoryRegionBuilder
+        
+        evaluator = ExpressionEvaluator()
+        builder = MemoryRegionBuilder(evaluator)
         
         # Test various address formats
-        self.assertEqual(parser._parse_address('0x1000'), 0x1000)
-        self.assertEqual(parser._parse_address('0X2000'), 0x2000)
-        self.assertEqual(parser._parse_address('4096'), 4096)
-        self.assertEqual(parser._parse_address('010000'), 0o10000)  # Octal
+        self.assertEqual(builder._parse_address('0x1000'), 0x1000)
+        self.assertEqual(builder._parse_address('0X2000'), 0x2000)
+        self.assertEqual(builder._parse_address('4096'), 4096)
+        self.assertEqual(builder._parse_address('010000'), 0o10000)  # Octal
         
         # Test with whitespace
-        self.assertEqual(parser._parse_address('  0x1000  '), 0x1000)
+        self.assertEqual(builder._parse_address('  0x1000  '), 0x1000)
     
     def test_size_parsing_edge_cases(self):
         """Test edge cases in size parsing"""
-        parser = LinkerScriptParser([])
+        from memory_regions import ExpressionEvaluator, MemoryRegionBuilder
+        
+        evaluator = ExpressionEvaluator()
+        builder = MemoryRegionBuilder(evaluator)
         
         # Test various size formats
-        self.assertEqual(parser._parse_size('1024'), 1024)
-        self.assertEqual(parser._parse_size('1K'), 1024)
-        self.assertEqual(parser._parse_size('1KB'), 1024)
-        self.assertEqual(parser._parse_size('2M'), 2 * 1024 * 1024)
-        self.assertEqual(parser._parse_size('1G'), 1024 * 1024 * 1024)
+        self.assertEqual(builder._parse_size('1024'), 1024)
+        self.assertEqual(builder._parse_size('1K'), 1024)
+        self.assertEqual(builder._parse_size('1KB'), 1024)
+        self.assertEqual(builder._parse_size('2M'), 2 * 1024 * 1024)
+        self.assertEqual(builder._parse_size('1G'), 1024 * 1024 * 1024)
         
         # Test hex sizes
-        self.assertEqual(parser._parse_size('0x1000'), 0x1000)
-        self.assertEqual(parser._parse_size('0X2000'), 0x2000)
+        self.assertEqual(builder._parse_size('0x1000'), 0x1000)
+        self.assertEqual(builder._parse_size('0X2000'), 0x2000)
         
         # Test with whitespace
-        self.assertEqual(parser._parse_size('  512K  '), 512 * 1024)
+        self.assertEqual(builder._parse_size('  512K  '), 512 * 1024)
 
 
 class TestAdvancedLinkerFeatures(unittest.TestCase):
