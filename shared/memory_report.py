@@ -20,9 +20,13 @@ from typing import Dict, List, Optional, Tuple, Any
 
 from memory_regions import parse_linker_scripts
 
+from elftools.elf.elffile import ELFFile
+from elftools.elf.sections import SymbolTableSection
+from elftools.common.exceptions import ELFError
+
 
 class ELFAnalyzer:
-    """Analyzes ELF files and extracts basic metadata"""
+    """Analyzes ELF files and extracts metadata using pyelftools"""
     
     def __init__(self, elf_path: str):
         self.elf_path = elf_path
@@ -37,15 +41,51 @@ class ELFAnalyzer:
             raise PermissionError(f"Cannot read ELF file: {self.elf_path}")
     
     def get_elf_metadata(self) -> Dict[str, Any]:
-        """Extract basic ELF metadata - defaults for now, Bloaty provides most info"""
-        # Simple file inspection to determine basic architecture
-        # Most embedded systems use ELF32, but we can enhance this later if needed
-        return {
-            'architecture': 'ELF32',  # Default, could be enhanced
-            'file_type': 'EXEC',      # Default for executable
-            'machine': 'ARM',         # Default, could be enhanced
-            'entry_point': 0          # Will be filled from Bloaty if available
-        }
+        """Extract ELF metadata using pyelftools"""
+        try:
+            with open(self.elf_path, 'rb') as f:
+                elffile = ELFFile(f)
+                
+                # Get basic file information
+                header = elffile.header
+                
+                # Map machine type to readable string
+                machine_map = {
+                    'EM_ARM': 'ARM',
+                    'EM_AARCH64': 'ARM64',
+                    'EM_X86_64': 'x86_64',
+                    'EM_386': 'x86',
+                    'EM_XTENSA': 'Xtensa',
+                    'EM_RISCV': 'RISC-V',
+                    'EM_MIPS': 'MIPS',
+                }
+                
+                machine = machine_map.get(header['e_machine'], str(header['e_machine']))
+                
+                # Get file type
+                file_type_map = {
+                    'ET_EXEC': 'EXEC',
+                    'ET_DYN': 'DYN',
+                    'ET_REL': 'REL',
+                    'ET_CORE': 'CORE',
+                }
+                
+                file_type = file_type_map.get(header['e_type'], str(header['e_type']))
+                
+                # Determine architecture class
+                arch_class = f"ELF{elffile.elfclass}"
+                
+                return {
+                    'architecture': arch_class,
+                    'file_type': file_type,
+                    'machine': machine,
+                    'entry_point': header['e_entry'],
+                    'bit_width': elffile.elfclass,
+                    'endianness': 'little' if elffile.little_endian else 'big'
+                }
+                
+        except (IOError, OSError, ELFError) as e:
+            raise RuntimeError(f"Failed to parse ELF file {self.elf_path}: {e}")
 
 
 

@@ -7,12 +7,14 @@ This module provides utilities to extract architecture information from ELF file
 to intelligently handle different linker script syntaxes and parsing strategies.
 """
 
-import struct
 import logging
 from pathlib import Path
 from enum import Enum
 from dataclasses import dataclass
 from typing import Optional, Dict, Any
+
+from elftools.elf.elffile import ELFFile
+from elftools.common.exceptions import ELFError
 
 logger = logging.getLogger(__name__)
 
@@ -63,21 +65,21 @@ class ELFParseError(Exception):
 class ELFParser:
     """Parser for ELF file headers to extract architecture information"""
     
-    # ELF machine type constants
+    # ELF machine type constants mapped to pyelftools constants
     MACHINE_TYPES = {
-        0x00: Architecture.UNKNOWN,
-        0x02: Architecture.UNKNOWN,    # SPARC
-        0x03: Architecture.X86,
-        0x08: Architecture.MIPS,
-        0x14: Architecture.UNKNOWN,    # PowerPC
-        0x16: Architecture.UNKNOWN,    # S390
-        0x28: Architecture.ARM,        # ARM 32-bit
-        0x2A: Architecture.UNKNOWN,    # SuperH
-        0x32: Architecture.UNKNOWN,    # IA-64
-        0x3E: Architecture.X86_64,
-        0x5E: Architecture.XTENSA,     # ESP32, ESP8266
-        0xB7: Architecture.AARCH64,    # ARM 64-bit
-        0xF3: Architecture.RISC_V,
+        'EM_NONE': Architecture.UNKNOWN,
+        'EM_SPARC': Architecture.UNKNOWN,
+        'EM_386': Architecture.X86,
+        'EM_MIPS': Architecture.MIPS,
+        'EM_PPC': Architecture.UNKNOWN,
+        'EM_S390': Architecture.UNKNOWN,
+        'EM_ARM': Architecture.ARM,
+        'EM_SH': Architecture.UNKNOWN,
+        'EM_IA_64': Architecture.UNKNOWN,
+        'EM_X86_64': Architecture.X86_64,
+        'EM_XTENSA': Architecture.XTENSA,
+        'EM_AARCH64': Architecture.AARCH64,
+        'EM_RISCV': Architecture.RISC_V,
     }
     
     @classmethod
@@ -92,33 +94,18 @@ class ELFParser:
         """
         try:
             with open(elf_path, 'rb') as f:
-                # Read ELF header (first 64 bytes covers both 32-bit and 64-bit)
-                header = f.read(64)
+                elffile = ELFFile(f)
                 
-                # Check ELF magic number
-                if len(header) < 20 or header[:4] != b'\x7fELF':
-                    logger.warning("File %s is not a valid ELF file", elf_path)
-                    return None
-                    
-                # Parse header fields
-                ei_class = header[4]    # 1=32-bit, 2=64-bit
-                ei_data = header[5]     # 1=little endian, 2=big endian
-                ei_version = header[6]
-                
-                # Validate basic fields
-                if ei_class not in (1, 2):
-                    raise ELFParseError(f"Invalid ELF class: {ei_class}")
-                if ei_data not in (1, 2):
-                    raise ELFParseError(f"Invalid ELF data encoding: {ei_data}")
-                
-                # Extract machine type (16-bit value at offset 18)
-                if ei_data == 1:  # Little endian
-                    e_machine = struct.unpack('<H', header[18:20])[0]
-                else:  # Big endian
-                    e_machine = struct.unpack('>H', header[18:20])[0]
-                
-                # Convert to our architecture enum
+                # Get machine type using pyelftools
+                e_machine = elffile.header['e_machine']
                 architecture = cls.MACHINE_TYPES.get(e_machine, Architecture.UNKNOWN)
+                
+                # Get bit width and endianness
+                bit_width = elffile.elfclass
+                endianness = elffile.little_endian
+                
+                # Get entry point
+                entry_point = elffile.header['e_entry']
                 
                 # Determine platform based on architecture and path hints
                 platform = cls._detect_platform(architecture, elf_path)
@@ -126,18 +113,19 @@ class ELFParser:
                 return ELFInfo(
                     architecture=architecture,
                     platform=platform,
-                    bit_width=64 if ei_class == 2 else 32,
-                    endianness="little" if ei_data == 1 else "big",
-                    machine_type=e_machine,
+                    bit_width=bit_width,
+                    endianness="little" if endianness else "big",
+                    machine_type=elffile.header['e_machine'],
                     is_embedded=cls._is_embedded_platform(platform)
                 )
                 
         except (IOError, OSError) as e:
             logger.warning("Could not read ELF file %s: %s", elf_path, e)
             return None
-        except (struct.error, ELFParseError) as e:
+        except (ELFError, ValueError) as e:
             logger.warning("Error parsing ELF file %s: %s", elf_path, e)
             return None
+    
     
     @classmethod
     def _detect_platform(cls, architecture: Architecture, elf_path: str) -> Platform:
@@ -287,31 +275,3 @@ def get_linker_parsing_strategy(elf_info: ELFInfo) -> Dict[str, Any]:
         })
     
     return strategy
-
-
-if __name__ == "__main__":
-    # Test the ELF parser with some sample files
-    test_files = [
-        '/home/michael/projs/membudget/micropython/build_logs/4c55b0879b38b373b44e84552d6754b7842b5b72/esp32/firmware.elf',
-        '/home/michael/projs/membudget/micropython/ports/bare-arm/build/firmware.elf',
-        '/bin/ls',
-    ]
-    
-    for test_file in test_files:
-        if Path(test_file).exists():
-            print(f"\nTesting {test_file}:")
-            elf_info = get_architecture_info(test_file)
-            if elf_info:
-                print(f"  Architecture: {elf_info.architecture.value}")
-                print(f"  Platform: {elf_info.platform.value}")
-                print(f"  Bit width: {elf_info.bit_width}")
-                print(f"  Endianness: {elf_info.endianness}")
-                print(f"  Embedded: {elf_info.is_embedded}")
-                print(f"  Machine type: 0x{elf_info.machine_type:02x}")
-                
-                strategy = get_linker_parsing_strategy(elf_info)
-                print(f"  Parsing strategy: {strategy['memory_block_patterns']}")
-            else:
-                print("  Failed to parse ELF file")
-        else:
-            print(f"File not found: {test_file}")
