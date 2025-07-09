@@ -28,9 +28,9 @@ CURRENT_BRANCH="$GITHUB_REF_NAME"
 # Save current state
 ORIGINAL_HEAD=$(git rev-parse HEAD)
 
-# Get the last N commits on the current branch
+# Get the last N commits on the current branch (reversed to process oldest first)
 echo "Getting commit history..."
-COMMITS=$(git log --format="%H" -n "$NUM_COMMITS" "$CURRENT_BRANCH")
+COMMITS=$(git log --format="%H" -n "$NUM_COMMITS" "$CURRENT_BRANCH" --reverse)
 
 # We'll pass LD_PATHS directly to collect_report.sh which handles the parsing
 
