@@ -93,10 +93,8 @@ class ELFAnalyzer:
 class BloatyParser:
     """Parses Bloaty CSV output"""
     
-    def __init__(self, bloaty_output: str, bloaty_symbols: str, bloaty_segments: str):
+    def __init__(self, bloaty_output: str):
         self.bloaty_output = bloaty_output
-        self.bloaty_symbols = bloaty_symbols
-        self.bloaty_segments = bloaty_segments
     
     def parse_sections(self) -> Tuple[Dict[str, int], List[Dict[str, Any]]]:
         """Parse section information from Bloaty output"""
@@ -162,7 +160,7 @@ class BloatyParser:
         symbols = []
         
         try:
-            with open(self.bloaty_symbols, 'r') as f:
+            with open(self.bloaty_output, 'r') as f:
                 reader = csv.DictReader(f)
                 for row in reader:
                     symbol_name = row.get('symbols', '').strip()
@@ -210,7 +208,7 @@ class BloatyParser:
         segments = []
         
         try:
-            with open(self.bloaty_segments, 'r') as f:
+            with open(self.bloaty_output, 'r') as f:
                 reader = csv.DictReader(f)
                 for row in reader:
                     segment_name = row.get('segments', '').strip()
@@ -276,11 +274,11 @@ class MemoryReportGenerator:
         self.ld_scripts = ld_scripts
         self.elf_path = elf_path
     
-    def generate_report(self, bloaty_output: str, bloaty_symbols: str, bloaty_segments: str) -> Dict[str, Any]:
+    def generate_report(self, bloaty_output: str) -> Dict[str, Any]:
         """Generate complete memory report"""
         
         # Parse components
-        bloaty_parser = BloatyParser(bloaty_output, bloaty_symbols, bloaty_segments)
+        bloaty_parser = BloatyParser(bloaty_output)
         
         # Get ELF metadata
         elf_metadata = self.elf_analyzer.get_elf_metadata()
@@ -370,8 +368,6 @@ def main():
     parser.add_argument('--elf-path', required=True, help='Path to ELF file')
     parser.add_argument('--ld-scripts', required=True, nargs='+', help='Linker script paths')
     parser.add_argument('--bloaty-output', required=True, help='Bloaty CSV output file')
-    parser.add_argument('--bloaty-symbols', required=True, help='Bloaty symbols CSV output file')
-    parser.add_argument('--bloaty-segments', required=True, help='Bloaty segments CSV output file')
     parser.add_argument('--output', required=True, help='Output JSON file path')
     
     args = parser.parse_args()
@@ -379,11 +375,7 @@ def main():
     try:
         # Generate report
         generator = MemoryReportGenerator(args.elf_path, args.ld_scripts)
-        report = generator.generate_report(
-            args.bloaty_output,
-            args.bloaty_symbols,
-            args.bloaty_segments
-        )
+        report = generator.generate_report(args.bloaty_output)
         
         # Write report to file
         with open(args.output, 'w') as f:

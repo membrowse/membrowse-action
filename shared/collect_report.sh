@@ -63,34 +63,20 @@ fi
 
 echo "Using Bloaty: $(bloaty --version)"
 
-# Generate temporary files for bloaty output
+# Generate temporary file for bloaty output
 BLOATY_OUTPUT=$(mktemp)
-BLOATY_SYMBOLS=$(mktemp)
-BLOATY_SEGMENTS=$(mktemp)
 
 # Cleanup temporary files on exit
 cleanup() {
-    rm -f "$BLOATY_OUTPUT" "$BLOATY_SYMBOLS" "$BLOATY_SEGMENTS"
+    rm -f "$BLOATY_OUTPUT"
 }
 trap cleanup EXIT
 
 echo "Running Bloaty analysis..."
 
-# Run Bloaty to get section information
-bloaty --csv "$ELF_PATH" > "$BLOATY_OUTPUT" || {
+# Run Bloaty once to get all information: sections, symbols, and segments
+bloaty --csv -d sections,symbols,segments "$ELF_PATH" > "$BLOATY_OUTPUT" || {
     echo "Error: Bloaty analysis failed"
-    exit 1
-}
-
-# Run Bloaty to get symbol information
-bloaty --csv -d symbols "$ELF_PATH" > "$BLOATY_SYMBOLS" || {
-    echo "Error: Bloaty symbol analysis failed"
-    exit 1
-}
-
-# Run Bloaty to get segment information
-bloaty --csv -d segments "$ELF_PATH" > "$BLOATY_SEGMENTS" || {
-    echo "Error: Bloaty segment analysis failed"
     exit 1
 }
 
@@ -107,8 +93,6 @@ python3 "$SCRIPT_DIR/memory_report.py" \
     --elf-path "$ELF_PATH" \
     --ld-scripts $LD_SCRIPTS \
     --bloaty-output "$BLOATY_OUTPUT" \
-    --bloaty-symbols "$BLOATY_SYMBOLS" \
-    --bloaty-segments "$BLOATY_SEGMENTS" \
     --output "$REPORT_JSON" || {
     echo "Error: Failed to generate memory report"
     exit 1
