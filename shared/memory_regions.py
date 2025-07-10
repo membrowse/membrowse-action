@@ -1094,41 +1094,10 @@ def _is_hierarchical_overlap(
 
     return False
 
-
-def get_region_summary(memory_regions: Dict[str, Dict[str, Any]]) -> str:
-    """Generate a human-readable summary of memory regions
-
-    Args:
-        memory_regions: Dictionary of memory regions
-
-    Returns:
-        Multi-line string describing the memory layout
-    """
-    if not memory_regions:
-        return "No memory regions found"
-
-    lines = ["Memory Layout:"]
-
-    # Sort regions by start address
-    sorted_regions = sorted(
-        memory_regions.items(),
-        key=lambda x: x[1]["start_address"])
-
-    for name, region in sorted_regions:
-        size_kb = region["total_size"] / 1024
-        attributes = region.get("attributes", "")
-        lines.append(
-            f"  {name:12} ({region['type']:8}): "
-            f"0x{region['start_address']:08x} - 0x{region['end_address']:08x} "
-            f"({size_kb:8.1f} KB) [{attributes}]"
-        )
-
-    return "\n".join(lines)
-
-
 if __name__ == "__main__":
-    # Simple test/demo when run directly
+    # Output JSON when run directly for integration with memory_report.py
     import sys
+    import json
 
     if len(sys.argv) < 2:
         print(
@@ -1137,13 +1106,10 @@ if __name__ == "__main__":
 
     try:
         regions = parse_linker_scripts(sys.argv[1:])
-        print(get_region_summary(regions))
-
-        if validate_memory_regions(regions):
-            print("\nMemory layout validation: PASSED")
-        else:
-            print("\nMemory layout validation: FAILED")
-
+        
+        # Output JSON to stdout for consumption by memory_report.py
+        print(json.dumps(regions, indent=2))
+        
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)

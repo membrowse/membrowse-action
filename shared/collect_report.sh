@@ -56,13 +56,22 @@ echo "Starting direct ELF analysis..."
 # Get script directory for relative imports
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Parse memory regions from linker scripts
+echo "Parsing memory regions from linker scripts..."
+MEMORY_REGIONS_JSON=$(mktemp)
+
+python3 "$SCRIPT_DIR/memory_regions.py" $LD_SCRIPTS > "$MEMORY_REGIONS_JSON" || {
+    echo "Error: Failed to parse memory regions"
+    exit 1
+}
+
 # Generate JSON report using Python script
 echo "Generating JSON memory report..."
 REPORT_JSON=$(mktemp)
 
 python3 "$SCRIPT_DIR/memory_report.py" \
     --elf-path "$ELF_PATH" \
-    --ld-scripts $LD_SCRIPTS \
+    --memory-regions "$MEMORY_REGIONS_JSON" \
     --output "$REPORT_JSON" || {
     echo "Error: Failed to generate memory report"
     exit 1

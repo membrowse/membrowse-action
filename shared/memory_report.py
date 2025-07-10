@@ -18,7 +18,7 @@ from elftools.elf.elffile import ELFFile
 from elftools.elf.sections import SymbolTableSection
 from elftools.common.exceptions import ELFError
 
-from memory_regions import parse_linker_scripts
+# Memory regions will be passed as input, no need to import memory_regions
 
 
 @dataclass
@@ -508,9 +508,9 @@ class MemoryMapper:
 class MemoryReportGenerator:
     """Main class for generating memory reports"""
     
-    def __init__(self, elf_path: str, linker_scripts: List[str]):
+    def __init__(self, elf_path: str, memory_regions_data: Dict[str, Dict[str, Any]]):
         self.elf_analyzer = ELFAnalyzer(elf_path)
-        self.linker_scripts = linker_scripts
+        self.memory_regions_data = memory_regions_data
         self.elf_path = elf_path
     
     def generate_report(self) -> Dict[str, Any]:
@@ -522,9 +522,8 @@ class MemoryReportGenerator:
             totals, sections = self.elf_analyzer.get_sections()
             program_headers = self.elf_analyzer.get_program_headers()
             
-            # Parse memory regions from linker scripts
-            memory_regions_data = parse_linker_scripts(self.linker_scripts)
-            memory_regions = self._convert_to_memory_regions(memory_regions_data)
+            # Convert memory regions data to MemoryRegion objects
+            memory_regions = self._convert_to_memory_regions(self.memory_regions_data)
             
             # Map sections to regions based on addresses and calculate utilization
             MemoryMapper.map_sections_to_regions(sections, memory_regions)
@@ -569,9 +568,9 @@ class CLIHandler:
             formatter_class=argparse.RawDescriptionHelpFormatter,
             epilog="""
 Examples:
-  %(prog)s --elf-path firmware.elf --ld-scripts linker.ld --output report.json
-  %(prog)s --elf-path app.elf --ld-scripts mem.ld flash.ld --output memory.json
-  %(prog)s --elf-path test.elf --ld-scripts system.ld --output analysis.json
+  %(prog)s --elf-path firmware.elf --memory-regions regions.json --output report.json
+  %(prog)s --elf-path app.elf --memory-regions memory_layout.json --output memory.json
+  %(prog)s --elf-path test.elf --memory-regions system_regions.json --output analysis.json
             """
         )
         
@@ -581,10 +580,9 @@ Examples:
             help='Path to ELF file'
         )
         parser.add_argument(
-            '--ld-scripts', 
+            '--memory-regions', 
             required=True, 
-            nargs='+', 
-            help='Linker script paths'
+            help='Path to JSON file containing memory regions data'
         )
         parser.add_argument(
             '--output', 
@@ -598,7 +596,11 @@ Examples:
     def run(args: argparse.Namespace) -> None:
         """Execute the memory report generation"""
         try:
-            generator = MemoryReportGenerator(args.elf_path, args.ld_scripts)
+            # Load memory regions from JSON file
+            with open(args.memory_regions, 'r') as f:
+                memory_regions_data = json.load(f)
+            
+            generator = MemoryReportGenerator(args.elf_path, memory_regions_data)
             report = generator.generate_report()
             
             # Write report to file
