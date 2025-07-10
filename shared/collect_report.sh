@@ -2,11 +2,9 @@
 
 # collect_report.sh - Collects memory usage data and generates report for MemBrowse
 # This script orchestrates the entire memory analysis process:
-# 1. Installs Google Bloaty if needed
-# 2. Extracts memory information from ELF using Bloaty
-# 3. Calls memory_report.py to generate JSON report
-# 4. Enriches with git metadata
-# 5. Uploads to MemBrowse API
+# 1. Calls memory_report.py to generate JSON report from ELF and linker scripts
+# 2. Enriches with git metadata
+# 3. Uploads to MemBrowse API
 
 set -euo pipefail
 
@@ -53,34 +51,7 @@ echo "Starting memory analysis for target: $TARGET_NAME"
 echo "ELF file: $ELF_PATH"
 echo "Linker scripts: $LD_SCRIPTS"
 
-# Verify Bloaty is available
-if ! command -v bloaty &> /dev/null; then
-    echo "Error: Bloaty not found. Please install Bloaty before running this script."
-    echo "For GitHub Actions, add the installation step to your workflow."
-    echo "For local usage, install with: sudo apt-get install bloaty"
-    exit 1
-fi
-
-echo "Using Bloaty: $(bloaty --version)"
-
-# Generate temporary file for bloaty output
-BLOATY_OUTPUT=$(mktemp)
-
-# Cleanup temporary files on exit
-cleanup() {
-    rm -f "$BLOATY_OUTPUT"
-}
-trap cleanup EXIT
-
-echo "Running Bloaty analysis..."
-
-# Run Bloaty once to get all information: sections, symbols, and segments
-bloaty --csv -d sections,symbols,segments "$ELF_PATH" > "$BLOATY_OUTPUT" || {
-    echo "Error: Bloaty analysis failed"
-    exit 1
-}
-
-echo "Bloaty analysis completed successfully"
+echo "Starting direct ELF analysis..."
 
 # Get script directory for relative imports
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -92,7 +63,6 @@ REPORT_JSON=$(mktemp)
 python3 "$SCRIPT_DIR/memory_report.py" \
     --elf-path "$ELF_PATH" \
     --ld-scripts $LD_SCRIPTS \
-    --bloaty-output "$BLOATY_OUTPUT" \
     --output "$REPORT_JSON" || {
     echo "Error: Failed to generate memory report"
     exit 1
