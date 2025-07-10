@@ -87,6 +87,8 @@ class ELFAnalyzer:
     def __init__(self, elf_path: str):
         self.elf_path = Path(elf_path)
         self._validate_elf_file()
+        self._source_file_mapping = {}  # Address/symbol name -> source file mapping
+        self._build_source_file_mapping()
     
     def _validate_elf_file(self) -> None:
         """Validate that the ELF file exists and is readable"""
@@ -95,6 +97,98 @@ class ELFAnalyzer:
         
         if not os.access(self.elf_path, os.R_OK):
             raise ELFAnalysisError(f"Cannot read ELF file: {self.elf_path}")
+    
+    def _build_source_file_mapping(self) -> None:
+        """Build mapping from symbols/addresses to source files using DWARF debug info"""
+        try:
+            with open(self.elf_path, 'rb') as f:
+                elffile = ELFFile(f)
+                
+                if not elffile.has_dwarf_info():
+                    return  # No debug info available
+                
+                dwarfinfo = elffile.get_dwarf_info()
+                
+                # Iterate through all compilation units
+                for cu in dwarfinfo.iter_CUs():
+                    # Get the file table for this compilation unit
+                    file_entries = self._get_file_entries(dwarfinfo, cu)
+                    
+                    # Iterate through all DIEs (Debug Information Entries) in this CU
+                    for die in cu.iter_DIEs():
+                        self._process_die_for_source_mapping(die, file_entries)
+                        
+        except (IOError, OSError, ELFError, Exception):
+            # If DWARF parsing fails, continue without source file info
+            pass
+    
+    def _get_file_entries(self, dwarfinfo, cu) -> Dict[int, str]:
+        """Extract file entries from the line program"""
+        file_entries = {}
+        
+        try:
+            # Get line program for this compilation unit
+            line_program = dwarfinfo.line_program_for_CU(cu)
+            if line_program is None:
+                return file_entries
+            
+            # Build file index to filename mapping
+            for i, file_entry in enumerate(line_program.header.file_entry):
+                if hasattr(file_entry, 'name'):
+                    filename = file_entry.name.decode('utf-8') if isinstance(file_entry.name, bytes) else str(file_entry.name)
+                    file_entries[i + 1] = filename  # DWARF file indices start at 1
+                    
+        except (AttributeError, Exception):
+            # Handle different pyelftools versions or missing line program
+            pass
+            
+        return file_entries
+    
+    def _process_die_for_source_mapping(self, die, file_entries: Dict[int, str]) -> None:
+        """Process a DIE to extract source file information"""
+        if not die.attributes:
+            return
+            
+        # Look for relevant DIEs that have both name and file information
+        die_name = None
+        source_file = None
+        die_address = None
+        
+        # Extract relevant attributes
+        for attr_name, attr in die.attributes.items():
+            if attr_name == 'DW_AT_name':
+                if hasattr(attr, 'value'):
+                    die_name = self._extract_string_value(attr.value)
+            elif attr_name == 'DW_AT_decl_file':
+                if hasattr(attr, 'value') and attr.value in file_entries:
+                    source_file = file_entries[attr.value]
+            elif attr_name in ['DW_AT_low_pc', 'DW_AT_location']:
+                if hasattr(attr, 'value'):
+                    try:
+                        die_address = int(attr.value)
+                    except (ValueError, TypeError):
+                        pass
+        
+        # Store the mapping if we have useful information
+        if die_name and source_file:
+            # Map by symbol name
+            self._source_file_mapping[die_name] = source_file
+            
+            # Also map by address if available
+            if die_address is not None:
+                self._source_file_mapping[die_address] = source_file
+    
+    def _extract_string_value(self, value) -> Optional[str]:
+        """Extract string value from DWARF attribute"""
+        try:
+            if isinstance(value, bytes):
+                return value.decode('utf-8', errors='ignore')
+            elif isinstance(value, str):
+                return value
+            else:
+                return str(value)
+        except (UnicodeDecodeError, Exception):
+            return None
     
     def get_metadata(self) -> ELFMetadata:
         """Extract ELF metadata"""
@@ -185,7 +279,7 @@ class ELFAnalyzer:
                             type=self._get_symbol_type(symbol['st_info']['type']),
                             binding=self._get_symbol_binding(symbol['st_info']['bind']),
                             section=section_name,
-                            source_file=self._extract_source_file(symbol.name),
+                            source_file=self._extract_source_file(symbol.name, symbol['st_value']),
                             visibility=""  # Could be extracted if needed
                         ))
                         
@@ -322,11 +416,21 @@ class ELFAnalyzer:
             flag_str += "X"
         return flag_str or "---"
     
-    def _extract_source_file(self, symbol_name: str) -> str:
-        """Extract source file from symbol name"""
-        # For now, return the base filename of the ELF
-        # Could be enhanced to extract from debug info
-        return self.elf_path.stem + '.c'
+    def _extract_source_file(self, symbol_name: str, symbol_address: int = None) -> str:
+        """Extract source file from symbol name using DWARF debug information"""
+        # Try to find source file by symbol name first
+        if symbol_name in self._source_file_mapping:
+            source_file = self._source_file_mapping[symbol_name]
+            # Extract just the filename without path for cleaner output
+            return os.path.basename(source_file)
+        
+        # Try to find source file by address
+        if symbol_address is not None and symbol_address in self._source_file_mapping:
+            source_file = self._source_file_mapping[symbol_address]
+            return os.path.basename(source_file)
+        
+        # No source file information found
+        return ""
 
 
 class MemoryMapper:
