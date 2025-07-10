@@ -31,8 +31,8 @@ if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
 elif [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
     # For push events, use the pushed commit
     COMMIT_SHA="$GITHUB_SHA"
-    # Get the merge base with main branch
-    BASE_SHA=$(git merge-base origin/main "$COMMIT_SHA" 2>/dev/null || echo "")
+    # For push events, use the before commit as base
+    BASE_SHA=$(jq -r '.before' "$GITHUB_EVENT_PATH")
     BRANCH_NAME="$GITHUB_REF_NAME"
     
     echo "Push event detected"

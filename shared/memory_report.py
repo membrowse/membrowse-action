@@ -467,6 +467,7 @@ class CLIHandler:
 Examples:
   %(prog)s --elf-path firmware.elf --ld-scripts linker.ld --output report.json
   %(prog)s --elf-path app.elf --ld-scripts mem.ld flash.ld --output memory.json
+  %(prog)s --elf-path test.elf --ld-scripts system.ld --output analysis.json
             """
         )
         
@@ -485,10 +486,6 @@ Examples:
             '--output', 
             required=True, 
             help='Output JSON file path'
-        )
-        parser.add_argument(
-            '--bloaty-output', 
-            help='Unused parameter (kept for legacy compatibility)'
         )
         
         return parser

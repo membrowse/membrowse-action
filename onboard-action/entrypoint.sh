@@ -62,13 +62,11 @@ while IFS= read -r commit; do
         continue
     fi
     
-    # Get commit timestamp and message for better reporting
-    COMMIT_DATE=$(git show -s --format=%ci "$commit")
-    COMMIT_MSG=$(git show -s --format=%s "$commit")
+    # Get parent commit SHA for base comparison
+    BASE_SHA=$(git rev-parse "$commit~1" 2>/dev/null || echo "")
     
     echo "Generating memory report for commit $commit..."
-    echo "Commit date: $COMMIT_DATE"
-    echo "Commit message: $COMMIT_MSG"
+    echo "Base commit: $BASE_SHA"
     
     # Run the modular memory collection script
     if bash "$SHARED_DIR/collect_report.sh" \
@@ -77,7 +75,7 @@ while IFS= read -r commit; do
         "$TARGET_NAME" \
         "$API_KEY" \
         "$commit" \
-        "" \
+        "$BASE_SHA" \
         "$CURRENT_BRANCH" \
         "$REPO_NAME"; then
         echo "Memory report generated successfully for commit $commit"
