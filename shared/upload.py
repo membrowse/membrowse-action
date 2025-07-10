@@ -117,16 +117,13 @@ Examples:
         if args.print_report:
             print(json.dumps(enriched_report, indent=2))
         
-        # Upload if API key is provided
-        if args.api_key:
+        if args.api_key and args.api_endpoint:
             uploader = MemBrowseUploader(args.api_key, args.api_endpoint)
             success = uploader.upload_report(enriched_report)
             if not success:
                 sys.exit(1)
         else:
             print("No API key provided, skipping upload", file=sys.stderr)
-        
-        
         
     except FileNotFoundError as e:
         print(f"Error: Base report file not found: {args.base_report}", file=sys.stderr)

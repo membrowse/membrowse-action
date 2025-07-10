@@ -228,18 +228,20 @@ LOAD,256,1280
         if not self.elf_file.exists():
             self.test_02_compile_test_program()
         
-        if not hasattr(self, 'bloaty_sections'):
-            self.test_04_generate_bloaty_data()
+        # No longer need bloaty data
+        
+        # Parse memory regions first
+        try:
+            from memory_regions import parse_linker_scripts
+            memory_regions_data = parse_linker_scripts([str(self.ld_file)])
+        except Exception as e:
+            self.fail(f"Failed to parse memory regions: {e}")
         
         # Generate memory report
-        generator = MemoryReportGenerator(str(self.elf_file), [str(self.ld_file)])
+        generator = MemoryReportGenerator(str(self.elf_file), memory_regions_data)
         
         try:
-            report = generator.generate_report(
-                str(self.bloaty_sections),
-                str(self.bloaty_symbols),
-                str(self.bloaty_segments)
-            )
+            report = generator.generate_report()
         except Exception as e:
             self.fail(f"Failed to generate memory report: {e}")
         

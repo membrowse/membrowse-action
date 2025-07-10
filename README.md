@@ -98,27 +98,30 @@ jobs:
 
 ## Requirements
 
-- **Linux or macOS runners**: Windows is not supported due to Google Bloaty dependency
-- **Python 3.11**: Automatically installed by the actions
-- **Google Bloaty**: Automatically installed via Homebrew
+- **GitHub Actions runners**: Linux, macOS, and Windows are all supported
+- **Python 3.11+**: Automatically installed by the actions
+- **Dependencies**: pyelftools and requests (automatically installed via requirements.txt)
 - **Git history**: Full git history is fetched automatically for historical analysis
 
 ## Features
 
-- **Memory Analysis**: Uses Google Bloaty and custom ELF parsing to analyze memory usage
-- **Linker Script Parsing**: Parses linker scripts to understand memory layout
+- **ELF Analysis**: Direct parsing of ELF files using pyelftools for comprehensive memory analysis
+- **DWARF Debug Info**: Extracts source file information from DWARF debug symbols
+- **Linker Script Parsing**: Advanced parsing of GNU LD linker scripts to understand memory layout
 - **Architecture Detection**: Automatically detects target architecture from ELF files
-- **JSON Reports**: Generates structured JSON reports with memory usage data
+- **Memory Mapping**: Maps ELF sections to memory regions based on addresses and types
+- **JSON Reports**: Generates structured JSON reports with detailed memory usage data
 - **MemBrowse Integration**: Uploads reports to MemBrowse SaaS platform (optional)
 
 ## Output
 
 Both actions generate JSON reports containing:
-- Memory region usage (RAM, Flash, etc.)
-- Section-level memory breakdown
-- Symbol-level memory usage
-- Commit metadata and timestamps
-- Target architecture information
+- **Memory region usage**: RAM, Flash, and other regions with utilization percentages
+- **Section-level breakdown**: ELF sections mapped to memory regions
+- **Symbol-level analysis**: Individual symbols with sizes, types, and source files
+- **DWARF debug information**: Source file mappings when debug symbols are present
+- **Commit metadata**: SHA, message, timestamp, and branch information
+- **Target architecture**: Detected from ELF headers (ARM, x86, RISC-V, etc.)
 
 ## Testing
 

@@ -17,7 +17,7 @@ from typing import Dict, Any, List
 # Add shared directory to path so we can import our modules
 sys.path.insert(0, str(Path(__file__).parent.parent / 'shared'))
 
-from memory_regions import parse_linker_scripts, validate_memory_regions, get_region_summary
+from memory_regions import parse_linker_scripts, validate_memory_regions
 
 
 class TestRealWorldLinkerScripts(unittest.TestCase):
@@ -26,7 +26,7 @@ class TestRealWorldLinkerScripts(unittest.TestCase):
     def setUp(self):
         """Set up test environment"""
         # Path to MicroPython project and metadata
-        self.micropython_root = Path.home() / "projs" / "membudget" / "micropython"
+        self.micropython_root = Path("../micropython")
         self.metadata_file = self.micropython_root / "linker_metadata.json"
         
         # Load expected metadata
@@ -205,11 +205,12 @@ class TestRealWorldLinkerScripts(unittest.TestCase):
                 
                 # Print summary for detailed analysis
                 if parsed_regions:
-                    summary = get_region_summary(parsed_regions)
                     print(f"  Summary:")
-                    for line in summary.split('\n')[1:]:  # Skip the header
-                        if line.strip():
-                            print(f"    {line}")
+                    for name, region in parsed_regions.items():
+                        size_kb = region["total_size"] / 1024
+                        print(f"    {name:12} ({region['type']:8}): "
+                              f"0x{region['start_address']:08x} - 0x{region['end_address']:08x} "
+                              f"({size_kb:8.1f} KB)")
             
             # For unit test assertions, be strict but allow minor ESP32 edge cases
             if not partially_matched and expected_regions:
@@ -344,7 +345,7 @@ def create_test_report(metadata_file: Path) -> None:
 
 if __name__ == '__main__':
     # Check if MicroPython project exists
-    metadata_file = Path.home() / "projs" / "membudget" / "micropython" / "linker_metadata.json"
+    metadata_file = ".." / "micropython" / "linker_metadata.json"
     
     if not metadata_file.exists():
         print(f"ERROR: Metadata file not found: {metadata_file}")

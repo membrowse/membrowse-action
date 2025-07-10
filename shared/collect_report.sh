@@ -18,6 +18,8 @@ BASE_SHA="${6:-}"
 BRANCH_NAME="${7:-}"
 REPO_NAME="${8:-}"
 
+MEMBROWSE_API_URL="https://membrowse.com/api/upload"
+
 # Validate required arguments
 if [[ -z "$ELF_PATH" ]]; then
     echo "Error: ELF file path is required"
