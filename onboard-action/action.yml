@@ -30,6 +30,11 @@ runs:
       with:
         python-version: '3.11'
     
+    - name: Install Python dependencies
+      shell: bash
+      run: |
+        pip install -r ${{ github.action_path }}/requirements.txt
+    
     - name: Install Google Bloaty
       shell: bash
       run: |
