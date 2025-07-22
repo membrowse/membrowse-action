@@ -93,15 +93,18 @@ Examples:
     args = parser.parse_args()
     
     try:
-        # Create metadata structure expected by upload API
+        # Create metadata structure with nested git info for database
         metadata = {
-            'commit_sha': args.commit_sha,
-            'commit_message': args.commit_message,
-            'target_name': args.target_name,
-            'timestamp': args.timestamp,
-            'base_sha': args.base_sha,
-            'branch_name': args.branch_name,
+            'git': {
+                'commit_hash': args.commit_sha,
+                'commit_message': args.commit_message,
+                'commit_timestamp': args.timestamp,
+                'base_commit_hash': args.base_sha,
+                'branch_name': args.branch_name,
+                'pull_request_name': None  # Can be populated later if needed
+            },
             'repository': args.repository,
+            'target_name': args.target_name,
             'analysis_version': args.analysis_version
         }
         
