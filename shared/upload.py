@@ -93,15 +93,15 @@ Examples:
     args = parser.parse_args()
     
     try:
-        # Create metadata
+        # Create metadata structure expected by upload API
         metadata = {
             'commit_sha': args.commit_sha,
             'commit_message': args.commit_message,
+            'target_name': args.target_name,
+            'timestamp': args.timestamp,
             'base_sha': args.base_sha,
             'branch_name': args.branch_name,
             'repository': args.repository,
-            'target_name': args.target_name,
-            'timestamp': args.timestamp,
             'analysis_version': args.analysis_version
         }
         
