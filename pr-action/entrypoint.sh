@@ -23,17 +23,20 @@ if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
     COMMIT_SHA="$GITHUB_SHA"
     BASE_SHA=$(jq -r '.pull_request.base.sha' "$GITHUB_EVENT_PATH")
     BRANCH_NAME=$(jq -r '.pull_request.head.ref' "$GITHUB_EVENT_PATH")
+    PR_NUMBER=$(jq -r '.pull_request.number' "$GITHUB_EVENT_PATH")
     
     echo "Pull request event detected"
     echo "Head commit: $COMMIT_SHA"
     echo "Base commit: $BASE_SHA"
     echo "Branch: $BRANCH_NAME"
+    echo "PR number: $PR_NUMBER"
 elif [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
     # For push events, use the pushed commit
     COMMIT_SHA="$GITHUB_SHA"
     # For push events, use the before commit as base
     BASE_SHA=$(jq -r '.before' "$GITHUB_EVENT_PATH")
     BRANCH_NAME="$GITHUB_REF_NAME"
+    PR_NUMBER=""
     
     echo "Push event detected"
     echo "Commit: $COMMIT_SHA"
@@ -57,6 +60,7 @@ bash "$SHARED_DIR/collect_report.sh" \
     "$COMMIT_SHA" \
     "$BASE_SHA" \
     "$BRANCH_NAME" \
-    "$REPO_NAME"
+    "$REPO_NAME" \
+    "$PR_NUMBER"
 
 echo "Memory analysis completed successfully"

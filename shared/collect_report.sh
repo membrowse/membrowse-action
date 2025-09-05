@@ -17,6 +17,7 @@ COMMIT_SHA="${5:-}"
 BASE_SHA="${6:-}"
 BRANCH_NAME="${7:-}"
 REPO_NAME="${8:-}"
+PR_NUMBER="${9:-}"
 
 MEMBROWSE_API_URL="https://membrowse.uc.r.appspot.com/api/upload"
 
@@ -109,6 +110,10 @@ UPLOAD_ARGS=(
     "--target-name" "$TARGET_NAME"
     "--print-report"
 )
+
+if [[ -n "$PR_NUMBER" ]]; then
+    UPLOAD_ARGS+=("--pr-number" "$PR_NUMBER")
+fi
 
 if [[ -n "$API_KEY" ]]; then
     UPLOAD_ARGS+=("--api-key" "$API_KEY")

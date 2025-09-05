@@ -8,7 +8,6 @@ to intelligently handle different linker script syntaxes and parsing strategies.
 """
 
 import logging
-from pathlib import Path
 from enum import Enum
 from dataclasses import dataclass
 from typing import Optional, Dict, Any
@@ -22,7 +21,7 @@ logger = logging.getLogger(__name__)
 class Architecture(Enum):
     """Supported architectures"""
     ARM = "ARM"
-    XTENSA = "Xtensa" 
+    XTENSA = "Xtensa"
     RISC_V = "RISC-V"
     X86 = "x86"
     X86_64 = "x86-64"
@@ -59,12 +58,10 @@ class ELFInfo:
 
 class ELFParseError(Exception):
     """Exception raised when ELF parsing fails"""
-    pass
 
 
 class ELFParser:
     """Parser for ELF file headers to extract architecture information"""
-    
     # ELF machine type constants mapped to pyelftools constants
     MACHINE_TYPES = {
         'EM_NONE': Architecture.UNKNOWN,
@@ -81,35 +78,31 @@ class ELFParser:
         'EM_AARCH64': Architecture.AARCH64,
         'EM_RISCV': Architecture.RISC_V,
     }
-    
     @classmethod
     def parse_elf_file(cls, elf_path: str) -> Optional[ELFInfo]:
         """Parse ELF file and extract architecture information
-        
+
         Args:
             elf_path: Path to ELF file
-            
+
         Returns:
             ELFInfo object with architecture details, or None if parsing fails
         """
         try:
             with open(elf_path, 'rb') as f:
                 elffile = ELFFile(f)
-                
+
                 # Get machine type using pyelftools
                 e_machine = elffile.header['e_machine']
                 architecture = cls.MACHINE_TYPES.get(e_machine, Architecture.UNKNOWN)
-                
+
                 # Get bit width and endianness
                 bit_width = elffile.elfclass
                 endianness = elffile.little_endian
-                
-                # Get entry point
-                entry_point = elffile.header['e_entry']
-                
+
                 # Determine platform based on architecture and path hints
                 platform = cls._detect_platform(architecture, elf_path)
-                
+
                 return ELFInfo(
                     architecture=architecture,
                     platform=platform,
@@ -118,59 +111,51 @@ class ELFParser:
                     machine_type=elffile.header['e_machine'],
                     is_embedded=cls._is_embedded_platform(platform)
                 )
-                
         except (IOError, OSError) as e:
             logger.warning("Could not read ELF file %s: %s", elf_path, e)
             return None
         except (ELFError, ValueError) as e:
             logger.warning("Error parsing ELF file %s: %s", elf_path, e)
             return None
-    
-    
     @classmethod
     def _detect_platform(cls, architecture: Architecture, elf_path: str) -> Platform:
         """Detect specific platform based on architecture and path hints"""
         path_lower = elf_path.lower()
-        
+
         # Use path hints to determine specific platform
         if architecture == Architecture.XTENSA:
             if 'esp32' in path_lower:
                 return Platform.ESP32
-            elif 'esp8266' in path_lower:
+            if 'esp8266' in path_lower:
                 return Platform.ESP8266
-            else:
-                return Platform.ESP32  # Default for Xtensa
-                
-        elif architecture == Architecture.ARM:
+            return Platform.ESP32  # Default for Xtensa
+
+        if architecture == Architecture.ARM:
             if 'stm32' in path_lower:
                 return Platform.STM32
-            elif 'nrf' in path_lower or 'nordic' in path_lower:
+            if 'nrf' in path_lower or 'nordic' in path_lower:
                 return Platform.NRF
-            elif 'samd' in path_lower:
+            if 'samd' in path_lower:
                 return Platform.SAMD
-            elif 'mimxrt' in path_lower or 'imxrt' in path_lower:
+            if 'mimxrt' in path_lower or 'imxrt' in path_lower:
                 return Platform.MIMXRT
-            elif 'renesas' in path_lower or 'ra' in path_lower:
+            if 'renesas' in path_lower or 'ra' in path_lower:
                 return Platform.RENESAS
-            elif 'rp2' in path_lower or 'pico' in path_lower:
+            if 'rp2' in path_lower or 'pico' in path_lower:
                 return Platform.RP2
-            elif 'bare-arm' in path_lower:
+            if 'bare-arm' in path_lower:
                 return Platform.STM32  # bare-arm typically uses STM32-style
-            else:
-                return Platform.STM32  # Default for ARM embedded
-                
-        elif architecture == Architecture.RISC_V:
+            return Platform.STM32  # Default for ARM embedded
+
+        if architecture == Architecture.RISC_V:
             if 'qemu' in path_lower:
                 return Platform.QEMU
-            else:
-                return Platform.QEMU  # Default for RISC-V
-                
-        elif architecture in (Architecture.X86, Architecture.X86_64):
+            return Platform.QEMU  # Default for RISC-V
+
+        if architecture in (Architecture.X86, Architecture.X86_64):
             return Platform.UNIX
-            
-        else:
-            return Platform.UNKNOWN
-    
+
+        return Platform.UNKNOWN
     @classmethod
     def _is_embedded_platform(cls, platform: Platform) -> bool:
         """Determine if platform is embedded (vs desktop/server)"""
@@ -184,10 +169,10 @@ class ELFParser:
 
 def get_architecture_info(elf_path: str) -> Optional[ELFInfo]:
     """Convenience function to get architecture info from ELF file
-    
+
     Args:
         elf_path: Path to ELF file
-        
+
     Returns:
         ELFInfo object or None if parsing fails
     """
@@ -196,10 +181,10 @@ def get_architecture_info(elf_path: str) -> Optional[ELFInfo]:
 
 def get_linker_parsing_strategy(elf_info: ELFInfo) -> Dict[str, Any]:
     """Get parsing strategy parameters based on architecture
-    
+
     Args:
         elf_info: ELF architecture information
-        
+
     Returns:
         Dictionary with parsing strategy parameters
     """
@@ -211,7 +196,7 @@ def get_linker_parsing_strategy(elf_info: ELFInfo) -> Dict[str, Any]:
         'hierarchical_validation': True,
         'default_variables': {}
     }
-    
+
     if elf_info.platform == Platform.ESP32:
         strategy.update({
             'memory_block_patterns': ['standard', 'esp_style'],
@@ -273,5 +258,4 @@ def get_linker_parsing_strategy(elf_info: ELFInfo) -> Dict[str, Any]:
                 'RAM_SIZE': 0x200000,  # 2MB
             }
         })
-    
     return strategy
