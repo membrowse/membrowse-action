@@ -11,29 +11,28 @@ This test suite covers:
 5. Real-world linker script examples
 """
 
-import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-# Add shared directory to path so we can import our modules
-sys.path.insert(0, str(Path(__file__).parent.parent / 'shared'))
-
 from memory_regions import (
-    parse_linker_scripts, 
+    parse_linker_scripts,
     validate_memory_regions
 )
+
+# Add shared directory to path so we can import our modules
+sys.path.insert(0, str(Path(__file__).parent.parent / 'shared'))
 
 
 class TestMemoryRegions(unittest.TestCase):
     """Test cases for memory regions parsing functionality"""
-    
+
     def setUp(self):
         """Set up test environment"""
         self.temp_dir = Path(tempfile.mkdtemp())
         self.test_files = []
-    
+
     def tearDown(self):
         """Clean up test files"""
         for file_path in self.test_files:
@@ -41,19 +40,19 @@ class TestMemoryRegions(unittest.TestCase):
                 file_path.unlink()
         if self.temp_dir.exists():
             self.temp_dir.rmdir()
-    
+
     def create_test_file(self, content: str, filename: str = None) -> Path:
         """Create a temporary test file with given content"""
         if filename is None:
             filename = f"test_{len(self.test_files)}.ld"
-        
+
         file_path = self.temp_dir / filename
-        with open(file_path, 'w') as f:
+        with open(file_path, 'w', encoding='utf-8') as f:
             f.write(content)
-        
+
         self.test_files.append(file_path)
         return file_path
-    
+
     def test_basic_memory_regions(self):
         """Test parsing of basic memory regions"""
         content = '''
@@ -63,28 +62,28 @@ class TestMemoryRegions(unittest.TestCase):
             RAM (rw)   : ORIGIN = 0x20000000, LENGTH = 128K
         }
         '''
-        
+
         file_path = self.create_test_file(content)
         regions = parse_linker_scripts([str(file_path)])
-        
+
         self.assertEqual(len(regions), 2)
-        
+
         # Test FLASH region
         self.assertIn('FLASH', regions)
         flash = regions['FLASH']
-        self.assertEqual(flash['start_address'], 0x08000000)
-        self.assertEqual(flash['total_size'], 512 * 1024)
+        self.assertEqual(flash['address'], 0x08000000)
+        self.assertEqual(flash['limit_size'], 512 * 1024)
         self.assertEqual(flash['type'], 'FLASH')
         self.assertEqual(flash['attributes'], 'rx')
-        
+
         # Test RAM region
         self.assertIn('RAM', regions)
         ram = regions['RAM']
-        self.assertEqual(ram['start_address'], 0x20000000)
-        self.assertEqual(ram['total_size'], 128 * 1024)
+        self.assertEqual(ram['address'], 0x20000000)
+        self.assertEqual(ram['limit_size'], 128 * 1024)
         self.assertEqual(ram['type'], 'RAM')
         self.assertEqual(ram['attributes'], 'rw')
-    
+
     def test_different_number_formats(self):
         """Test parsing of different number formats"""
         content = '''
@@ -96,28 +95,28 @@ class TestMemoryRegions(unittest.TestCase):
             OCTAL (rw)     : ORIGIN = 01000000000, LENGTH = 0200000
         }
         '''
-        
+
         file_path = self.create_test_file(content)
         regions = parse_linker_scripts([str(file_path)])
-        
+
         self.assertEqual(len(regions), 4)
-        
+
         # Test hex upper case
-        self.assertEqual(regions['HEX_UPPER']['start_address'], 0x08000000)
-        self.assertEqual(regions['HEX_UPPER']['total_size'], 0x80000)
-        
+        self.assertEqual(regions['HEX_UPPER']['address'], 0x08000000)
+        self.assertEqual(regions['HEX_UPPER']['limit_size'], 0x80000)
+
         # Test hex lower case
-        self.assertEqual(regions['HEX_LOWER']['start_address'], 0x10000000)
-        self.assertEqual(regions['HEX_LOWER']['total_size'], 0x40000)
-        
+        self.assertEqual(regions['HEX_LOWER']['address'], 0x10000000)
+        self.assertEqual(regions['HEX_LOWER']['limit_size'], 0x40000)
+
         # Test decimal
-        self.assertEqual(regions['DECIMAL']['start_address'], 134217728)
-        self.assertEqual(regions['DECIMAL']['total_size'], 65536)
-        
+        self.assertEqual(regions['DECIMAL']['address'], 134217728)
+        self.assertEqual(regions['DECIMAL']['limit_size'], 65536)
+
         # Test octal
-        self.assertEqual(regions['OCTAL']['start_address'], 0o1000000000)
-        self.assertEqual(regions['OCTAL']['total_size'], 0o200000)
-    
+        self.assertEqual(regions['OCTAL']['address'], 0o1000000000)
+        self.assertEqual(regions['OCTAL']['limit_size'], 0o200000)
+
     def test_size_suffixes(self):
         """Test parsing of size suffixes (K, M, G, KB, MB, GB)"""
         content = '''
@@ -131,24 +130,24 @@ class TestMemoryRegions(unittest.TestCase):
             BIG_GB (rw)   : ORIGIN = 0x80000000, LENGTH = 2GB
         }
         '''
-        
+
         file_path = self.create_test_file(content)
         regions = parse_linker_scripts([str(file_path)])
-        
+
         self.assertEqual(len(regions), 6)
-        
+
         # Test K and KB
-        self.assertEqual(regions['FLASH_K']['total_size'], 512 * 1024)
-        self.assertEqual(regions['FLASH_KB']['total_size'], 256 * 1024)
-        
+        self.assertEqual(regions['FLASH_K']['limit_size'], 512 * 1024)
+        self.assertEqual(regions['FLASH_KB']['limit_size'], 256 * 1024)
+
         # Test M and MB
-        self.assertEqual(regions['RAM_M']['total_size'], 1024 * 1024)
-        self.assertEqual(regions['RAM_MB']['total_size'], 2 * 1024 * 1024)
-        
+        self.assertEqual(regions['RAM_M']['limit_size'], 1024 * 1024)
+        self.assertEqual(regions['RAM_MB']['limit_size'], 2 * 1024 * 1024)
+
         # Test G and GB
-        self.assertEqual(regions['BIG_G']['total_size'], 1024 * 1024 * 1024)
-        self.assertEqual(regions['BIG_GB']['total_size'], 2 * 1024 * 1024 * 1024)
-    
+        self.assertEqual(regions['BIG_G']['limit_size'], 1024 * 1024 * 1024)
+        self.assertEqual(regions['BIG_GB']['limit_size'], 2 * 1024 * 1024 * 1024)
+
     def test_whitespace_and_formatting(self):
         """Test parsing with various whitespace and formatting styles"""
         content = '''
@@ -167,12 +166,12 @@ class TestMemoryRegions(unittest.TestCase):
             CCMRAM (rw) : ORIGIN = 0x10000000, LENGTH = 64K // Another comment
         }
         '''
-        
+
         file_path = self.create_test_file(content)
         regions = parse_linker_scripts([str(file_path)])
-        
+
         self.assertEqual(len(regions), 4)
-        
+
         # All regions should be parsed correctly despite formatting differences
         expected_regions = {
             'FLASH': (0x08000000, 512 * 1024, 'rx'),
@@ -180,13 +179,13 @@ class TestMemoryRegions(unittest.TestCase):
             'SRAM2': (0x20020000, 32 * 1024, 'rwx'),
             'CCMRAM': (0x10000000, 64 * 1024, 'rw')
         }
-        
+
         for name, (expected_addr, expected_size, expected_attrs) in expected_regions.items():
             self.assertIn(name, regions)
-            self.assertEqual(regions[name]['start_address'], expected_addr)
-            self.assertEqual(regions[name]['total_size'], expected_size)
+            self.assertEqual(regions[name]['address'], expected_addr)
+            self.assertEqual(regions[name]['limit_size'], expected_size)
             self.assertEqual(regions[name]['attributes'], expected_attrs)
-    
+
     def test_region_type_detection(self):
         """Test memory region type detection based on names and attributes"""
         content = '''
@@ -202,10 +201,10 @@ class TestMemoryRegions(unittest.TestCase):
             UNKNOWN (x)    : ORIGIN = 0x50000000, LENGTH = 1K
         }
         '''
-        
+
         file_path = self.create_test_file(content)
         regions = parse_linker_scripts([str(file_path)])
-        
+
         # Test type detection
         self.assertEqual(regions['FLASH']['type'], 'FLASH')
         self.assertEqual(regions['ROM']['type'], 'FLASH')  # ROM in name -> FLASH type
@@ -215,7 +214,7 @@ class TestMemoryRegions(unittest.TestCase):
         self.assertEqual(regions['CCM']['type'], 'CCM')
         self.assertEqual(regions['BACKUP']['type'], 'BACKUP')
         self.assertEqual(regions['UNKNOWN']['type'], 'ROM')  # x but not w -> ROM
-    
+
     def test_multiple_files(self):
         """Test parsing multiple linker script files"""
         content1 = '''
@@ -225,7 +224,7 @@ class TestMemoryRegions(unittest.TestCase):
             RAM (rw)   : ORIGIN = 0x20000000, LENGTH = 128K
         }
         '''
-        
+
         content2 = '''
         MEMORY
         {
@@ -233,19 +232,19 @@ class TestMemoryRegions(unittest.TestCase):
             CCMRAM (rw) : ORIGIN = 0x10000000, LENGTH = 64K
         }
         '''
-        
+
         file1 = self.create_test_file(content1, "memory1.ld")
         file2 = self.create_test_file(content2, "memory2.ld")
-        
+
         regions = parse_linker_scripts([str(file1), str(file2)])
-        
+
         # Should have regions from both files
         self.assertEqual(len(regions), 4)
         self.assertIn('FLASH', regions)
         self.assertIn('RAM', regions)
         self.assertIn('SRAM2', regions)
         self.assertIn('CCMRAM', regions)
-    
+
     def test_no_memory_block(self):
         """Test files without MEMORY blocks"""
         content = '''
@@ -258,13 +257,13 @@ class TestMemoryRegions(unittest.TestCase):
             .data : { *(.data) }
         }
         '''
-        
+
         file_path = self.create_test_file(content)
         regions = parse_linker_scripts([str(file_path)])
-        
+
         # Should return empty dictionary
         self.assertEqual(len(regions), 0)
-    
+
     def test_invalid_syntax(self):
         """Test handling of invalid syntax"""
         content = '''
@@ -275,18 +274,18 @@ class TestMemoryRegions(unittest.TestCase):
             BROKEN     : MISSING_PARTS
         }
         '''
-        
+
         file_path = self.create_test_file(content)
-        
+
         # Should not crash, but may skip invalid entries
         try:
             regions = parse_linker_scripts([str(file_path)])
             # Some regions might be parsed, others skipped
             self.assertIsInstance(regions, dict)
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-exception-caught
             # Should handle gracefully
             self.fail(f"Parser should handle invalid syntax gracefully: {e}")
-    
+
     def test_case_insensitive_memory_keyword(self):
         """Test case-insensitive MEMORY keyword"""
         content = '''
@@ -296,15 +295,15 @@ class TestMemoryRegions(unittest.TestCase):
             RAM (rw)   : ORIGIN = 0x20000000, LENGTH = 128K
         }
         '''
-        
+
         file_path = self.create_test_file(content)
         regions = parse_linker_scripts([str(file_path)])
-        
+
         # Should parse both regions despite case differences
         self.assertEqual(len(regions), 2)
         self.assertIn('FLASH', regions)
         self.assertIn('RAM', regions)
-    
+
     def test_complex_real_world_example(self):
         """Test with a complex real-world linker script example"""
         content = '''
@@ -338,151 +337,157 @@ class TestMemoryRegions(unittest.TestCase):
             .isr_vector : { . = ALIGN(4); } > FLASH
         }
         '''
-        
+
         file_path = self.create_test_file(content)
         regions = parse_linker_scripts([str(file_path)])
-        
+
         self.assertEqual(len(regions), 6)
-        
+
         # Verify specific regions
-        self.assertEqual(regions['FLASH']['start_address'], 0x08000000)
-        self.assertEqual(regions['FLASH']['total_size'], 1024 * 1024)
+        self.assertEqual(regions['FLASH']['address'], 0x08000000)
+        self.assertEqual(regions['FLASH']['limit_size'], 1024 * 1024)
         self.assertEqual(regions['FLASH']['type'], 'FLASH')
-        
-        self.assertEqual(regions['RAM']['start_address'], 0x20000000)
-        self.assertEqual(regions['RAM']['total_size'], 112 * 1024)
+
+        self.assertEqual(regions['RAM']['address'], 0x20000000)
+        self.assertEqual(regions['RAM']['limit_size'], 112 * 1024)
         self.assertEqual(regions['RAM']['type'], 'RAM')
-        
+
         self.assertEqual(regions['CCMRAM']['type'], 'CCM')
         self.assertEqual(regions['BACKUP_SRAM']['type'], 'BACKUP')
-    
+
     def test_validation_function(self):
         """Test the validate_memory_regions function"""
         # Valid regions
         valid_regions = {
             'FLASH': {
                 'type': 'FLASH',
-                'start_address': 0x08000000,
+                'address': 0x08000000,
                 'end_address': 0x0807FFFF,
-                'total_size': 512 * 1024
+                'limit_size': 512 * 1024
             },
             'RAM': {
                 'type': 'RAM',
-                'start_address': 0x20000000,
+                'address': 0x20000000,
                 'end_address': 0x2001FFFF,
-                'total_size': 128 * 1024
+                'limit_size': 128 * 1024
             }
         }
-        
+
         self.assertTrue(validate_memory_regions(valid_regions))
-        
+
         # Empty regions
         self.assertFalse(validate_memory_regions({}))
-        
+
         # Overlapping regions
         overlapping_regions = {
             'FLASH1': {
                 'type': 'FLASH',
-                'start_address': 0x08000000,
+                'address': 0x08000000,
                 'end_address': 0x0807FFFF,
-                'total_size': 512 * 1024
+                'limit_size': 512 * 1024
             },
             'FLASH2': {
                 'type': 'FLASH',
-                'start_address': 0x08040000,  # Overlaps with FLASH1
+                'address': 0x08040000,  # Overlaps with FLASH1
                 'end_address': 0x080BFFFF,
-                'total_size': 512 * 1024
+                'limit_size': 512 * 1024
             }
         }
-        
+
         self.assertFalse(validate_memory_regions(overlapping_regions))
-    
+
     def test_summary_generation(self):
         """Test manual summary generation from regions dict"""
         regions = {
             'FLASH': {
                 'type': 'FLASH',
-                'start_address': 0x08000000,
+                'address': 0x08000000,
                 'end_address': 0x0807FFFF,
-                'total_size': 512 * 1024,
+                'limit_size': 512 * 1024,
                 'attributes': 'rx'
             },
             'RAM': {
                 'type': 'RAM',
-                'start_address': 0x20000000,
+                'address': 0x20000000,
                 'end_address': 0x2001FFFF,
-                'total_size': 128 * 1024,
+                'limit_size': 128 * 1024,
                 'attributes': 'rw'
             }
         }
-        
+
         # Generate summary manually from dict
         summary_lines = []
         for name, region in regions.items():
-            size_kb = region["total_size"] / 1024
-            line = f"{name:12} ({region['type']:8}): 0x{region['start_address']:08x} - 0x{region['end_address']:08x} ({size_kb:8.1f} KB)"
+            size_kb = region["limit_size"] / 1024
+            line = (f"{name:12} ({region['type']:8}): "
+                    f"0x{region['address']:08x} - 0x{region['end_address']:08x} "
+                    f"({size_kb:8.1f} KB)")
             summary_lines.append(line)
-        
+
         summary = "\n".join(summary_lines)
-        
+
         self.assertIn('FLASH', summary)
         self.assertIn('RAM', summary)
         self.assertIn('0x08000000', summary)
         self.assertIn('0x20000000', summary)
         self.assertIn('512.0 KB', summary)
         self.assertIn('128.0 KB', summary)
-    
+
     def test_file_not_found(self):
         """Test handling of non-existent files"""
         with self.assertRaises(FileNotFoundError):
             parse_linker_scripts(['/non/existent/file.ld'])
-    
+
     def test_address_parsing_edge_cases(self):
         """Test edge cases in address parsing"""
+        # pylint: disable=import-outside-toplevel
         from memory_regions import ExpressionEvaluator, MemoryRegionBuilder
-        
+
         evaluator = ExpressionEvaluator()
         builder = MemoryRegionBuilder(evaluator)
-        
+
+        # pylint: disable=protected-access
         # Test various address formats
         self.assertEqual(builder._parse_address('0x1000'), 0x1000)
         self.assertEqual(builder._parse_address('0X2000'), 0x2000)
         self.assertEqual(builder._parse_address('4096'), 4096)
         self.assertEqual(builder._parse_address('010000'), 0o10000)  # Octal
-        
+
         # Test with whitespace
         self.assertEqual(builder._parse_address('  0x1000  '), 0x1000)
-    
+
     def test_size_parsing_edge_cases(self):
         """Test edge cases in size parsing"""
+        # pylint: disable=import-outside-toplevel
         from memory_regions import ExpressionEvaluator, MemoryRegionBuilder
-        
+
         evaluator = ExpressionEvaluator()
         builder = MemoryRegionBuilder(evaluator)
-        
+
+        # pylint: disable=protected-access
         # Test various size formats
         self.assertEqual(builder._parse_size('1024'), 1024)
         self.assertEqual(builder._parse_size('1K'), 1024)
         self.assertEqual(builder._parse_size('1KB'), 1024)
         self.assertEqual(builder._parse_size('2M'), 2 * 1024 * 1024)
         self.assertEqual(builder._parse_size('1G'), 1024 * 1024 * 1024)
-        
+
         # Test hex sizes
         self.assertEqual(builder._parse_size('0x1000'), 0x1000)
         self.assertEqual(builder._parse_size('0X2000'), 0x2000)
-        
+
         # Test with whitespace
         self.assertEqual(builder._parse_size('  512K  '), 512 * 1024)
 
 
 class TestAdvancedLinkerFeatures(unittest.TestCase):
     """Test cases for advanced linker script features that are NOT currently supported"""
-    
+
     def setUp(self):
         """Set up test environment"""
         self.temp_dir = Path(tempfile.mkdtemp())
         self.test_files = []
-    
+
     def tearDown(self):
         """Clean up test files"""
         for file_path in self.test_files:
@@ -490,19 +495,19 @@ class TestAdvancedLinkerFeatures(unittest.TestCase):
                 file_path.unlink()
         if self.temp_dir.exists():
             self.temp_dir.rmdir()
-    
+
     def create_test_file(self, content: str, filename: str = None) -> Path:
         """Create a temporary test file with given content"""
         if filename is None:
             filename = f"test_{len(self.test_files)}.ld"
-        
+
         file_path = self.temp_dir / filename
-        with open(file_path, 'w') as f:
+        with open(file_path, 'w', encoding='utf-8') as f:
             f.write(content)
-        
+
         self.test_files.append(file_path)
         return file_path
-    
+
     def test_variables_now_supported(self):
         """Test that variables are now supported"""
         content = '''
@@ -515,21 +520,21 @@ class TestAdvancedLinkerFeatures(unittest.TestCase):
             RAM (rw)   : ORIGIN = 0x20000000, LENGTH = 128K
         }
         '''
-        
+
         file_path = self.create_test_file(content)
         regions = parse_linker_scripts([str(file_path)])
-        
+
         # Variables should now be supported
         self.assertEqual(len(regions), 2)
         self.assertIn('FLASH', regions)
         self.assertIn('RAM', regions)
-        
+
         # Check that variables were resolved correctly
-        self.assertEqual(regions['FLASH']['start_address'], 0x08000000)
-        self.assertEqual(regions['FLASH']['total_size'], 512 * 1024)
-        self.assertEqual(regions['RAM']['start_address'], 0x20000000)
-        self.assertEqual(regions['RAM']['total_size'], 128 * 1024)
-    
+        self.assertEqual(regions['FLASH']['address'], 0x08000000)
+        self.assertEqual(regions['FLASH']['limit_size'], 512 * 1024)
+        self.assertEqual(regions['RAM']['address'], 0x20000000)
+        self.assertEqual(regions['RAM']['limit_size'], 128 * 1024)
+
     def test_expressions_now_supported(self):
         """Test that basic arithmetic expressions are now supported"""
         content = '''
@@ -540,22 +545,22 @@ class TestAdvancedLinkerFeatures(unittest.TestCase):
             SRAM2 (rw) : ORIGIN = 0x20000000 + 128 * 1024, LENGTH = 32K
         }
         '''
-        
+
         file_path = self.create_test_file(content)
         regions = parse_linker_scripts([str(file_path)])
-        
+
         # Expressions should now be supported
         self.assertEqual(len(regions), 3)
         self.assertIn('FLASH', regions)
         self.assertIn('RAM', regions)
         self.assertIn('SRAM2', regions)
-        
+
         # Check that expressions were evaluated correctly
-        self.assertEqual(regions['FLASH']['start_address'], 0x08000000)
-        self.assertEqual(regions['FLASH']['total_size'], 512 * 1024)
-        self.assertEqual(regions['RAM']['start_address'], 0x20000000 + 0x1000)
-        self.assertEqual(regions['SRAM2']['start_address'], 0x20000000 + 128 * 1024)
-    
+        self.assertEqual(regions['FLASH']['address'], 0x08000000)
+        self.assertEqual(regions['FLASH']['limit_size'], 512 * 1024)
+        self.assertEqual(regions['RAM']['address'], 0x20000000 + 0x1000)
+        self.assertEqual(regions['SRAM2']['address'], 0x20000000 + 128 * 1024)
+
     def test_complex_variables_and_expressions(self):
         """Test complex combinations of variables and expressions"""
         content = '''
@@ -577,24 +582,24 @@ class TestAdvancedLinkerFeatures(unittest.TestCase):
             SRAM2 (rw) : ORIGIN = _sram2_base, LENGTH = 64K
         }
         '''
-        
+
         file_path = self.create_test_file(content)
         regions = parse_linker_scripts([str(file_path)])
-        
+
         self.assertEqual(len(regions), 3)
-        
+
         # Check calculated values
-        self.assertEqual(regions['FLASH']['start_address'], 0x08000000)
-        self.assertEqual(regions['FLASH']['total_size'], 1024 * 1024)
-        self.assertEqual(regions['RAM']['start_address'], 0x20000000)
-        self.assertEqual(regions['RAM']['total_size'], 256 * 1024)
-        self.assertEqual(regions['SRAM2']['start_address'], 0x20000000 + 256 * 1024)
-        self.assertEqual(regions['SRAM2']['total_size'], 64 * 1024)
+        self.assertEqual(regions['FLASH']['address'], 0x08000000)
+        self.assertEqual(regions['FLASH']['limit_size'], 1024 * 1024)
+        self.assertEqual(regions['RAM']['address'], 0x20000000)
+        self.assertEqual(regions['RAM']['limit_size'], 256 * 1024)
+        self.assertEqual(regions['SRAM2']['address'], 0x20000000 + 256 * 1024)
+        self.assertEqual(regions['SRAM2']['limit_size'], 64 * 1024)
 
 
 if __name__ == '__main__':
     print("Memory Regions Test Suite")
     print("=" * 40)
-    
+
     # Run the tests
     unittest.main(verbosity=2)

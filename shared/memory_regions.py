@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# pylint: disable=too-many-lines
 
 """
 memory_regions.py - Refactored modular linker script parser
@@ -28,9 +29,9 @@ from pathlib import Path
 
 # Import ELF parser for architecture detection
 try:
-    from .elf_parser import get_architecture_info, get_linker_parsing_strategy, ELFInfo
+    from .elf_parser import get_architecture_info, get_linker_parsing_strategy
 except ImportError:
-    from elf_parser import get_architecture_info, get_linker_parsing_strategy, ELFInfo
+    from elf_parser import get_architecture_info, get_linker_parsing_strategy
 
 
 # Configure logging
@@ -50,36 +51,30 @@ class RegionType(Enum):
 
 
 @dataclass
-class MemoryRegion:
+class MemoryRegion:  # pylint: disable=too-few-public-methods
     """Memory region data structure"""
 
     name: str
     region_type: RegionType
     attributes: str
-    start_address: int
-    total_size: int
+    address: int
+    limit_size: int
 
     @property
     def end_address(self) -> int:
         """Calculate end address"""
-        return self.start_address + self.total_size - 1
-
-    @property
-    def address(self) -> int:
-        """Alias for start_address for compatibility"""
-        return self.start_address
+        return self.address + self.limit_size - 1
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary format for backward compatibility"""
         return {
             "type": self.region_type.value,
             "attributes": self.attributes,
-            "start_address": self.start_address,
-            "address": self.start_address,  # Duplicate for schema compatibility
+            "address": self.address,
             "end_address": self.end_address,
-            "total_size": self.total_size,
+            "limit_size": self.limit_size,
             "used_size": 0,  # Will be filled by section analysis
-            "free_size": self.total_size,  # Will be updated after section analysis
+            "free_size": self.limit_size,  # Will be updated after section analysis
             "utilization_percent": 0.0,
             "sections": [],
         }
@@ -97,7 +92,7 @@ class RegionParsingError(LinkerScriptError):
     """Exception raised when memory region parsing fails"""
 
 
-class ScriptContentCleaner:
+class ScriptContentCleaner:  # pylint: disable=too-few-public-methods
     """Handles preprocessing and cleanup of linker script content"""
 
     @staticmethod
@@ -167,7 +162,7 @@ class ScriptContentCleaner:
         return "\n".join(filtered_lines)
 
 
-class RegionTypeDetector:
+class RegionTypeDetector:  # pylint: disable=too-few-public-methods
     """Determines memory region types based on names and attributes"""
 
     # Region type patterns (order matters - more specific first)
@@ -213,7 +208,7 @@ class ExpressionEvaluator:
     def set_variables(self, variables: Dict[str, Any]) -> None:
         """Set variables for expression evaluation"""
         self.variables = variables.copy()
-    
+
     def add_variables(self, variables: Dict[str, Any]) -> None:
         """Add variables to existing variables dictionary"""
         self.variables.update(variables)
@@ -268,7 +263,7 @@ class ExpressionEvaluator:
                             resolved_value  # Cache the resolved value
                         )
                         expr = expr.replace(var_name, str(resolved_value))
-                    except Exception:
+                    except Exception:  # pylint: disable=broad-exception-caught
                         if var_name in resolving_vars:
                             resolving_vars.remove(var_name)
                         # Skip unresolvable variables
@@ -334,7 +329,7 @@ class ExpressionEvaluator:
                 cond_result = 0
 
             return true_value if cond_result != 0 else false_value
-        except Exception:
+        except Exception:  # pylint: disable=broad-exception-caught
             # If condition can't be evaluated, use false value for safety
             return false_value
 
@@ -343,7 +338,7 @@ class ExpressionEvaluator:
         region_name = match.group(1).strip()
         # Check if we have this region in our parsed data
         if region_name in self._memory_regions:
-            return str(self._memory_regions[region_name].start_address)
+            return str(self._memory_regions[region_name].address)
         # Check if this is a basic region we can calculate
         if region_name.upper() == "ROM":
             return "0x80000000"  # Default ROM start for QEMU
@@ -354,7 +349,7 @@ class ExpressionEvaluator:
         region_name = match.group(1).strip()
         # Check if we have this region in our parsed data
         if region_name in self._memory_regions:
-            return str(self._memory_regions[region_name].total_size)
+            return str(self._memory_regions[region_name].limit_size)
         # Check for standard sizes
         if region_name.upper() == "ROM":
             return str(4 * 1024 * 1024)  # 4M for QEMU ROM
@@ -376,7 +371,7 @@ class ExpressionEvaluator:
                     # Try to evaluate the inner expression
                     result = self._evaluate_simple_arithmetic(inner_expr)
                     return str(result)
-                except Exception:
+                except Exception:  # pylint: disable=broad-exception-caught
                     # If we can't evaluate, keep the original expression
                     return match.group(0)
 
@@ -529,7 +524,7 @@ class ExpressionEvaluator:
         return re.sub(pattern, replace_suffix, expr, flags=re.IGNORECASE)
 
 
-class VariableExtractor:
+class VariableExtractor:  # pylint: disable=too-few-public-methods
     """Extracts and manages variables from linker scripts"""
 
     def __init__(self, evaluator: ExpressionEvaluator):
@@ -573,7 +568,7 @@ class VariableExtractor:
                 else:
                     # Store complex expressions for later resolution
                     complex_vars[var_name] = var_value
-            except Exception:
+            except Exception:  # pylint: disable=broad-exception-caught
                 # Store as string for potential later resolution
                 complex_vars[var_name] = var_value
 
@@ -596,7 +591,7 @@ class VariableExtractor:
                     self.variables[var_name] = evaluated_value
                     self.evaluator.add_variables({var_name: evaluated_value})
                     resolved_any = True
-                except Exception:
+                except Exception:  # pylint: disable=broad-exception-caught
                     unresolved_vars[var_name] = var_value
 
             complex_vars = unresolved_vars
@@ -662,7 +657,7 @@ class VariableExtractor:
         return False
 
 
-class MemoryRegionBuilder:
+class MemoryRegionBuilder:  # pylint: disable=too-few-public-methods
     """Builds memory region objects from parsed data"""
 
     def __init__(self, evaluator: ExpressionEvaluator):
@@ -724,11 +719,11 @@ class MemoryRegionBuilder:
                 name=name,
                 region_type=region_type,
                 attributes=attributes,
-                start_address=origin,
-                total_size=length,
+                address=origin,
+                limit_size=length,
             )
 
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-exception-caught
             region_name = match.group(1) if match.groups() else 'unknown'
             logger.warning(
                 "Failed to parse memory region %s: %s",
@@ -744,7 +739,7 @@ class MemoryRegionBuilder:
         # arithmetic)
         try:
             return self.evaluator.evaluate_expression(addr_str, set())
-        except Exception:
+        except Exception:  # pylint: disable=broad-exception-caught
             # Fallback to simple parsing
             try:
                 if addr_str.startswith("0x") or addr_str.startswith("0X"):
@@ -768,7 +763,7 @@ class MemoryRegionBuilder:
         # references
         try:
             return self.evaluator.evaluate_expression(size_str, set())
-        except Exception:
+        except Exception:  # pylint: disable=broad-exception-caught
             pass
 
         # If expression evaluation fails, try size suffixes
@@ -794,7 +789,7 @@ class MemoryRegionBuilder:
                         base_int = self.evaluator.evaluate_expression(
                             base_value, set())
                         return base_int * multiplier
-                    except Exception:
+                    except Exception:  # pylint: disable=broad-exception-caught
                         # Fallback to simple parsing
                         return int(base_value) * multiplier
 
@@ -811,12 +806,12 @@ class MemoryRegionBuilder:
             ) from exc
 
 
-class LinkerScriptParser:
+class LinkerScriptParser:  # pylint: disable=too-few-public-methods
     """Main parser orchestrator for linker script files"""
 
     def __init__(self, ld_scripts: List[str], elf_file: Optional[str] = None):
         """Initialize the parser with linker script paths and optional ELF file
-        
+
         Args:
             ld_scripts: List of linker script file paths
             elf_file: Optional path to ELF file for architecture detection
@@ -833,18 +828,18 @@ class LinkerScriptParser:
             self.elf_info = get_architecture_info(self.elf_file)
             if self.elf_info:
                 self.parsing_strategy = get_linker_parsing_strategy(self.elf_info)
-                logger.info("Detected architecture: %s, platform: %s", 
-                           self.elf_info.architecture.value, 
-                           self.elf_info.platform.value)
+                logger.info("Detected architecture: %s, platform: %s",
+                            self.elf_info.architecture.value,
+                            self.elf_info.platform.value)
             else:
-                logger.warning("Could not extract architecture info from ELF file: %s", 
-                              self.elf_file)
+                logger.warning("Could not extract architecture info from ELF file: %s",
+                               self.elf_file)
 
         # Initialize components
         self.evaluator = ExpressionEvaluator()
         self.variable_extractor = VariableExtractor(self.evaluator)
         self.region_builder = MemoryRegionBuilder(self.evaluator)
-        
+
         # Apply architecture-specific default variables
         if self.parsing_strategy.get('default_variables'):
             self.evaluator.add_variables(self.parsing_strategy['default_variables'])
@@ -876,7 +871,7 @@ class LinkerScriptParser:
         # Additional pass: extract variables in forward order for dependencies
         for script_path in self.ld_scripts:
             self.variable_extractor.extract_from_script(script_path)
-        
+
         # Merge extracted variables with existing default variables (preserve architecture defaults)
         self.evaluator.add_variables(self.variable_extractor.variables)
 
@@ -924,7 +919,9 @@ class LinkerScriptParser:
 
 
 # Convenience functions for backward compatibility
-def parse_linker_scripts(ld_scripts: List[str], elf_file: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
+def parse_linker_scripts(
+    ld_scripts: List[str], elf_file: Optional[str] = None
+) -> Dict[str, Dict[str, Any]]:
     """Convenience function to parse memory regions from linker scripts
 
     Args:
@@ -975,8 +972,8 @@ def validate_memory_regions(memory_regions: Dict[str, Dict[str, Any]]) -> bool:
 
             # Check for overlap
             if (
-                region1["start_address"] < region2["end_address"]
-                and region2["start_address"] < region1["end_address"]
+                region1["address"] < region2["end_address"]
+                and region2["address"] < region1["end_address"]
             ):
 
                 # Check if this is a valid hierarchical relationship
@@ -990,7 +987,7 @@ def validate_memory_regions(memory_regions: Dict[str, Dict[str, Any]]) -> bool:
     return not overlaps_found
 
 
-def _is_hierarchical_overlap(
+def _is_hierarchical_overlap(  # pylint: disable=too-many-locals,too-many-return-statements
     name1: str, region1: Dict[str, Any], name2: str, region2: Dict[str, Any]
 ) -> bool:
     """Check if two overlapping regions have a valid hierarchical relationship
@@ -1003,7 +1000,7 @@ def _is_hierarchical_overlap(
         True if this is a valid hierarchical overlap (parent contains child)
     """
     # Determine which region is larger (potential parent)
-    if region1["total_size"] > region2["total_size"]:
+    if region1["limit_size"] > region2["limit_size"]:
         parent_name, parent_region = name1, region1
         child_name, child_region = name2, region2
     else:
@@ -1012,20 +1009,20 @@ def _is_hierarchical_overlap(
 
     # Check if child is fully contained within parent
     child_fully_contained = (
-        child_region["start_address"] >= parent_region["start_address"]
+        child_region["address"] >= parent_region["address"]
         and child_region["end_address"] <= parent_region["end_address"]
     )
 
     # Allow for slight overhang due to linker script calculation errors
     # Check if child starts within parent and doesn't extend too far beyond
-    MAX_OVERHANG_BYTES = (
+    max_overhang_bytes = (
         64 * 1024
     )  # 64KB allowance for linker script calculation errors
     child_mostly_contained = (
-        child_region["start_address"] >= parent_region["start_address"]
-        and child_region["start_address"] <= parent_region["end_address"]
+        child_region["address"] >= parent_region["address"]
+        and child_region["address"] <= parent_region["end_address"]
         and child_region["end_address"]
-        <= parent_region["end_address"] + MAX_OVERHANG_BYTES
+        <= parent_region["end_address"] + max_overhang_bytes
     )
 
     if not child_fully_contained and not child_mostly_contained:
@@ -1069,19 +1066,19 @@ def _is_hierarchical_overlap(
         and parent_region["type"] == child_region["type"]
     ):
         return True
-    
-    # Pattern 4b: Parent name with suffix contains child name with suffix 
+
+    # Pattern 4b: Parent name with suffix contains child name with suffix
     # (e.g., FLASH_APP contains FLASH_FS, FLASH_TEXT)
     if (
         parent_lower.startswith("flash_") and child_lower.startswith("flash_")
-        and parent_region["type"] == "FLASH" 
+        and parent_region["type"] == "FLASH"
         and child_region["type"] == "FLASH"
     ):
         return True
 
     # Pattern 5: Generic parent-child relationship based on size and containment
     # If the child is significantly smaller and has a similar name prefix
-    size_ratio = child_region["total_size"] / parent_region["total_size"]
+    size_ratio = child_region["limit_size"] / parent_region["limit_size"]
     if size_ratio < 0.9:  # Child is less than 90% of parent size
         # Check if names suggest hierarchical relationship
         parent_parts = parent_lower.split("_")
@@ -1093,6 +1090,7 @@ def _is_hierarchical_overlap(
             return True
 
     return False
+
 
 if __name__ == "__main__":
     # Output JSON when run directly for integration with memory_report.py
@@ -1106,10 +1104,10 @@ if __name__ == "__main__":
 
     try:
         regions = parse_linker_scripts(sys.argv[1:])
-        
+
         # Output JSON to stdout for consumption by memory_report.py
         print(json.dumps(regions, indent=2))
-        
-    except Exception as e:
+
+    except Exception as e:  # pylint: disable=broad-exception-caught
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
