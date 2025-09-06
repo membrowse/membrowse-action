@@ -307,23 +307,20 @@ LOAD,256,1280
         # Manual structure verification as backup
         required_fields = [
             'file_path', 'architecture', 'entry_point', 'file_type',
-            'machine', 'symbols', 'program_headers', 'memory_layout', 'total_sizes'
+            'machine', 'symbols', 'program_headers', 'memory_layout'
         ]
 
         for field in required_fields:
             self.assertIn(field, report, f"Required field '{field}' missing from report")
 
-        # Verify total_sizes structure
-        total_sizes = report['total_sizes']
-        size_fields = [
-            'text_size', 'data_size', 'bss_size', 'rodata_size',
-            'debug_size', 'other_size', 'total_file_size'
-        ]
-
-        for field in size_fields:
-            self.assertIn(field, total_sizes, f"Required size field '{field}' missing")
-            self.assertIsInstance(total_sizes[field], int,
-                                  f"Size field '{field}' is not an integer")
+        # Verify symbols structure
+        symbols = report['symbols']
+        self.assertIsInstance(symbols, list, "Symbols should be a list")
+        if symbols:
+            symbol = symbols[0]
+            symbol_fields = ['name', 'address', 'size', 'type', 'binding', 'section', 'source_file']
+            for field in symbol_fields:
+                self.assertIn(field, symbol, f"Required symbol field '{field}' missing")
 
     def _verify_memory_regions(self, report):
         """Verify memory regions in the report"""

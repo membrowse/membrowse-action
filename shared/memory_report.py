@@ -99,7 +99,10 @@ class ELFAnalyzer:
     def __init__(self, elf_path: str):
         self.elf_path = Path(elf_path)
         self._validate_elf_file()
-        self._source_file_mapping = {}  # Address/symbol name -> source file mapping
+        self._source_file_mapping = {
+            'by_address': {},      # int -> str (address -> source_file)
+            'by_compound_key': {}  # tuple -> str ((symbol_name, address) -> source_file)
+        }
         self._build_source_file_mapping()
 
     def _validate_elf_file(self) -> None:
@@ -111,7 +114,12 @@ class ELFAnalyzer:
             raise ELFAnalysisError(f"Cannot read ELF file: {self.elf_path}")
 
     def _build_source_file_mapping(self) -> None:
-        """Build mapping from symbols/addresses to source files using DWARF debug info"""
+        """Build mapping from addresses and (symbol,address) pairs to source files using DWARF info.
+
+        Uses two-tier approach:
+        1. Primary: address -> source_file (most reliable for duplicate symbol names)
+        2. Secondary: (symbol_name, address) -> source_file (fallback with address=0 placeholder)
+        """
         try:
             with open(self.elf_path, 'rb') as f:
                 elffile = ELFFile(f)
@@ -184,12 +192,14 @@ class ELFAnalyzer:
 
         # Store the mapping if we have useful information
         if die_name and source_file:
-            # Map by symbol name
-            self._source_file_mapping[die_name] = source_file
+            # Primary: Store by address if available and valid
+            if die_address is not None and die_address > 0:
+                self._source_file_mapping['by_address'][die_address] = source_file
 
-            # Also map by address if available
-            if die_address is not None:
-                self._source_file_mapping[die_address] = source_file
+            # Secondary: Always store by compound key for fallback
+            # Use 0 as placeholder for missing address to maintain consistent key structure
+            address_key = die_address if die_address is not None else 0
+            self._source_file_mapping['by_compound_key'][(die_name, address_key)] = source_file
 
     def _extract_string_value(self, value) -> Optional[str]:
         """Extract string value from DWARF attribute"""
@@ -429,18 +439,31 @@ class ELFAnalyzer:
         return flag_str or "---"
 
     def _extract_source_file(self, symbol_name: str, symbol_address: int = None) -> str:
-        """Extract source file from symbol name using DWARF debug information"""
-        # Try to find source file by symbol name first
-        if symbol_name in self._source_file_mapping:
-            source_file = self._source_file_mapping[symbol_name]
-            # Extract just the filename without path for cleaner output
-            return os.path.basename(source_file)
+        """Extract source file from symbol using DWARF debug information.
 
-        # Try to find source file by address
-        if symbol_address is not None and symbol_address in self._source_file_mapping:
-            source_file = self._source_file_mapping[symbol_address]
-            return os.path.basename(source_file)
+        Lookup priority:
+        1. Direct address lookup (most reliable for duplicate symbol names)
+        2. Compound key (symbol_name, address) for exact matches
+        3. Compound key (symbol_name, 0) for symbols without address info during DWARF parsing
+        """
+        # Priority 1: Direct address lookup (most reliable)
+        if symbol_address is not None and symbol_address > 0:
+            if symbol_address in self._source_file_mapping['by_address']:
+                source_file = self._source_file_mapping['by_address'][symbol_address]
+                return os.path.basename(source_file)
 
+        # Priority 2: Compound key with exact address match
+        if symbol_address is not None:
+            compound_key = (symbol_name, symbol_address)
+            if compound_key in self._source_file_mapping['by_compound_key']:
+                source_file = self._source_file_mapping['by_compound_key'][compound_key]
+                return os.path.basename(source_file)
+
+        # Priority 3: Compound key with address placeholder (address was unavailable during storage)
+        compound_key_fallback = (symbol_name, 0)
+        if compound_key_fallback in self._source_file_mapping['by_compound_key']:
+            source_file = self._source_file_mapping['by_compound_key'][compound_key_fallback]
+            return os.path.basename(source_file)
         # No source file information found
         return ""
 
@@ -552,8 +575,7 @@ class MemoryReportGenerator:  # pylint: disable=too-few-public-methods
                 'program_headers': program_headers,
                 'memory_layout': {
                     name: region.to_dict() for name, region in memory_regions.items()
-                },
-                'total_sizes': totals
+                }
             }
 
         except Exception as e:
