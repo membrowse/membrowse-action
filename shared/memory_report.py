@@ -103,6 +103,8 @@ class ELFAnalyzer:
             'by_address': {},      # int -> str (address -> source_file)
             'by_compound_key': {}  # tuple -> str ((symbol_name, address) -> source_file)
         }
+        self._line_mapping = {}    # int -> str (address -> source_file from .debug_line)
+        self._build_line_mapping()
         self._build_source_file_mapping()
 
     def _validate_elf_file(self) -> None:
@@ -112,6 +114,89 @@ class ELFAnalyzer:
 
         if not os.access(self.elf_path, os.R_OK):
             raise ELFAnalysisError(f"Cannot read ELF file: {self.elf_path}")
+
+    def _build_line_mapping(self) -> None:
+        """
+        Build a mapping {address: source_file_path} from .debug_line section.
+        This provides the most reliable source file mapping for all addresses that
+        correspond to actual code in source files.
+        """
+        try:
+            with open(self.elf_path, 'rb') as f:
+                elffile = ELFFile(f)
+                
+                if not elffile.has_dwarf_info():
+                    return
+
+                dwarfinfo = elffile.get_dwarf_info()
+
+                for cu in dwarfinfo.iter_CUs():
+                    top_die = cu.get_top_DIE()
+
+                    # Get the compilation directory if available
+                    comp_dir_attr = top_die.attributes.get('DW_AT_comp_dir')
+                    comp_dir = comp_dir_attr.value.decode('utf-8', errors='ignore') if comp_dir_attr else ""
+
+                    lineprog = dwarfinfo.line_program_for_CU(cu)
+                    if not lineprog:
+                        continue
+
+                    # Get file and directory tables - handle different pyelftools versions
+                    try:
+                        file_entries = lineprog.header.file_entry
+                        include_dirs = lineprog.header.include_directory
+                    except AttributeError:
+                        # Try alternative access method
+                        file_entries = lineprog['file_entry'] if 'file_entry' in lineprog else []
+                        include_dirs = lineprog['include_directory'] if 'include_directory' in lineprog else []
+
+                    # Process line program entries
+                    for entry in lineprog.get_entries():
+                        if entry.state is None:
+                            continue
+                        state = entry.state
+
+                        # Skip invalid entries
+                        if (state.end_sequence or not hasattr(state, 'address') or 
+                            state.address is None or not hasattr(state, 'file') or 
+                            state.file is None or state.file == 0):
+                            continue
+
+                        # Get file entry (DWARF file index is 1-based)
+                        try:
+                            file_entry = file_entries[state.file - 1]
+                            filename = file_entry.name
+                            if isinstance(filename, bytes):
+                                filename = filename.decode('utf-8', errors='ignore')
+
+                            # Resolve full path
+                            if hasattr(file_entry, 'dir_index') and file_entry.dir_index > 0:
+                                # File is in an include directory
+                                try:
+                                    incdir = include_dirs[file_entry.dir_index - 1]
+                                    if isinstance(incdir, bytes):
+                                        incdir = incdir.decode('utf-8', errors='ignore')
+                                    dirpath = os.path.join(comp_dir, incdir) if comp_dir else incdir
+                                except (IndexError, AttributeError):
+                                    dirpath = comp_dir
+                            else:
+                                # File is in compilation directory
+                                dirpath = comp_dir
+
+                            # Build full path and normalize
+                            if dirpath:
+                                filepath = os.path.normpath(os.path.join(dirpath, filename))
+                            else:
+                                filepath = filename
+
+                            self._line_mapping[state.address] = filepath
+
+                        except (IndexError, AttributeError):
+                            continue
+
+        except (IOError, OSError, ELFError, Exception):  # pylint: disable=broad-exception-caught
+            # If line parsing fails, continue without line info
+            pass
 
     def _build_source_file_mapping(self) -> None:
         """Build mapping from addresses and (symbol,address) pairs to source files using DWARF info.
@@ -194,21 +279,21 @@ class ELFAnalyzer:
                                        cu_source_file: Optional[str]) -> None:
         """Process a DIE to extract source file information.
         
-        Prioritizes definition location (cu_source_file) over declaration location (DW_AT_decl_file).
-        For symbols that are defined (DW_TAG_subprogram, DW_TAG_variable with addresses),
-        uses the compilation unit's source file. Falls back to declaration file for other cases.
+        Enhanced version that better distinguishes variable definitions from declarations.
+        Uses compilation unit context and DWARF attributes to determine the most accurate
+        source file location.
         """
         if not die.attributes:
             return
 
-        # Check if this is a definition (has DW_TAG_subprogram or DW_TAG_variable with an address)
-        is_definition = False
-        die_tag = die.tag if hasattr(die, 'tag') else None
-        
-        # Look for relevant DIEs that have both name and file information
+        # Extract all relevant attributes
         die_name = None
         decl_file = None
         die_address = None
+        has_location = False
+        is_declaration = False
+        
+        die_tag = die.tag if hasattr(die, 'tag') else None
 
         # Extract relevant attributes
         for attr_name, attr in die.attributes.items():
@@ -218,24 +303,20 @@ class ELFAnalyzer:
             elif attr_name == 'DW_AT_decl_file':
                 if hasattr(attr, 'value') and attr.value in file_entries:
                     decl_file = file_entries[attr.value]
+            elif attr_name == 'DW_AT_declaration':
+                is_declaration = True
             elif attr_name in ['DW_AT_low_pc', 'DW_AT_location']:
+                has_location = True
                 if hasattr(attr, 'value'):
                     try:
                         die_address = int(attr.value)
-                        if die_address > 0:
-                            is_definition = True  # Has a real address, likely a definition
                     except (ValueError, TypeError):
                         pass
 
-        # Determine which source file to use
-        # Priority: CU source file for definitions, declaration file as fallback
-        source_file = None
-        if is_definition and cu_source_file:
-            # This is a definition, use the CU's source file
-            source_file = cu_source_file
-        elif decl_file:
-            # Fall back to declaration file
-            source_file = decl_file
+        # Determine which source file to use - simplified logic
+        source_file = self._determine_best_source_file(
+            is_declaration, cu_source_file, decl_file, die_name
+        )
         
         # Store the mapping if we have useful information
         if die_name and source_file:
@@ -247,6 +328,46 @@ class ELFAnalyzer:
             # Use 0 as placeholder for missing address to maintain consistent key structure
             address_key = die_address if die_address is not None else 0
             self._source_file_mapping['by_compound_key'][(die_name, address_key)] = source_file
+            
+    def _determine_best_source_file(self, is_declaration: bool, cu_source_file: Optional[str], 
+                                  decl_file: Optional[str], die_name: Optional[str]) -> Optional[str]:
+        """Determine the best source file to use based on available information.
+        
+        Simplified logic without heuristic guessing:
+        1. For non-declarations in a CU: Use CU source file (likely defined here)
+        2. For declarations pointing to system headers: Use CU source file  
+        3. Otherwise: Use declaration file
+        """
+        # Non-declarations in a CU are likely defined in that CU
+        if not is_declaration and cu_source_file:
+            return cu_source_file
+            
+        # For declarations: Check if it's pointing to a system header
+        # If so, the actual definition is likely in the CU source file
+        if is_declaration and cu_source_file and decl_file:
+            if self._is_likely_system_header(decl_file):
+                return cu_source_file
+            
+        # Fall back to declaration file
+        if decl_file:
+            return decl_file
+            
+        return None
+        
+    def _is_likely_system_header(self, filename: str) -> bool:
+        """Check if a filename appears to be a system header rather than user code."""
+        if not filename:
+            return False
+            
+        # Common patterns for system headers that contain type definitions
+        system_patterns = [
+            'stdint', 'stdio', 'stdlib', 'string', 'unistd',
+            'sys/', 'bits/', 'gnu/', 'linux/',
+            '-uintn.h', '-intn.h'  # GCC-specific type header pattern
+        ]
+        
+        filename_lower = filename.lower()
+        return any(pattern in filename_lower for pattern in system_patterns)
 
     def _extract_string_value(self, value) -> Optional[str]:
         """Extract string value from DWARF attribute"""
@@ -342,14 +463,15 @@ class ELFAnalyzer:
                         if section_name.startswith('.debug'):
                             continue
 
+                        symbol_type = self._get_symbol_type(symbol['st_info']['type'])
                         symbols.append(Symbol(
                             name=symbol.name,
                             address=symbol['st_value'],
                             size=symbol['st_size'],
-                            type=self._get_symbol_type(symbol['st_info']['type']),
+                            type=symbol_type,
                             binding=self._get_symbol_binding(symbol['st_info']['bind']),
                             section=section_name,
-                            source_file=self._extract_source_file(symbol.name, symbol['st_value']),
+                            source_file=self._extract_source_file(symbol.name, symbol['st_value'], symbol_type),
                             visibility=""  # Could be extracted if needed
                         ))
 
@@ -485,35 +607,45 @@ class ELFAnalyzer:
             flag_str += "X"
         return flag_str or "---"
 
-    def _extract_source_file(self, symbol_name: str, symbol_address: int = None) -> str:
-        """Extract source file from symbol using DWARF debug information.
+    def _extract_source_file(self, symbol_name: str, symbol_address: int = None, 
+                           symbol_type: str = None) -> str:
+        """Extract source file using .debug_line as primary source.
         
-        Returns the definition location when available (compilation unit source file),
-        falling back to declaration location (DW_AT_decl_file) when necessary.
-
-        Lookup priority:
-        1. Direct address lookup (most reliable for duplicate symbol names)
-        2. Compound key (symbol_name, address) for exact matches
-        3. Compound key (symbol_name, 0) for symbols without address info during DWARF parsing
+        Uses the clean approach: .debug_line provides compiler-verified source locations
+        for all addresses that correspond to actual code/data in source files.
+        
+        Priority:
+        1. Exact .debug_line lookup (most reliable)
+        2. Nearby address search (handle alignment/optimization)
+        3. Minimal DIE fallback only for edge cases
         """
-        # Priority 1: Direct address lookup (most reliable)
+        
+        # Try .debug_line first for any symbol with an address
         if symbol_address is not None and symbol_address > 0:
-            if symbol_address in self._source_file_mapping['by_address']:
-                source_file = self._source_file_mapping['by_address'][symbol_address]
+            
+            # Priority 1: Exact .debug_line lookup
+            if symbol_address in self._line_mapping:
+                source_file = self._line_mapping[symbol_address]
                 return os.path.basename(source_file)
-
-        # Priority 2: Compound key with exact address match
-        if symbol_address is not None:
-            compound_key = (symbol_name, symbol_address)
-            if compound_key in self._source_file_mapping['by_compound_key']:
-                source_file = self._source_file_mapping['by_compound_key'][compound_key]
-                return os.path.basename(source_file)
-
-        # Priority 3: Compound key with address placeholder (address was unavailable during storage)
+            
+            # Priority 2: Search nearby addresses (handle compiler alignment/optimization)
+            # This is especially useful for functions where the symbol address might be 
+            # slightly different from the first instruction address
+            for offset in range(-20, 21, 2):  # Search +/- 20 bytes, step by 2
+                check_addr = symbol_address + offset
+                if check_addr in self._line_mapping:
+                    source_file = self._line_mapping[check_addr]
+                    return os.path.basename(source_file)
+        
+        # Minimal DIE fallback for cases where .debug_line doesn't help
+        # (e.g., some global variables, static data)
+        
+        # Check compound key fallback (for symbols without addresses in line info)
         compound_key_fallback = (symbol_name, 0)
         if compound_key_fallback in self._source_file_mapping['by_compound_key']:
             source_file = self._source_file_mapping['by_compound_key'][compound_key_fallback]
             return os.path.basename(source_file)
+            
         # No source file information found
         return ""
 

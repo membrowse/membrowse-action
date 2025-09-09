@@ -100,6 +100,8 @@ class TestMemoryAnalysis(unittest.TestCase):
             self.gcc_command,
             '-nostdlib',           # Don't link standard libraries
             '-nostartfiles',       # Don't use standard startup files
+            '-g',                  # Generate debug information
+            '-I', str(self.test_dir),  # Include directory for uart_driver.h
             '-T', str(self.ld_file),  # Use our custom linker script
             '-o', str(self.elf_file),  # Output file
             str(self.c_file)       # Input file

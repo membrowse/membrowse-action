@@ -6,6 +6,7 @@
  */
 
 #include <stdint.h>
+#include "uart_driver.h"
 
 // Initialized data (goes to .data section)
 volatile uint32_t global_counter = 42;
@@ -34,6 +35,19 @@ int main(void)
     // Initialize system
     initialize_system();
     
+    // Initialize UART with test configuration
+    uart_config_t uart_cfg = {
+        .baudrate = 115200,
+        .data_bits = 8,
+        .stop_bits = 1,
+        .parity = 0
+    };
+    uart_init(&uart_cfg);
+    
+    // Test UART functionality
+    const char test_msg[] = "Hello from UART!";
+    uart_transmit(test_msg, sizeof(test_msg) - 1);
+    
     // Main application loop
     while (1) {
         // Increment counter
@@ -47,6 +61,12 @@ int main(void)
             error_flags |= 0x01;  // Buffer empty flag
         } else {
             error_flags &= ~0x01; // Clear empty flag
+        }
+        
+        // Check UART status
+        uint8_t status = uart_get_status();
+        if (status & UART_STATUS_ERROR) {
+            error_flags |= 0x04;  // UART error flag
         }
         
         // Small delay
@@ -119,4 +139,68 @@ void utility_function(void)
     }
     
     global_counter += temp;
+}
+
+// UART driver implementation - functions declared in uart_driver.h
+// Global variable definition (declared in header)
+volatile uint32_t uart_tx_count = 0;
+
+// Static variables for UART driver
+static uart_config_t current_config;
+static volatile uint8_t uart_status = 0;
+
+// UART initialization function - DEFINED here, DECLARED in uart_driver.h
+void uart_init(const uart_config_t *config)
+{
+    if (config) {
+        current_config = *config;
+        uart_status = UART_STATUS_TX_READY | UART_STATUS_RX_READY;
+        uart_tx_count = 0;
+    }
+}
+
+// UART transmit function - DEFINED here, DECLARED in uart_driver.h
+int uart_transmit(const char *data, uint32_t length)
+{
+    if (!data || length == 0) {
+        return -1;
+    }
+    
+    // Simulate transmission
+    for (uint32_t i = 0; i < length; i++) {
+        // Simulate sending byte
+        volatile char dummy = data[i];
+        dummy++; // Use the variable to prevent optimization
+        uart_tx_count++;
+    }
+    
+    return (int)length;
+}
+
+// UART receive function - DEFINED here, DECLARED in uart_driver.h  
+int uart_receive(char *buffer_ptr, uint32_t max_length)
+{
+    if (!buffer_ptr || max_length == 0) {
+        return -1;
+    }
+    
+    // Simulate receiving some test data
+    const char test_data[] = "Test UART data";
+    uint32_t data_len = sizeof(test_data) - 1; // Exclude null terminator
+    
+    if (data_len > max_length) {
+        data_len = max_length;
+    }
+    
+    for (uint32_t i = 0; i < data_len; i++) {
+        buffer_ptr[i] = test_data[i];
+    }
+    
+    return (int)data_len;
+}
+
+// UART status function - DEFINED here, DECLARED in uart_driver.h
+uint8_t uart_get_status(void)
+{
+    return uart_status;
 }
