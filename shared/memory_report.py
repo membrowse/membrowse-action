@@ -76,6 +76,7 @@ class Symbol:  # pylint: disable=too-many-instance-attributes
     section: str
     source_file: str = ""
     visibility: str = ""
+    compilation_unit: str = ""
 
 
 @dataclass
@@ -255,7 +256,7 @@ class ELFAnalyzer:
 
                     # Iterate through all DIEs (Debug Information Entries) in this CU
                     for die in cu.iter_DIEs():
-                        self._process_die_for_source_mapping(die, file_entries, cu_source_file)
+                        self._process_die_for_source_mapping(die, file_entries, cu_source_file, cu_source_file)
 
         except (IOError, OSError, ELFError, Exception):  # pylint: disable=broad-exception-caught
             # If DWARF parsing fails, continue without source file info
@@ -305,7 +306,7 @@ class ELFAnalyzer:
         return file_entries
 
     def _process_die_for_source_mapping(self, die, file_entries: Dict[int, str], 
-                                       cu_source_file: Optional[str]) -> None:
+                                       cu_source_file: Optional[str], cu_name: Optional[str] = None) -> None:
         """Process a DIE to extract source file information.
         
         Enhanced version that better distinguishes variable definitions from declarations.
@@ -351,12 +352,23 @@ class ELFAnalyzer:
         if die_name and source_file:
             # Primary: Store by address if available and valid
             if die_address is not None and die_address > 0:
-                self._source_file_mapping['by_address'][die_address] = source_file
+                # Only store or overwrite if this is a definition (not a declaration)
+                # or if we don't have an existing mapping
+                if not is_declaration or die_address not in self._source_file_mapping['by_address']:
+                    self._source_file_mapping['by_address'][die_address] = source_file
 
             # Secondary: Always store by compound key for fallback
             # Use 0 as placeholder for missing address to maintain consistent key structure
             address_key = die_address if die_address is not None else 0
-            self._source_file_mapping['by_compound_key'][(die_name, address_key)] = source_file
+            compound_key = (die_name, address_key)
+            
+            # For compound key, also prioritize definitions over declarations
+            # Only overwrite existing mapping if this is a definition and the existing is a declaration
+            if compound_key not in self._source_file_mapping['by_compound_key']:
+                self._source_file_mapping['by_compound_key'][compound_key] = source_file
+            elif not is_declaration:
+                # This is a definition - overwrite any existing declaration
+                self._source_file_mapping['by_compound_key'][compound_key] = source_file
             
     def _determine_best_source_file(self, is_declaration: bool, cu_source_file: Optional[str], 
                                   decl_file: Optional[str], die_name: Optional[str]) -> Optional[str]:
@@ -365,7 +377,8 @@ class ELFAnalyzer:
         Simplified logic without heuristic guessing:
         1. For non-declarations in a CU: Use CU source file (likely defined here)
         2. For declarations pointing to system headers: Use CU source file  
-        3. Otherwise: Use declaration file
+        3. For declarations in a .c file's CU: Use CU source file (likely defined there)
+        4. Otherwise: Use declaration file
         """
         # Non-declarations in a CU are likely defined in that CU
         if not is_declaration and cu_source_file:
@@ -375,6 +388,11 @@ class ELFAnalyzer:
         # If so, the actual definition is likely in the CU source file
         if is_declaration and cu_source_file and decl_file:
             if self._is_likely_system_header(decl_file):
+                return cu_source_file
+            
+            # If the CU is a .c file and we have a declaration from a .h file,
+            # the definition is likely in the .c file
+            if cu_source_file.endswith('.c') and decl_file.endswith('.h'):
                 return cu_source_file
             
         # Fall back to declaration file
@@ -493,15 +511,17 @@ class ELFAnalyzer:
                             continue
 
                         symbol_type = self._get_symbol_type(symbol['st_info']['type'])
+                        symbol_address = symbol['st_value']
                         symbols.append(Symbol(
                             name=symbol.name,
-                            address=symbol['st_value'],
+                            address=symbol_address,
                             size=symbol['st_size'],
                             type=symbol_type,
                             binding=self._get_symbol_binding(symbol['st_info']['bind']),
                             section=section_name,
-                            source_file=self._extract_source_file(symbol.name, symbol['st_value'], symbol_type),
-                            visibility=""  # Could be extracted if needed
+                            source_file=self._extract_source_file(symbol.name, symbol_address, symbol_type),
+                            visibility="",  # Could be extracted if needed
+                            compilation_unit=self._find_compilation_unit(symbol_address) if symbol_address > 0 else ""
                         ))
 
         except (IOError, OSError, ELFError) as e:
@@ -659,8 +679,9 @@ class ELFAnalyzer:
         3. Minimal DIE fallback only for edge cases
         """
         
-        # Try .debug_line first for any symbol with an address
-        if symbol_address is not None and symbol_address > 0:
+        # Try .debug_line first for FUNC symbols (code)
+        # For OBJECT symbols (data), skip .debug_line since it rarely has data addresses
+        if symbol_address is not None and symbol_address > 0 and symbol_type == 'FUNC':
             
             # Priority 1: Exact .debug_line lookup
             if symbol_address in self._line_mapping:
@@ -674,10 +695,42 @@ class ELFAnalyzer:
                 check_addr = symbol_address + offset
                 if check_addr in self._line_mapping:
                     source_file = self._line_mapping[check_addr]
-                    return os.path.basename(source_file)
+                    source_file_basename = os.path.basename(source_file)
+                    
+                    # IMPORTANT: If .debug_line points to a header file, but we have a DIE 
+                    # definition in a .c file, prefer the .c file (same logic as for OBJECT symbols)
+                    if source_file_basename.endswith('.h'):
+                        # First try by_address mapping for exact address match
+                        if symbol_address in self._source_file_mapping['by_address']:
+                            die_source_file = self._source_file_mapping['by_address'][symbol_address]
+                            if die_source_file.endswith('.c'):
+                                return os.path.basename(die_source_file)
+                        
+                        # Try nearby DIE addresses (DIE and symbol might have slightly different addresses)
+                        for die_offset in [-10, -5, -1, 1, 5, 10]:
+                            check_die_addr = symbol_address + die_offset
+                            if check_die_addr in self._source_file_mapping['by_address']:
+                                die_source_file = self._source_file_mapping['by_address'][check_die_addr]
+                                if die_source_file.endswith('.c'):
+                                    return os.path.basename(die_source_file)
+                        
+                        # Also check compound key fallback
+                        compound_key_fallback = (symbol_name, 0)
+                        if compound_key_fallback in self._source_file_mapping['by_compound_key']:
+                            die_source_file = self._source_file_mapping['by_compound_key'][compound_key_fallback]
+                            if die_source_file.endswith('.c'):
+                                return os.path.basename(die_source_file)
+                    
+                    return source_file_basename
         
-        # Minimal DIE fallback for cases where .debug_line doesn't help
-        # (e.g., some global variables, static data)
+        # DIE-based fallback for cases where .debug_line doesn't help
+        # This is especially important for OBJECT symbols (global variables)
+        
+        # For OBJECT symbols with addresses, check by_address mapping first
+        if symbol_type == 'OBJECT' and symbol_address is not None and symbol_address > 0:
+            if symbol_address in self._source_file_mapping['by_address']:
+                source_file = self._source_file_mapping['by_address'][symbol_address]
+                return os.path.basename(source_file)
         
         # Check compound key fallback (for symbols without addresses in line info)
         compound_key_fallback = (symbol_name, 0)
