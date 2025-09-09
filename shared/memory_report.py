@@ -121,6 +121,10 @@ class ELFAnalyzer:
         This provides the most reliable source file mapping for all addresses that
         correspond to actual code in source files.
         """
+        # Also build compilation unit address ranges
+        self._cu_ranges = []  # List of (low_addr, high_addr, cu_name, cu_path)
+        self._all_cus = []  # List of all CU names, even without address ranges
+        
         try:
             with open(self.elf_path, 'rb') as f:
                 elffile = ELFFile(f)
@@ -136,6 +140,31 @@ class ELFAnalyzer:
                     # Get the compilation directory if available
                     comp_dir_attr = top_die.attributes.get('DW_AT_comp_dir')
                     comp_dir = comp_dir_attr.value.decode('utf-8', errors='ignore') if comp_dir_attr else ""
+                    
+                    # Get compilation unit name
+                    cu_name_attr = top_die.attributes.get('DW_AT_name')
+                    cu_name = cu_name_attr.value.decode('utf-8', errors='ignore') if cu_name_attr else "unknown"
+                    
+                    # Store all CU names
+                    self._all_cus.append(cu_name)
+                    
+                    # Get address range for this CU
+                    low_pc_attr = top_die.attributes.get('DW_AT_low_pc')
+                    high_pc_attr = top_die.attributes.get('DW_AT_high_pc')
+                    
+                    if low_pc_attr:
+                        low_pc = low_pc_attr.value
+                        # high_pc can be an address or an offset
+                        if high_pc_attr:
+                            high_pc_val = high_pc_attr.value
+                            # Check if it's an offset (DW_FORM_data*) or absolute address
+                            if high_pc_attr.form in ('DW_FORM_data1', 'DW_FORM_data2', 'DW_FORM_data4', 'DW_FORM_data8'):
+                                high_pc = low_pc + high_pc_val
+                            else:
+                                high_pc = high_pc_val
+                            
+                            # Store CU range
+                            self._cu_ranges.append((low_pc, high_pc, cu_name, os.path.join(comp_dir, cu_name) if comp_dir else cu_name))
 
                     lineprog = dwarfinfo.line_program_for_CU(cu)
                     if not lineprog:
@@ -607,6 +636,16 @@ class ELFAnalyzer:
             flag_str += "X"
         return flag_str or "---"
 
+    def _find_compilation_unit(self, address: int) -> str:
+        """Find which compilation unit an address belongs to."""
+        if not hasattr(self, '_cu_ranges'):
+            return ""
+        
+        for low_pc, high_pc, cu_name, cu_path in self._cu_ranges:
+            if low_pc <= address < high_pc:
+                return cu_name
+        return ""
+    
     def _extract_source_file(self, symbol_name: str, symbol_address: int = None, 
                            symbol_type: str = None) -> str:
         """Extract source file using .debug_line as primary source.
@@ -631,7 +670,7 @@ class ELFAnalyzer:
             # Priority 2: Search nearby addresses (handle compiler alignment/optimization)
             # This is especially useful for functions where the symbol address might be 
             # slightly different from the first instruction address
-            for offset in range(-20, 21, 2):  # Search +/- 20 bytes, step by 2
+            for offset in range(-100, 101):  # Search +/- 100 bytes, step by 1
                 check_addr = symbol_address + offset
                 if check_addr in self._line_mapping:
                     source_file = self._line_mapping[check_addr]
