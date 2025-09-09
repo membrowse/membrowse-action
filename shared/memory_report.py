@@ -119,6 +119,8 @@ class ELFAnalyzer:
         Uses two-tier approach:
         1. Primary: address -> source_file (most reliable for duplicate symbol names)
         2. Secondary: (symbol_name, address) -> source_file (fallback with address=0 placeholder)
+        
+        Prioritizes definition locations over declaration locations.
         """
         try:
             with open(self.elf_path, 'rb') as f:
@@ -131,16 +133,39 @@ class ELFAnalyzer:
 
                 # Iterate through all compilation units
                 for cu in dwarfinfo.iter_CUs():
+                    # Get the compilation unit's source file (for definitions)
+                    cu_source_file = self._get_cu_source_file(cu)
+                    
                     # Get the file table for this compilation unit
                     file_entries = self._get_file_entries(dwarfinfo, cu)
 
                     # Iterate through all DIEs (Debug Information Entries) in this CU
                     for die in cu.iter_DIEs():
-                        self._process_die_for_source_mapping(die, file_entries)
+                        self._process_die_for_source_mapping(die, file_entries, cu_source_file)
 
         except (IOError, OSError, ELFError, Exception):  # pylint: disable=broad-exception-caught
             # If DWARF parsing fails, continue without source file info
             pass
+
+    def _get_cu_source_file(self, cu) -> Optional[str]:
+        """Extract the source file name for this compilation unit (definition location)"""
+        try:
+            # Get the root DIE of the compilation unit
+            top_die = cu.get_top_DIE()
+            
+            # Look for DW_AT_name which contains the source file for this CU
+            if 'DW_AT_name' in top_die.attributes:
+                name_attr = top_die.attributes['DW_AT_name']
+                if hasattr(name_attr, 'value'):
+                    return self._extract_string_value(name_attr.value)
+                    
+            # Some compilers use DW_AT_comp_dir + DW_AT_name
+            # We just want the filename, not the full path
+            
+        except (AttributeError, Exception):  # pylint: disable=broad-exception-caught
+            pass
+            
+        return None
 
     def _get_file_entries(self, dwarfinfo, cu) -> Dict[int, str]:
         """Extract file entries from the line program"""
@@ -165,14 +190,24 @@ class ELFAnalyzer:
 
         return file_entries
 
-    def _process_die_for_source_mapping(self, die, file_entries: Dict[int, str]) -> None:
-        """Process a DIE to extract source file information"""
+    def _process_die_for_source_mapping(self, die, file_entries: Dict[int, str], 
+                                       cu_source_file: Optional[str]) -> None:
+        """Process a DIE to extract source file information.
+        
+        Prioritizes definition location (cu_source_file) over declaration location (DW_AT_decl_file).
+        For symbols that are defined (DW_TAG_subprogram, DW_TAG_variable with addresses),
+        uses the compilation unit's source file. Falls back to declaration file for other cases.
+        """
         if not die.attributes:
             return
 
+        # Check if this is a definition (has DW_TAG_subprogram or DW_TAG_variable with an address)
+        is_definition = False
+        die_tag = die.tag if hasattr(die, 'tag') else None
+        
         # Look for relevant DIEs that have both name and file information
         die_name = None
-        source_file = None
+        decl_file = None
         die_address = None
 
         # Extract relevant attributes
@@ -182,14 +217,26 @@ class ELFAnalyzer:
                     die_name = self._extract_string_value(attr.value)
             elif attr_name == 'DW_AT_decl_file':
                 if hasattr(attr, 'value') and attr.value in file_entries:
-                    source_file = file_entries[attr.value]
+                    decl_file = file_entries[attr.value]
             elif attr_name in ['DW_AT_low_pc', 'DW_AT_location']:
                 if hasattr(attr, 'value'):
                     try:
                         die_address = int(attr.value)
+                        if die_address > 0:
+                            is_definition = True  # Has a real address, likely a definition
                     except (ValueError, TypeError):
                         pass
 
+        # Determine which source file to use
+        # Priority: CU source file for definitions, declaration file as fallback
+        source_file = None
+        if is_definition and cu_source_file:
+            # This is a definition, use the CU's source file
+            source_file = cu_source_file
+        elif decl_file:
+            # Fall back to declaration file
+            source_file = decl_file
+        
         # Store the mapping if we have useful information
         if die_name and source_file:
             # Primary: Store by address if available and valid
@@ -440,6 +487,9 @@ class ELFAnalyzer:
 
     def _extract_source_file(self, symbol_name: str, symbol_address: int = None) -> str:
         """Extract source file from symbol using DWARF debug information.
+        
+        Returns the definition location when available (compilation unit source file),
+        falling back to declaration location (DW_AT_decl_file) when necessary.
 
         Lookup priority:
         1. Direct address lookup (most reliable for duplicate symbol names)

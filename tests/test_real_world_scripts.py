@@ -25,7 +25,7 @@ class TestRealWorldLinkerScripts(unittest.TestCase):
     def setUp(self):
         """Set up test environment"""
         # Path to MicroPython project and metadata
-        self.micropython_root = Path("../micropython")
+        self.micropython_root = Path("../../micropython")
         self.metadata_file = self.micropython_root / "linker_metadata.json"
 
         # Load expected metadata
@@ -368,7 +368,7 @@ def create_test_report(metadata_path: Path) -> None:
 
 if __name__ == '__main__':
     # Check if MicroPython project exists
-    metadata_file = ".." / "micropython" / "linker_metadata.json"
+    metadata_file = Path("../..") / "micropython" / "linker_metadata.json"
 
     if not metadata_file.exists():
         print(f"ERROR: Metadata file not found: {metadata_file}")

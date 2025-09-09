@@ -1,0 +1,496 @@
+{
+  "file_path": "/home/michael/projs/membrowse/membrowse-action/tests/test_firmware.elf",
+  "architecture": "ELF32",
+  "entry_point": 134217765,
+  "file_type": "EXEC",
+  "machine": "ARM",
+  "symbols": [
+    {
+      "name": "reset_handler",
+      "address": 134217765,
+      "size": 96,
+      "type": "FUNC",
+      "binding": "GLOBAL",
+      "section": ".text",
+      "source_file": "",
+      "visibility": ""
+    },
+    {
+      "name": "_Min_Stack_Size",
+      "address": 2048,
+      "size": 0,
+      "type": "NOTYPE",
+      "binding": "GLOBAL",
+      "section": "",
+      "source_file": "",
+      "visibility": ""
+    },
+    {
+      "name": "_ccram_size",
+      "address": 8192,
+      "size": 0,
+      "type": "NOTYPE",
+      "binding": "GLOBAL",
+      "section": "",
+      "source_file": "",
+      "visibility": ""
+    },
+    {
+      "name": "_sidata",
+      "address": 134218484,
+      "size": 0,
+      "type": "NOTYPE",
+      "binding": "GLOBAL",
+      "section": "",
+      "source_file": "test_firmware.c",
+      "visibility": ""
+    },
+    {
+      "name": "__exidx_end",
+      "address": 134218484,
+      "size": 0,
+      "type": "NOTYPE",
+      "binding": "GLOBAL",
+      "section": ".data",
+      "source_file": "",
+      "visibility": ""
+    },
+    {
+      "name": "_etext",
+      "address": 134217968,
+      "size": 0,
+      "type": "NOTYPE",
+      "binding": "GLOBAL",
+      "section": ".text",
+      "source_file": "",
+      "visibility": ""
+    },
+    {
+      "name": "_sbss",
+      "address": 536870916,
+      "size": 0,
+      "type": "NOTYPE",
+      "binding": "GLOBAL",
+      "section": ".bss",
+      "source_file": "test_firmware.c",
+      "visibility": ""
+    },
+    {
+      "name": "__bss_start__",
+      "address": 536870916,
+      "size": 0,
+      "type": "NOTYPE",
+      "binding": "GLOBAL",
+      "section": ".bss",
+      "source_file": "",
+      "visibility": ""
+    },
+    {
+      "name": "_sdata",
+      "address": 536870912,
+      "size": 0,
+      "type": "NOTYPE",
+      "binding": "GLOBAL",
+      "section": ".data",
+      "source_file": "test_firmware.c",
+      "visibility": ""
+    },
+    {
+      "name": "__exidx_start",
+      "address": 134218484,
+      "size": 0,
+      "type": "NOTYPE",
+      "binding": "GLOBAL",
+      "section": ".data",
+      "source_file": "",
+      "visibility": ""
+    },
+    {
+      "name": "global_data",
+      "address": 536870912,
+      "size": 4,
+      "type": "OBJECT",
+      "binding": "GLOBAL",
+      "section": ".data",
+      "source_file": "test_firmware.c",
+      "visibility": ""
+    },
+    {
+      "name": "global_bss",
+      "address": 536870916,
+      "size": 4,
+      "type": "OBJECT",
+      "binding": "GLOBAL",
+      "section": ".bss",
+      "source_file": "test_firmware.c",
+      "visibility": ""
+    },
+    {
+      "name": "_ram_size",
+      "address": 65536,
+      "size": 0,
+      "type": "NOTYPE",
+      "binding": "GLOBAL",
+      "section": "",
+      "source_file": "",
+      "visibility": ""
+    },
+    {
+      "name": "_ebss",
+      "address": 536871944,
+      "size": 0,
+      "type": "NOTYPE",
+      "binding": "GLOBAL",
+      "section": ".bss",
+      "source_file": "test_firmware.c",
+      "visibility": ""
+    },
+    {
+      "name": "vector_table",
+      "address": 134217728,
+      "size": 16,
+      "type": "OBJECT",
+      "binding": "GLOBAL",
+      "section": ".isr_vector",
+      "source_file": "test_firmware.c",
+      "visibility": ""
+    },
+    {
+      "name": "_ram_start",
+      "address": 536870912,
+      "size": 0,
+      "type": "NOTYPE",
+      "binding": "GLOBAL",
+      "section": "._user_heap_stack",
+      "source_file": "",
+      "visibility": ""
+    },
+    {
+      "name": "__bss_end__",
+      "address": 536871944,
+      "size": 0,
+      "type": "NOTYPE",
+      "binding": "GLOBAL",
+      "section": ".bss",
+      "source_file": "",
+      "visibility": ""
+    },
+    {
+      "name": "_eccram",
+      "address": 268435456,
+      "size": 0,
+      "type": "NOTYPE",
+      "binding": "GLOBAL",
+      "section": ".ccram",
+      "source_file": "",
+      "visibility": ""
+    },
+    {
+      "name": "_Min_Heap_Size",
+      "address": 4096,
+      "size": 0,
+      "type": "NOTYPE",
+      "binding": "GLOBAL",
+      "section": "",
+      "source_file": "",
+      "visibility": ""
+    },
+    {
+      "name": "large_buffer",
+      "address": 536870920,
+      "size": 1024,
+      "type": "OBJECT",
+      "binding": "GLOBAL",
+      "section": ".bss",
+      "source_file": "test_firmware.c",
+      "visibility": ""
+    },
+    {
+      "name": "main",
+      "address": 134217917,
+      "size": 52,
+      "type": "FUNC",
+      "binding": "GLOBAL",
+      "section": ".text",
+      "source_file": "",
+      "visibility": ""
+    },
+    {
+      "name": "interrupt_handler",
+      "address": 134217745,
+      "size": 16,
+      "type": "FUNC",
+      "binding": "GLOBAL",
+      "section": ".text",
+      "source_file": "",
+      "visibility": ""
+    },
+    {
+      "name": "_flash_size",
+      "address": 262144,
+      "size": 0,
+      "type": "NOTYPE",
+      "binding": "GLOBAL",
+      "section": "",
+      "source_file": "",
+      "visibility": ""
+    },
+    {
+      "name": "init_hardware",
+      "address": 134217861,
+      "size": 32,
+      "type": "FUNC",
+      "binding": "GLOBAL",
+      "section": ".text",
+      "source_file": "test_firmware.c",
+      "visibility": ""
+    },
+    {
+      "name": "_sccram",
+      "address": 268435456,
+      "size": 0,
+      "type": "NOTYPE",
+      "binding": "GLOBAL",
+      "section": ".ccram",
+      "source_file": "",
+      "visibility": ""
+    },
+    {
+      "name": "_ccram_start",
+      "address": 268435456,
+      "size": 0,
+      "type": "NOTYPE",
+      "binding": "GLOBAL",
+      "section": "._user_heap_stack",
+      "source_file": "",
+      "visibility": ""
+    },
+    {
+      "name": "_estack",
+      "address": 536878088,
+      "size": 0,
+      "type": "NOTYPE",
+      "binding": "GLOBAL",
+      "section": "._user_heap_stack",
+      "source_file": "test_firmware.c",
+      "visibility": ""
+    },
+    {
+      "name": "_edata",
+      "address": 536870916,
+      "size": 0,
+      "type": "NOTYPE",
+      "binding": "GLOBAL",
+      "section": ".data",
+      "source_file": "test_firmware.c",
+      "visibility": ""
+    },
+    {
+      "name": "large_const_buffer",
+      "address": 134217968,
+      "size": 512,
+      "type": "OBJECT",
+      "binding": "GLOBAL",
+      "section": ".rodata",
+      "source_file": "test_firmware.c",
+      "visibility": ""
+    },
+    {
+      "name": "_flash_start",
+      "address": 134217728,
+      "size": 0,
+      "type": "NOTYPE",
+      "binding": "GLOBAL",
+      "section": "._user_heap_stack",
+      "source_file": "",
+      "visibility": ""
+    },
+    {
+      "name": "global_const",
+      "address": 134218480,
+      "size": 4,
+      "type": "OBJECT",
+      "binding": "GLOBAL",
+      "section": ".rodata",
+      "source_file": "test_firmware.c",
+      "visibility": ""
+    },
+    {
+      "name": "_exit",
+      "address": 134217761,
+      "size": 2,
+      "type": "FUNC",
+      "binding": "GLOBAL",
+      "section": ".text",
+      "source_file": "",
+      "visibility": ""
+    },
+    {
+      "name": "process_data",
+      "address": 134217893,
+      "size": 24,
+      "type": "FUNC",
+      "binding": "GLOBAL",
+      "section": ".text",
+      "source_file": "test_firmware.c",
+      "visibility": ""
+    }
+  ],
+  "program_headers": [
+    {
+      "type": "PT_LOAD",
+      "offset": 65536,
+      "virt_addr": 134217728,
+      "phys_addr": 134217728,
+      "file_size": 756,
+      "mem_size": 756,
+      "flags": "RX",
+      "align": 65536
+    },
+    {
+      "type": "PT_LOAD",
+      "offset": 131072,
+      "virt_addr": 536870912,
+      "phys_addr": 134218484,
+      "file_size": 4,
+      "mem_size": 1032,
+      "flags": "RW",
+      "align": 65536
+    },
+    {
+      "type": "PT_LOAD",
+      "offset": 1032,
+      "virt_addr": 536871944,
+      "phys_addr": 134218488,
+      "file_size": 0,
+      "mem_size": 6144,
+      "flags": "RW",
+      "align": 65536
+    }
+  ],
+  "memory_layout": {
+    "FLASH": {
+      "address": 134217728,
+      "limit_size": 262144,
+      "type": "FLASH",
+      "used_size": 2518,
+      "free_size": 259626,
+      "utilization_percent": 0.960540771484375,
+      "sections": [
+        {
+          "name": ".isr_vector",
+          "address": 134217728,
+          "size": 16,
+          "type": "other",
+          "end_address": 134217744
+        },
+        {
+          "name": ".text",
+          "address": 134217744,
+          "size": 224,
+          "type": "text",
+          "end_address": 134217968
+        },
+        {
+          "name": ".rodata",
+          "address": 134217968,
+          "size": 516,
+          "type": "rodata",
+          "end_address": 134218484
+        },
+        {
+          "name": ".comment",
+          "address": 0,
+          "size": 51,
+          "type": "other",
+          "end_address": 51
+        },
+        {
+          "name": ".ARM.attributes",
+          "address": 0,
+          "size": 46,
+          "type": "other",
+          "end_address": 46
+        },
+        {
+          "name": ".symtab",
+          "address": 0,
+          "size": 1056,
+          "type": "other",
+          "end_address": 1056
+        },
+        {
+          "name": ".strtab",
+          "address": 0,
+          "size": 393,
+          "type": "other",
+          "end_address": 393
+        },
+        {
+          "name": ".shstrtab",
+          "address": 0,
+          "size": 216,
+          "type": "other",
+          "end_address": 216
+        }
+      ]
+    },
+    "RAM": {
+      "address": 536870912,
+      "limit_size": 65536,
+      "type": "RAM",
+      "used_size": 7176,
+      "free_size": 58360,
+      "utilization_percent": 10.94970703125,
+      "sections": [
+        {
+          "name": ".data",
+          "address": 536870912,
+          "size": 4,
+          "type": "data",
+          "end_address": 536870916
+        },
+        {
+          "name": ".bss",
+          "address": 536870916,
+          "size": 1028,
+          "type": "bss",
+          "end_address": 536871944
+        },
+        {
+          "name": "._user_heap_stack",
+          "address": 536871944,
+          "size": 6144,
+          "type": "other",
+          "end_address": 536878088
+        }
+      ]
+    },
+    "CCRAM": {
+      "address": 268435456,
+      "limit_size": 8192,
+      "type": "RAM",
+      "used_size": 0,
+      "free_size": 8192,
+      "utilization_percent": 0.0,
+      "sections": [
+        {
+          "name": ".ccram",
+          "address": 268435456,
+          "size": 0,
+          "type": "other",
+          "end_address": 268435456
+        }
+      ]
+    }
+  },
+  "total_sizes": {
+    "text_size": 224,
+    "data_size": 4,
+    "bss_size": 1028,
+    "rodata_size": 516,
+    "debug_size": 0,
+    "other_size": 7922,
+    "total_file_size": 9694
+  }
+}

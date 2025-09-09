@@ -1,0 +1,35 @@
+{
+  "FLASH": {
+    "type": "FLASH",
+    "attributes": "rx",
+    "address": 134217728,
+    "end_address": 134479871,
+    "limit_size": 262144,
+    "used_size": 0,
+    "free_size": 262144,
+    "utilization_percent": 0.0,
+    "sections": []
+  },
+  "RAM": {
+    "type": "RAM",
+    "attributes": "rwx",
+    "address": 536870912,
+    "end_address": 536936447,
+    "limit_size": 65536,
+    "used_size": 0,
+    "free_size": 65536,
+    "utilization_percent": 0.0,
+    "sections": []
+  },
+  "CCRAM": {
+    "type": "RAM",
+    "attributes": "rw",
+    "address": 268435456,
+    "end_address": 268443647,
+    "limit_size": 8192,
+    "used_size": 0,
+    "free_size": 8192,
+    "utilization_percent": 0.0,
+    "sections": []
+  }
+}

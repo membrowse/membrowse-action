@@ -1,0 +1,173 @@
+
+Memory Configuration
+
+Name             Origin             Length             Attributes
+FLASH            0x0000000008000000 0x0000000000040000 xr
+RAM              0x0000000020000000 0x0000000000010000 xrw
+CCRAM            0x0000000010000000 0x0000000000002000 rw
+*default*        0x0000000000000000 0xffffffffffffffff
+
+Linker script and memory map
+
+LOAD /home/michael/projs/membrowse/membrowse-action/tests/test_firmware.o
+                0x0000000000001000                _Min_Heap_Size = 0x1000
+                0x0000000000000800                _Min_Stack_Size = 0x800
+
+.isr_vector     0x0000000008000000       0x10
+                0x0000000008000000                . = ALIGN (0x4)
+ *(.isr_vector)
+ .isr_vector    0x0000000008000000       0x10 /home/michael/projs/membrowse/membrowse-action/tests/test_firmware.o
+                0x0000000008000000                vector_table
+                0x0000000008000010                . = ALIGN (0x4)
+
+.text           0x0000000008000010       0xe0
+                0x0000000008000010                . = ALIGN (0x4)
+ *(.text)
+ .text          0x0000000008000010       0xac /home/michael/projs/membrowse/membrowse-action/tests/test_firmware.o
+                0x0000000008000010                interrupt_handler
+                0x0000000008000020                _exit
+                0x0000000008000024                reset_handler
+                0x0000000008000084                init_hardware
+                0x00000000080000a4                process_data
+ *(.text*)
+ .text.startup  0x00000000080000bc       0x34 /home/michael/projs/membrowse/membrowse-action/tests/test_firmware.o
+                0x00000000080000bc                main
+ *(.glue_7)
+ .glue_7        0x00000000080000f0        0x0 linker stubs
+ *(.glue_7t)
+ .glue_7t       0x00000000080000f0        0x0 linker stubs
+ *(.eh_frame)
+ *(.init)
+ *(.fini)
+                0x00000000080000f0                . = ALIGN (0x4)
+                0x00000000080000f0                _etext = .
+
+.vfp11_veneer   0x00000000080000f0        0x0
+ .vfp11_veneer  0x00000000080000f0        0x0 linker stubs
+
+.v4_bx          0x00000000080000f0        0x0
+ .v4_bx         0x00000000080000f0        0x0 linker stubs
+
+.iplt           0x00000000080000f0        0x0
+ .iplt          0x00000000080000f0        0x0 /home/michael/projs/membrowse/membrowse-action/tests/test_firmware.o
+
+.rodata         0x00000000080000f0      0x204
+                0x00000000080000f0                . = ALIGN (0x4)
+ *(.rodata)
+ .rodata        0x00000000080000f0      0x204 /home/michael/projs/membrowse/membrowse-action/tests/test_firmware.o
+                0x00000000080000f0                large_const_buffer
+                0x00000000080002f0                global_const
+ *(.rodata*)
+                0x00000000080002f4                . = ALIGN (0x4)
+
+.rel.dyn        0x00000000080002f4        0x0
+ .rel.iplt      0x00000000080002f4        0x0 /home/michael/projs/membrowse/membrowse-action/tests/test_firmware.o
+
+.ARM.extab
+ *(.ARM.extab* .gnu.linkonce.armextab.*)
+
+.ARM            0x00000000080002f4        0x0
+                0x00000000080002f4                __exidx_start = .
+ *(.ARM.exidx*)
+                0x00000000080002f4                __exidx_end = .
+
+.data           0x0000000020000000        0x4 load address 0x00000000080002f4
+                0x0000000020000000                . = ALIGN (0x4)
+                0x0000000020000000                _sdata = .
+ *(.data)
+ .data          0x0000000020000000        0x4 /home/michael/projs/membrowse/membrowse-action/tests/test_firmware.o
+                0x0000000020000000                global_data
+ *(.data*)
+                0x0000000020000004                . = ALIGN (0x4)
+                0x0000000020000004                _edata = .
+                0x00000000080002f4                _sidata = LOADADDR (.data)
+
+.igot.plt       0x0000000020000004        0x0 load address 0x00000000080002f8
+ .igot.plt      0x0000000020000004        0x0 /home/michael/projs/membrowse/membrowse-action/tests/test_firmware.o
+
+.bss            0x0000000020000004      0x404 load address 0x00000000080002f8
+                0x0000000020000004                . = ALIGN (0x4)
+                0x0000000020000004                _sbss = .
+                0x0000000020000004                __bss_start__ = _sbss
+ *(.bss)
+ .bss           0x0000000020000004      0x404 /home/michael/projs/membrowse/membrowse-action/tests/test_firmware.o
+                0x0000000020000004                global_bss
+                0x0000000020000008                large_buffer
+ *(.bss*)
+ *(COMMON)
+                0x0000000020000408                . = ALIGN (0x4)
+                0x0000000020000408                _ebss = .
+                0x0000000020000408                __bss_end__ = _ebss
+
+._user_heap_stack
+                0x0000000020000408     0x1800 load address 0x00000000080002f8
+                0x0000000020000408                . = ALIGN (0x8)
+                [!provide]                        PROVIDE (end = .)
+                [!provide]                        PROVIDE (_end = .)
+                0x0000000020001408                . = (. + _Min_Heap_Size)
+ *fill*         0x0000000020000408     0x1000 
+                0x0000000020001c08                . = (. + _Min_Stack_Size)
+ *fill*         0x0000000020001408      0x800 
+                0x0000000020001c08                . = ALIGN (0x8)
+                0x0000000020001c08                _estack = .
+
+.ccram          0x0000000010000000        0x0
+                0x0000000010000000                . = ALIGN (0x4)
+                0x0000000010000000                _sccram = .
+ *(.ccram)
+ *(.ccram*)
+                0x0000000010000000                . = ALIGN (0x4)
+                0x0000000010000000                _eccram = .
+
+.debug_info     0x0000000000000000      0x2fc
+ *(.debug_info .gnu.linkonce.wi.*)
+ .debug_info    0x0000000000000000      0x2fc /home/michael/projs/membrowse/membrowse-action/tests/test_firmware.o
+
+.debug_abbrev   0x0000000000000000      0x1c1
+ *(.debug_abbrev)
+ .debug_abbrev  0x0000000000000000      0x1c1 /home/michael/projs/membrowse/membrowse-action/tests/test_firmware.o
+
+.debug_line     0x0000000000000000      0x234
+ *(.debug_line)
+ .debug_line    0x0000000000000000      0x234 /home/michael/projs/membrowse/membrowse-action/tests/test_firmware.o
+
+.debug_frame    0x0000000000000000       0x7c
+ *(.debug_frame)
+ .debug_frame   0x0000000000000000       0x7c /home/michael/projs/membrowse/membrowse-action/tests/test_firmware.o
+
+.debug_str      0x0000000000000000      0x204
+ *(.debug_str)
+ .debug_str     0x0000000000000000      0x204 /home/michael/projs/membrowse/membrowse-action/tests/test_firmware.o
+                                        0x238 (size before relaxing)
+
+.debug_loc      0x0000000000000000       0xd8
+ *(.debug_loc)
+ .debug_loc     0x0000000000000000       0xd8 /home/michael/projs/membrowse/membrowse-action/tests/test_firmware.o
+
+.debug_macinfo
+ *(.debug_macinfo)
+
+.debug_ranges   0x0000000000000000       0x50
+ *(.debug_ranges)
+ .debug_ranges  0x0000000000000000       0x50 /home/michael/projs/membrowse/membrowse-action/tests/test_firmware.o
+                0x0000000000040000                _flash_size = LENGTH (FLASH)
+                0x0000000000010000                _ram_size = LENGTH (RAM)
+                0x0000000000002000                _ccram_size = LENGTH (CCRAM)
+                0x0000000008000000                _flash_start = ORIGIN (FLASH)
+                0x0000000020000000                _ram_start = ORIGIN (RAM)
+                0x0000000010000000                _ccram_start = ORIGIN (CCRAM)
+OUTPUT(/home/michael/projs/membrowse/membrowse-action/tests/test_firmware.elf elf32-littlearm)
+LOAD linker stubs
+
+.debug_aranges  0x0000000000000000       0x28
+ .debug_aranges
+                0x0000000000000000       0x28 /home/michael/projs/membrowse/membrowse-action/tests/test_firmware.o
+
+.comment        0x0000000000000000       0x33
+ .comment       0x0000000000000000       0x33 /home/michael/projs/membrowse/membrowse-action/tests/test_firmware.o
+                                         0x34 (size before relaxing)
+
+.ARM.attributes
+                0x0000000000000000       0x2e
+ .ARM.attributes
+                0x0000000000000000       0x2e /home/michael/projs/membrowse/membrowse-action/tests/test_firmware.o
