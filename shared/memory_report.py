@@ -76,7 +76,6 @@ class Symbol:  # pylint: disable=too-many-instance-attributes
     section: str
     source_file: str = ""
     visibility: str = ""
-    compilation_unit: str = ""
 
 
 @dataclass
@@ -520,8 +519,7 @@ class ELFAnalyzer:
                             binding=self._get_symbol_binding(symbol['st_info']['bind']),
                             section=section_name,
                             source_file=self._extract_source_file(symbol.name, symbol_address, symbol_type),
-                            visibility="",  # Could be extracted if needed
-                            compilation_unit=self._find_compilation_unit(symbol_address) if symbol_address > 0 else ""
+                            visibility=""  # Could be extracted if needed
                         ))
 
         except (IOError, OSError, ELFError) as e:
@@ -656,16 +654,6 @@ class ELFAnalyzer:
             flag_str += "X"
         return flag_str or "---"
 
-    def _find_compilation_unit(self, address: int) -> str:
-        """Find which compilation unit an address belongs to."""
-        if not hasattr(self, '_cu_ranges'):
-            return ""
-        
-        for low_pc, high_pc, cu_name, cu_path in self._cu_ranges:
-            if low_pc <= address < high_pc:
-                return cu_name
-        return ""
-    
     def _extract_source_file(self, symbol_name: str, symbol_address: int = None, 
                            symbol_type: str = None) -> str:
         """Extract source file using .debug_line as primary source.
