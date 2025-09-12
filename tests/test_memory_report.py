@@ -9,10 +9,16 @@ import subprocess
 import sys
 from pathlib import Path
 
+
 def run_command(cmd, cwd=None):
     """Run a command and return output"""
     print(f"Running: {' '.join(cmd)}")
-    result = subprocess.run(cmd, capture_output=True, text=True, cwd=cwd, check=False)
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        cwd=cwd,
+        check=False)
     if result.returncode != 0:
         print(f"Command failed with return code {result.returncode}")
         print(f"STDOUT: {result.stdout}")
@@ -20,10 +26,12 @@ def run_command(cmd, cwd=None):
         return None
     return result.stdout
 
+
 def compile_test_firmware(test_dir):
     """Compile the test firmware"""
     # Check if arm-none-eabi-gcc is available
-    gcc_check = subprocess.run(['which', 'arm-none-eabi-gcc'], capture_output=True, check=False)
+    gcc_check = subprocess.run(
+        ['which', 'arm-none-eabi-gcc'], capture_output=True, check=False)
     if not gcc_check.returncode == 0:
         print("arm-none-eabi-gcc not found, trying gcc")
         gcc_cmd = 'gcc'
@@ -97,7 +105,8 @@ def run_memory_report(test_dir):
     with open(report_path, 'r', encoding='utf-8') as f:
         return json.load(f)
 
-def verify_memory_report(report):
+
+def verify_memory_report(report):  # pylint: disable=too-many-branches
     """Verify the memory report contains expected content"""
     errors = []
     # Check basic structure
@@ -120,14 +129,19 @@ def verify_memory_report(report):
         else:
             # Check that we have some meaningful symbols
             symbol_names = [s.get('name', '') for s in symbols]
-            expected_symbols = ['main', 'init_hardware', 'process_data', 'global_data']
+            expected_symbols = [
+                'main',
+                'init_hardware',
+                'process_data',
+                'global_data']
             found_symbols = [
                 name for name in expected_symbols
                 if any(name in sym for sym in symbol_names)
             ]
 
             if len(found_symbols) == 0:
-                errors.append(f"No expected symbols found. Got: {symbol_names[:10]}")
+                errors.append(
+                    f"No expected symbols found. Got: {symbol_names[:10]}")
 
             # Check that debug symbols are filtered out
             debug_symbols = [
@@ -136,7 +150,8 @@ def verify_memory_report(report):
             ]
             if debug_symbols:
                 debug_names = [s['name'] for s in debug_symbols[:5]]
-                errors.append(f"Debug symbols should be filtered out: {debug_names}")
+                errors.append(
+                    f"Debug symbols should be filtered out: {debug_names}")
     # Check memory layout
     if 'memory_layout' in report:
         layout = report['memory_layout']
@@ -150,7 +165,8 @@ def verify_memory_report(report):
                 if region in layout
             ]
             if len(found_regions) == 0:
-                errors.append(f"No expected memory regions found. Got: {list(layout.keys())}")
+                errors.append(
+                    f"No expected memory regions found. Got: {list(layout.keys())}")
     # Check total sizes
     if 'total_sizes' in report:
         sizes = report['total_sizes']
@@ -162,6 +178,7 @@ def verify_memory_report(report):
             if text_size == 0:
                 errors.append("Text size should be > 0")
     return errors
+
 
 def main():
     """Main test function"""
@@ -203,6 +220,7 @@ def main():
         print(f"BSS size: {sizes.get('bss_size', 0)} bytes")
     print("\n🎉 All tests passed!")
     return 0
+
 
 if __name__ == '__main__':
     sys.exit(main())

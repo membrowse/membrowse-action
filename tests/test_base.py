@@ -11,6 +11,7 @@ from pathlib import Path
 
 class BaseTestCase(unittest.TestCase):
     """Base test case with common setup/teardown for file operations"""
+
     def setUp(self):
         """Set up temporary directory and file list"""
         self.temp_dir = Path(tempfile.mkdtemp())

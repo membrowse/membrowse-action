@@ -13,8 +13,9 @@ from typing import Dict, Any
 import requests
 
 
-class MemBrowseUploader:
+class MemBrowseUploader:  # pylint: disable=too-few-public-methods
     """Handles uploading reports to MemBrowse API"""
+
     def __init__(self, api_key: str, api_endpoint: str):
         self.api_key = api_key
         self.api_endpoint = api_endpoint
@@ -24,6 +25,7 @@ class MemBrowseUploader:
             'Content-Type': 'application/json',
             'User-Agent': 'MemBrowse-Action/1.0.0'
         })
+
     def upload_report(self, report_data: Dict[str, Any]) -> bool:
         """Upload report to MemBrowse API using requests"""
         try:
@@ -45,7 +47,9 @@ class MemBrowseUploader:
             print("Upload error: Request timed out", file=sys.stderr)
             return False
         except requests.exceptions.ConnectionError:
-            print("Upload error: Failed to connect to MemBrowse API", file=sys.stderr)
+            print(
+                "Upload error: Failed to connect to MemBrowse API",
+                file=sys.stderr)
             return False
         except requests.exceptions.RequestException as e:
             print(f"Upload error: {e}", file=sys.stderr)
@@ -64,23 +68,46 @@ Examples:
         """)
 
     # Required arguments
-    parser.add_argument('--base-report', required=True, help='Path to base memory report JSON')
+    parser.add_argument(
+        '--base-report',
+        required=True,
+        help='Path to base memory report JSON')
     parser.add_argument('--commit-sha', required=True, help='Git commit SHA')
-    parser.add_argument('--commit-message', required=True, help='Git commit message')
-    parser.add_argument('--target-name', required=True, help='Target platform name')
-    parser.add_argument('--timestamp', required=True, help='Committer timestamp in ISO format')
+    parser.add_argument(
+        '--commit-message',
+        required=True,
+        help='Git commit message')
+    parser.add_argument(
+        '--target-name',
+        required=True,
+        help='Target platform name')
+    parser.add_argument(
+        '--timestamp',
+        required=True,
+        help='Committer timestamp in ISO format')
 
     # Optional metadata
-    parser.add_argument('--base-sha', default='', help='Base commit SHA for comparison')
+    parser.add_argument(
+        '--base-sha',
+        default='',
+        help='Base commit SHA for comparison')
     parser.add_argument('--branch-name', default='', help='Git branch name')
     parser.add_argument('--repository', default='', help='Repository name')
     parser.add_argument('--pr-number', default='', help='Pull request number')
-    parser.add_argument('--analysis-version', default='1.0.0', help='Analysis version')
+    parser.add_argument(
+        '--analysis-version',
+        default='1.0.0',
+        help='Analysis version')
 
     # Upload options
-    parser.add_argument('--api-key', help='MemBrowse API key (uploads automatically if provided)')
+    parser.add_argument(
+        '--api-key',
+        help='MemBrowse API key (uploads automatically if provided)')
     parser.add_argument('--api-endpoint', help='MemBrowse API endpoint URL')
-    parser.add_argument('--print-report', action='store_true', help='Print report to stdout')
+    parser.add_argument(
+        '--print-report',
+        action='store_true',
+        help='Print report to stdout')
     args = parser.parse_args()
     try:
         # Create metadata structure with nested git info for database
@@ -116,13 +143,15 @@ Examples:
         else:
             print("No API key provided, skipping upload", file=sys.stderr)
     except FileNotFoundError:
-        print(f"Error: Base report file not found: {args.base_report}", file=sys.stderr)
+        print(
+            f"Error: Base report file not found: {args.base_report}",
+            file=sys.stderr)
         sys.exit(1)
     except json.JSONDecodeError as e:
         print(f"Error: Invalid JSON in base report: {e}", file=sys.stderr)
         sys.exit(1)
-    except Exception:
-        print("Error: Unexpected error occurred", file=sys.stderr)
+    except (OSError, IOError) as e:
+        print(f"Error: File system error: {e}", file=sys.stderr)
         sys.exit(1)
 
 

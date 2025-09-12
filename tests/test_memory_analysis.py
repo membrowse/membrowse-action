@@ -54,15 +54,18 @@ class TestMemoryAnalysis(unittest.TestCase):
         self.gcc_command = None
         for gcc_cmd in ['gcc', 'arm-none-eabi-gcc']:
             try:
-                subprocess.run([gcc_cmd, '--version'], capture_output=True, check=True)
+                subprocess.run([gcc_cmd, '--version'],
+                               capture_output=True, check=True)
                 self.gcc_command = gcc_cmd
                 break
             except (subprocess.CalledProcessError, FileNotFoundError):
                 continue
 
         # Ensure test files exist
-        self.assertTrue(self.c_file.exists(), f"Test C file not found: {self.c_file}")
-        self.assertTrue(self.ld_file.exists(), f"Test linker script not found: {self.ld_file}")
+        self.assertTrue(self.c_file.exists(),
+                        f"Test C file not found: {self.c_file}")
+        self.assertTrue(self.ld_file.exists(),
+                        f"Test linker script not found: {self.ld_file}")
 
     def tearDown(self):
         """Clean up test environment"""
@@ -76,7 +79,7 @@ class TestMemoryAnalysis(unittest.TestCase):
         for gcc_cmd in ['gcc', 'arm-none-eabi-gcc']:
             try:
                 subprocess.run([gcc_cmd, '--version'],
-                              capture_output=True, check=True)
+                               capture_output=True, check=True)
                 gcc_available = True
                 self.gcc_command = gcc_cmd
                 print(f"Found GCC: {gcc_cmd}")
@@ -88,7 +91,8 @@ class TestMemoryAnalysis(unittest.TestCase):
 
         # Check for Bloaty
         try:
-            subprocess.run(['bloaty', '--version'], capture_output=True, check=True)
+            subprocess.run(['bloaty', '--version'],
+                           capture_output=True, check=True)
             print("Found Bloaty")
         except (subprocess.CalledProcessError, FileNotFoundError):
             print("Bloaty not found - install it manually or via GitHub Actions")
@@ -108,7 +112,11 @@ class TestMemoryAnalysis(unittest.TestCase):
         ]
 
         try:
-            result = subprocess.run(compile_cmd, capture_output=True, text=True, check=True)
+            result = subprocess.run(
+                compile_cmd,
+                capture_output=True,
+                text=True,
+                check=True)
             print("Compilation successful")
             if result.stderr:
                 print(f"Compiler warnings: {result.stderr}")
@@ -121,7 +129,10 @@ class TestMemoryAnalysis(unittest.TestCase):
         # Verify it's actually an ELF file
         with open(self.elf_file, 'rb') as f:
             magic = f.read(4)
-            self.assertEqual(magic, b'\x7fELF', "Output file is not a valid ELF file")
+            self.assertEqual(
+                magic,
+                b'\x7fELF',
+                "Output file is not a valid ELF file")
 
     def test_03_parse_linker_script(self):
         """Test parsing of the linker script"""
@@ -198,7 +209,8 @@ class TestMemoryAnalysis(unittest.TestCase):
 
         except (subprocess.CalledProcessError, FileNotFoundError) as e:
             # If Bloaty is not available, create mock CSV data for testing
-            print(f"Bloaty not available ({e}), creating mock data for testing")
+            print(
+                f"Bloaty not available ({e}), creating mock data for testing")
             print("Note: In GitHub Actions, Bloaty will be installed automatically")
             self._create_mock_bloaty_data()
 
@@ -252,7 +264,8 @@ LOAD,256,1280
             self.fail(f"Failed to parse memory regions: {e}")
 
         # Generate memory report
-        generator = MemoryReportGenerator(str(self.elf_file), memory_regions_data)
+        generator = MemoryReportGenerator(
+            str(self.elf_file), memory_regions_data)
 
         try:
             report = generator.generate_report()
@@ -298,13 +311,15 @@ LOAD,256,1280
                     jsonschema.validate(report, schema)
                     print("✓ Report passes JSON schema validation")
                 except jsonschema.ValidationError as e:
-                    self.fail(f"Report does not match JSON schema: {e.message}")
+                    self.fail(
+                        f"Report does not match JSON schema: {e.message}")
                 except Exception as e:  # pylint: disable=broad-exception-caught
                     print(f"Warning: Could not validate schema: {e}")
             else:
                 print("Warning: JSON schema not available for validation")
         else:
-            print("Warning: jsonschema library not installed - skipping schema validation")
+            print(
+                "Warning: jsonschema library not installed - skipping schema validation")
 
         # Manual structure verification as backup
         required_fields = [
@@ -313,16 +328,27 @@ LOAD,256,1280
         ]
 
         for field in required_fields:
-            self.assertIn(field, report, f"Required field '{field}' missing from report")
+            self.assertIn(
+                field,
+                report,
+                f"Required field '{field}' missing from report")
 
         # Verify symbols structure
         symbols = report['symbols']
         self.assertIsInstance(symbols, list, "Symbols should be a list")
         if symbols:
             symbol = symbols[0]
-            symbol_fields = ['name', 'address', 'size', 'type', 'binding', 'section', 'source_file']
+            symbol_fields = [
+                'name',
+                'address',
+                'size',
+                'type',
+                'binding',
+                'section',
+                'source_file']
             for field in symbol_fields:
-                self.assertIn(field, symbol, f"Required symbol field '{field}' missing")
+                self.assertIn(
+                    field, symbol, f"Required symbol field '{field}' missing")
 
     def _verify_memory_regions(self, report):
         """Verify memory regions in the report"""
@@ -339,7 +365,9 @@ LOAD,256,1280
         self.assertEqual(flash_region['address'], 0x08000000)
         self.assertEqual(flash_region['limit_size'], 512 * 1024)
         self.assertGreaterEqual(flash_region['used_size'], 0)
-        self.assertLessEqual(flash_region['used_size'], flash_region['limit_size'])
+        self.assertLessEqual(
+            flash_region['used_size'],
+            flash_region['limit_size'])
 
         # Should have some sections mapped to FLASH (code and rodata)
         flash_sections = flash_region['sections']
@@ -355,7 +383,13 @@ LOAD,256,1280
 
         # Verify symbol structure
         for symbol in symbols[:3]:  # Check first few symbols
-            required_fields = ['name', 'address', 'size', 'type', 'binding', 'section']
+            required_fields = [
+                'name',
+                'address',
+                'size',
+                'type',
+                'binding',
+                'section']
             for field in required_fields:
                 self.assertIn(field, symbol, f"Symbol missing field '{field}'")
 
@@ -364,7 +398,8 @@ LOAD,256,1280
         expected_symbols = ['main', 'global_counter']
         for expected in expected_symbols:
             if not any(expected in name for name in symbol_names):
-                print(f"Warning: Expected symbol '{expected}' not found in: {symbol_names[:10]}")
+                print(
+                    f"Warning: Expected symbol '{expected}' not found in: {symbol_names[:10]}")
 
     def test_06_schema_validation(self):
         """Test that generated report matches the expected JSON schema"""
@@ -384,7 +419,8 @@ LOAD,256,1280
             self.fail(f"Failed to parse memory regions: {e}")
 
         # Generate memory report
-        generator = MemoryReportGenerator(str(self.elf_file), memory_regions_data)
+        generator = MemoryReportGenerator(
+            str(self.elf_file), memory_regions_data)
 
         try:
             report = generator.generate_report()
@@ -410,9 +446,9 @@ LOAD,256,1280
 # pylint: disable=too-many-locals,too-many-statements
 def run_full_integration_test():
     """Run a full integration test using collect_report.sh"""
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("RUNNING INTEGRATION TEST")
-    print("="*60)
+    print("=" * 60)
 
     test_dir = Path(__file__).parent
     shared_dir = test_dir.parent / 'shared'
@@ -428,7 +464,8 @@ def run_full_integration_test():
         gcc_command = None
         for gcc_cmd in ['gcc', 'arm-none-eabi-gcc']:
             try:
-                subprocess.run([gcc_cmd, '--version'], capture_output=True, check=True)
+                subprocess.run([gcc_cmd, '--version'],
+                               capture_output=True, check=True)
                 gcc_command = gcc_cmd
                 break
             except (subprocess.CalledProcessError, FileNotFoundError):
@@ -449,7 +486,8 @@ def run_full_integration_test():
 
         # Check if Bloaty is available for full integration test
         try:
-            subprocess.run(['bloaty', '--version'], capture_output=True, check=True)
+            subprocess.run(['bloaty', '--version'],
+                           capture_output=True, check=True)
             bloaty_available = True
         except (subprocess.CalledProcessError, FileNotFoundError):
             bloaty_available = False
@@ -515,12 +553,14 @@ LOAD,2816,2816
         if result.returncode == 0:
             print("✓ Full integration test PASSED")
             print("Output:")
-            print(result.stdout[-500:] if len(result.stdout) > 500 else result.stdout)
+            print(result.stdout[-500:] if len(result.stdout)
+                  > 500 else result.stdout)
             return True
 
         print("✗ Full integration test FAILED")
         print("Error output:")
-        print(result.stderr[-1000:] if len(result.stderr) > 1000 else result.stderr)
+        print(result.stderr[-1000:] if len(result.stderr)
+              > 1000 else result.stderr)
         return False
 
     except Exception as e:  # pylint: disable=broad-exception-caught

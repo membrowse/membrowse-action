@@ -80,8 +80,10 @@ class TestSyntaxErrors(TestMalformedLinkerScripts):
             # Either empty regions or some regions parsed before the error
             self.assertIsInstance(regions, dict)
         except Exception as e:  # pylint: disable=broad-exception-caught
-            # If it throws an exception, it should be a specific linker script error
-            self.assertIsInstance(e, (LinkerScriptError, ValueError, SyntaxError))
+            # If it throws an exception, it should be a specific linker script
+            # error
+            self.assertIsInstance(
+                e, (LinkerScriptError, ValueError, SyntaxError))
 
     def test_missing_opening_brace(self):
         """Test MEMORY block with missing opening brace"""
@@ -105,16 +107,16 @@ class TestSyntaxErrors(TestMalformedLinkerScripts):
         {
             /* Missing parentheses for attributes */
             FLASH rx : ORIGIN = 0x08000000, LENGTH = 512K
-            
+
             /* Missing colon */
             RAM (rw) ORIGIN = 0x20000000, LENGTH = 128K
-            
+
             /* Missing ORIGIN */
             SRAM (rw) : LENGTH = 64K
-            
+
             /* Missing LENGTH */
             CCM (rw) : ORIGIN = 0x10000000
-            
+
             /* Missing comma */
             BACKUP (rw) : ORIGIN = 0x40024000 LENGTH = 4K
         }
@@ -126,7 +128,8 @@ class TestSyntaxErrors(TestMalformedLinkerScripts):
         # Should either be empty or contain only validly parsed regions
         self.assertIsInstance(regions, dict)
         # Most likely all regions will fail to parse due to syntax errors
-        self.assertLessEqual(len(regions), 1)  # At most 1 might accidentally parse
+        # At most 1 might accidentally parse
+        self.assertLessEqual(len(regions), 1)
 
     def test_invalid_parentheses_nesting(self):
         """Test invalid parentheses and nesting"""
@@ -135,10 +138,10 @@ class TestSyntaxErrors(TestMalformedLinkerScripts):
         {
             /* Unmatched parentheses */
             FLASH ((rx) : ORIGIN = 0x08000000, LENGTH = 512K
-            
+
             /* Wrong parentheses */
             RAM [rw] : ORIGIN = 0x20000000, LENGTH = 128K
-            
+
             /* Multiple parentheses groups */
             SRAM (rw) (x) : ORIGIN = 0x20020000, LENGTH = 32K
         }
@@ -179,13 +182,13 @@ class TestInvalidAddressFormats(TestMalformedLinkerScripts):
         {
             /* Invalid hex - non-hex characters */
             FLASH1 (rx) : ORIGIN = 0xGGGGGGGG, LENGTH = 512K
-            
+
             /* Invalid hex - missing digits */
             FLASH2 (rx) : ORIGIN = 0x, LENGTH = 512K
-            
+
             /* Invalid hex - spaces in address */
             FLASH3 (rx) : ORIGIN = 0x0800 0000, LENGTH = 512K
-            
+
             /* Invalid hex - wrong prefix */
             FLASH4 (rx) : ORIGIN = 8x08000000, LENGTH = 512K
         }
@@ -198,7 +201,8 @@ class TestInvalidAddressFormats(TestMalformedLinkerScripts):
         # The parser might parse some regions with partial valid syntax
         self.assertLessEqual(len(regions), 1)
 
-        # If any region was parsed, it should be the one with space (treated as expression)
+        # If any region was parsed, it should be the one with space (treated as
+        # expression)
         if regions:
             self.assertIn("FLASH3", regions)
             # The spaces cause it to parse only the first part: 0x0800
@@ -211,25 +215,26 @@ class TestInvalidAddressFormats(TestMalformedLinkerScripts):
         {
             /* Invalid size suffix */
             FLASH1 (rx) : ORIGIN = 0x08000000, LENGTH = 512X
-            
+
             /* Invalid size - non-numeric */
             FLASH2 (rx) : ORIGIN = 0x08000000, LENGTH = ABCK
-            
+
             /* Invalid size - negative */
             FLASH3 (rx) : ORIGIN = 0x08000000, LENGTH = -512K
-            
+
             /* Invalid size - floating point */
             FLASH4 (rx) : ORIGIN = 0x08000000, LENGTH = 512.5K
-            
+
             /* Invalid size - empty */
-            FLASH5 (rx) : ORIGIN = 0x08000000, LENGTH = 
+            FLASH5 (rx) : ORIGIN = 0x08000000, LENGTH =
         }
         '''
 
         file_path = self.create_test_file(content)
         regions = parse_linker_scripts([str(file_path)])
 
-        # Most regions should fail to parse, but negative sizes might be accepted
+        # Most regions should fail to parse, but negative sizes might be
+        # accepted
         self.assertLessEqual(len(regions), 1)
 
         # If any region was parsed, it should be the one with negative size
@@ -245,10 +250,10 @@ class TestInvalidAddressFormats(TestMalformedLinkerScripts):
         {
             /* Very large address */
             FLASH1 (rx) : ORIGIN = 0xFFFFFFFFFFFFFFFF, LENGTH = 512K
-            
+
             /* Address larger than 64-bit */
             FLASH2 (rx) : ORIGIN = 0x1FFFFFFFFFFFFFFFF, LENGTH = 512K
-            
+
             /* Very large size */
             FLASH3 (rx) : ORIGIN = 0x08000000, LENGTH = 99999999999999999999999G
         }
@@ -271,16 +276,16 @@ class TestInvalidAddressFormats(TestMalformedLinkerScripts):
         {
             /* Division by zero */
             FLASH1 (rx) : ORIGIN = 0x08000000, LENGTH = 512 / 0
-            
+
             /* Invalid operators */
             FLASH2 (rx) : ORIGIN = 0x08000000 %% 0x1000, LENGTH = 512K
-            
+
             /* Unmatched parentheses in expression */
             FLASH3 (rx) : ORIGIN = (0x08000000 + 0x1000, LENGTH = 512K
-            
+
             /* Invalid function calls */
             FLASH4 (rx) : ORIGIN = unknown_function(0x08000000), LENGTH = 512K
-            
+
             /* String in numeric context */
             FLASH5 (rx) : ORIGIN = "0x08000000", LENGTH = 512K
         }
@@ -304,7 +309,7 @@ class TestCorruptedMemoryBlocks(TestMalformedLinkerScripts):
         {
             FLASH (rx) : ORIGIN = 0x08000000, LENGTH = 512K
         }
-        
+
         MEMORY
         {
             FLASH (rx) : ORIGIN = 0x10000000, LENGTH = 1024K
@@ -319,7 +324,9 @@ class TestCorruptedMemoryBlocks(TestMalformedLinkerScripts):
         self.assertIsInstance(regions, dict)
         if 'FLASH' in regions:
             # If FLASH exists, check which definition was used
-            self.assertIn(regions['FLASH']['address'], [0x08000000, 0x10000000])
+            self.assertIn(
+                regions['FLASH']['address'], [
+                    0x08000000, 0x10000000])
 
     def test_nested_memory_blocks(self):
         """Test incorrectly nested MEMORY blocks"""
@@ -346,15 +353,15 @@ class TestCorruptedMemoryBlocks(TestMalformedLinkerScripts):
         MEMORY
         {
             FLASH (rx) : ORIGIN = 0x08000000, LENGTH = 512K
-            
+
             /* Invalid - not a memory region */
             SECTIONS
             {
                 .text : { *(.text) }
             }
-            
+
             RAM (rw) : ORIGIN = 0x20000000, LENGTH = 128K
-            
+
             /* Invalid - variable assignment */
             _stack_size = 0x1000;
         }
@@ -408,7 +415,8 @@ class TestFileSystemErrors(TestMalformedLinkerScripts):
         # Create a file with binary content
         file_path = self.temp_dir / "binary.ld"
         with open(file_path, 'wb') as f:
-            f.write(b'\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f')
+            f.write(
+                b'\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f')
 
         self.test_files.append(file_path)
 
@@ -523,7 +531,8 @@ class TestEdgeCasesAndBoundaryConditions(TestMalformedLinkerScripts):
 
         # Should handle large number of regions
         self.assertIsInstance(regions, dict)
-        self.assertLessEqual(len(regions), 100)  # Should get most or all regions
+        # Should get most or all regions
+        self.assertLessEqual(len(regions), 100)
 
     def test_unicode_and_special_characters(self):
         """Test handling of unicode and special characters"""
@@ -532,10 +541,10 @@ class TestEdgeCasesAndBoundaryConditions(TestMalformedLinkerScripts):
         {
             /* Test with unicode characters */
             FLASH_Ω (rx) : ORIGIN = 0x08000000, LENGTH = 512K
-            
+
             /* Test with special ASCII characters */
             RAM_@#$ (rw) : ORIGIN = 0x20000000, LENGTH = 128K
-            
+
             /* Test with numbers in names */
             SRAM_123 (rw) : ORIGIN = 0x20020000, LENGTH = 32K
         }
@@ -546,7 +555,8 @@ class TestEdgeCasesAndBoundaryConditions(TestMalformedLinkerScripts):
         try:
             regions = parse_linker_scripts([str(file_path)])
             self.assertIsInstance(regions, dict)
-            # Some regions might parse, others might not due to invalid characters
+            # Some regions might parse, others might not due to invalid
+            # characters
         except UnicodeError:
             # This is acceptable behavior for invalid unicode
             pass
@@ -557,14 +567,14 @@ class TestEdgeCasesAndBoundaryConditions(TestMalformedLinkerScripts):
         MEMORY
         {
             /* Comment level 1
-               /* Comment level 2 
+               /* Comment level 2
                   /* Comment level 3 */
                /* Missing close for level 2 */
             FLASH (rx) : ORIGIN = 0x08000000, LENGTH = 512K
-            
+
             // C++ style comment with /* C style inside */
             RAM (rw) : ORIGIN = 0x20000000, LENGTH = 128K
-            
+
             /* Unclosed comment at end of file
         }
         '''
@@ -607,10 +617,10 @@ class TestSpecificExceptionTypes(TestMalformedLinkerScripts):
         {
             /* Valid region */
             FLASH (rx) : ORIGIN = 0x08000000, LENGTH = 512K
-            
+
             /* Invalid region that should be skipped */
             INVALID_REGION_WITH_BAD_SYNTAX
-            
+
             /* Another valid region after the error */
             RAM (rw) : ORIGIN = 0x20000000, LENGTH = 128K
         }

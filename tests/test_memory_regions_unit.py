@@ -42,7 +42,9 @@ class TestLinkerScriptParser(unittest.TestCase):
 
     def create_temp_linker_script(self, content: str) -> str:
         """Create a temporary linker script file with given content"""
-        temp_file = os.path.join(self.temp_dir, f"test_{len(self.temp_files)}.ld")
+        temp_file = os.path.join(
+            self.temp_dir,
+            f"test_{len(self.temp_files)}.ld")
         with open(temp_file, 'w', encoding='utf-8') as f:
             f.write(content)
         self.temp_files.append(temp_file)
@@ -52,13 +54,13 @@ class TestLinkerScriptParser(unittest.TestCase):
         """Test basic STM32-style memory regions (bare-arm example)"""
         script_content = """
         /* GNU linker script for STM32F405 */
-        
+
         MEMORY
         {
             FLASH (rx)      : ORIGIN = 0x08000000, LENGTH = 0x100000 /* entire flash, 1 MiB */
             RAM (xrw)       : ORIGIN = 0x20000000, LENGTH = 0x020000 /* 128 KiB */
         }
-        
+
         _estack = ORIGIN(RAM) + LENGTH(RAM);
         """
 
@@ -113,13 +115,23 @@ class TestLinkerScriptParser(unittest.TestCase):
         # Check RAM region (should be ROM base + ROM size)
         self.assertIn('RAM', regions)
         ram = regions['RAM']
-        self.assertEqual(ram['address'], 0x80000000 + 4 * 1024 * 1024)  # 0x80400000
+        self.assertEqual(
+            ram['address'],
+            0x80000000 +
+            4 *
+            1024 *
+            1024)  # 0x80400000
         self.assertEqual(ram['limit_size'], 2 * 1024 * 1024)  # 2M
 
         # Check STACK region (should be RAM base + RAM size)
         self.assertIn('STACK', regions)
         stack = regions['STACK']
-        self.assertEqual(stack['address'], 0x80000000 + 6 * 1024 * 1024)  # 0x80600000
+        self.assertEqual(
+            stack['address'],
+            0x80000000 +
+            6 *
+            1024 *
+            1024)  # 0x80600000
         self.assertEqual(stack['limit_size'], 64 * 1024)  # 64K
 
     def test_samd_variable_resolution(self):
@@ -128,23 +140,23 @@ class TestLinkerScriptParser(unittest.TestCase):
         /*
             GNU linker script for SAMD51
         */
-        
+
         /*
         _codesize is defined in mpconfigmcu.mk or mpconfigboard.mk as
         MICROPY_HW_CODESIZE and is set in Makefile
         */
-        
+
         _flashsize = 512K;  /* The physical flash size */
         _bootloader = 16K;  /* Must match the ORIGIN value of FLASH */
         _codesize = 64K;    /* Set by build system */
-        
+
         /* Specify the memory areas */
         MEMORY
         {
             FLASH (rx)  : ORIGIN = 0x00004000, LENGTH = _codesize
             RAM (xrw)   : ORIGIN = 0x20000000, LENGTH = 192K
         }
-        
+
         /* Top end of the stack, with room for double-tap variable */
         _estack = ORIGIN(RAM) + LENGTH(RAM) - 8;
         _sstack = _estack - 16K;
@@ -174,7 +186,7 @@ class TestLinkerScriptParser(unittest.TestCase):
         /*
             GNU linker script for STM32F405 with hierarchical regions
         */
-        
+
         /* Specify the memory areas */
         MEMORY
         {
@@ -255,7 +267,7 @@ class TestLinkerScriptParser(unittest.TestCase):
         dtcm_size           = 0x00020000;
         ocrm_start          = 0x20200000;
         ocrm_size           = 0x000C0000;
-        
+
         /* Specify the memory areas */
         MEMORY
         {
@@ -364,10 +376,10 @@ class TestLinkerScriptParser(unittest.TestCase):
         /* Test preprocessor handling */
         _flash_size = 512K;
         _ram_size = 128K;
-        
+
         // This is a C++ style comment
         /* This is a C style comment */
-        
+
         MEMORY
         {
             FLASH (rx) : ORIGIN = 0x08000000, LENGTH = _flash_size
@@ -387,7 +399,9 @@ class TestLinkerScriptParser(unittest.TestCase):
 
         flash = regions['FLASH']
         self.assertEqual(flash['address'], 0x08000000)
-        self.assertEqual(flash['limit_size'], 512 * 1024)  # _flash_size resolved
+        self.assertEqual(
+            flash['limit_size'],
+            512 * 1024)  # _flash_size resolved
 
         ram = regions['RAM']
         self.assertEqual(ram['address'], 0x20000000)
@@ -399,9 +413,9 @@ class TestLinkerScriptParser(unittest.TestCase):
         reserved_size = 0x1000;
         flash_start = 0x60000000;
         flash_size = 0x800000;
-        
+
         flash_end = DEFINED(reserved_size) ? ((flash_start) + (flash_size - reserved_size)) : ((flash_start) + (flash_size));
-        
+
         MEMORY
         {
             FLASH (rx) : ORIGIN = flash_start, LENGTH = flash_end - flash_start
@@ -417,7 +431,8 @@ class TestLinkerScriptParser(unittest.TestCase):
         self.assertIn('FLASH', regions)
         flash = regions['FLASH']
         self.assertEqual(flash['address'], 0x60000000)
-        # Should use the DEFINED(reserved_size) ? true_value : false_value expression
+        # Should use the DEFINED(reserved_size) ? true_value : false_value
+        # expression
         expected_length = 0x800000 - 0x1000  # flash_size - reserved_size
         self.assertEqual(flash['limit_size'], expected_length)
 
@@ -427,7 +442,7 @@ class TestLinkerScriptParser(unittest.TestCase):
         MEMORY
         {
             FLASH1 (rx) : ORIGIN = 0x08000000, LENGTH = 1024K
-            FLASH2 (rx) : ORIGIN = 0x08100000, LENGTH = 1M  
+            FLASH2 (rx) : ORIGIN = 0x08100000, LENGTH = 1M
             FLASH3 (rx) : ORIGIN = 0x08200000, LENGTH = 512KB
             FLASH4 (rx) : ORIGIN = 0x08300000, LENGTH = 2MB
             RAM1 (xrw)  : ORIGIN = 0x20000000, LENGTH = 128K
@@ -522,7 +537,8 @@ class TestLinkerScriptParser(unittest.TestCase):
         # Test FLASH type detection
         self.assertEqual(regions['FLASH']['type'], 'FLASH')
 
-        # Test BOOTROM type detection (gets categorized as FLASH due to 'rom' pattern)
+        # Test BOOTROM type detection (gets categorized as FLASH due to 'rom'
+        # pattern)
         self.assertEqual(regions['BOOTROM']['type'], 'FLASH')
 
         # Test EEPROM type detection
@@ -594,7 +610,7 @@ class TestLinkerScriptParser(unittest.TestCase):
         script1_content = """
         flash_start = 0x60000000;
         flash_size = 0x800000;
-        
+
         MEMORY
         {
             FLASH (rx) : ORIGIN = flash_start, LENGTH = flash_size
@@ -605,7 +621,7 @@ class TestLinkerScriptParser(unittest.TestCase):
         script2_content = """
         dtcm_start = 0x20000000;
         dtcm_size = 0x20000;
-        
+
         MEMORY
         {
             DTCM (rw) : ORIGIN = dtcm_start, LENGTH = dtcm_size
@@ -678,7 +694,9 @@ class TestRealWorldScriptPatterns(unittest.TestCase):
 
     def create_temp_linker_script(self, content: str) -> str:
         """Create a temporary linker script file with given content"""
-        temp_file = os.path.join(self.temp_dir, f"test_{len(self.temp_files)}.ld")
+        temp_file = os.path.join(
+            self.temp_dir,
+            f"test_{len(self.temp_files)}.ld")
         with open(temp_file, 'w', encoding='utf-8') as f:
             f.write(content)
         self.temp_files.append(temp_file)
@@ -691,7 +709,7 @@ class TestRealWorldScriptPatterns(unittest.TestCase):
         _sd_size = 0x26000;
         _sd_ram = 0x1FA8;
         _fs_size = 64K;
-        
+
         MEMORY
         {
           FLASH (rx) : ORIGIN = 0x00000000 + _sd_size, LENGTH = 1024K - _sd_size - _fs_size
@@ -708,14 +726,14 @@ class TestRealWorldScriptPatterns(unittest.TestCase):
         # Check FLASH region (offset by SoftDevice size)
         flash = regions['FLASH']
         expected_flash_origin = 0x00000000 + 0x26000
-        expected_flash_length = 1024*1024 - 0x26000 - 64*1024
+        expected_flash_length = 1024 * 1024 - 0x26000 - 64 * 1024
         self.assertEqual(flash['address'], expected_flash_origin)
         self.assertEqual(flash['limit_size'], expected_flash_length)
 
         # Check RAM region (offset by SoftDevice RAM)
         ram = regions['RAM']
         expected_ram_origin = 0x20000000 + 0x1FA8
-        expected_ram_length = 256*1024 - 0x1FA8
+        expected_ram_length = 256 * 1024 - 0x1FA8
         self.assertEqual(ram['address'], expected_ram_origin)
         self.assertEqual(ram['limit_size'], expected_ram_length)
 
@@ -725,7 +743,7 @@ class TestRealWorldScriptPatterns(unittest.TestCase):
         vfs_start = 0x60100000;
         vfs_size = 0x700000;
         reserved_size = 0x1000;
-        
+
         MEMORY
         {
             VFS (rx)      : ORIGIN = vfs_start, LENGTH = vfs_size

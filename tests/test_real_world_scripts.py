@@ -117,8 +117,7 @@ class TestRealWorldLinkerScripts(unittest.TestCase):
             if expected_origin != parsed_origin:
                 differences.append(
                     f"{region_name}: origin mismatch - "
-                    f"expected 0x{expected_origin:08x}, got 0x{parsed_origin:08x}"
-                )
+                    f"expected 0x{expected_origin:08x}, got 0x{parsed_origin:08x}")
                 fully_matched = False
 
             # Compare length/total size
@@ -146,7 +145,8 @@ class TestRealWorldLinkerScripts(unittest.TestCase):
         for port_name, port_configs in self.expected_metadata.items():
             for config_name, config_data in port_configs.items():
                 with self.subTest(port=port_name, config=config_name):
-                    self._test_single_configuration(port_name, config_name, config_data)
+                    self._test_single_configuration(
+                        port_name, config_name, config_data)
 
     # pylint: disable=too-many-locals,too-many-branches,too-many-statements
     def _test_single_configuration(self, port_name: str, config_name: str,
@@ -182,8 +182,7 @@ class TestRealWorldLinkerScripts(unittest.TestCase):
 
             # Compare with expected results
             fully_matched, partially_matched, differences = self.compare_memory_regions(
-                parsed_regions, expected_regions
-            )
+                parsed_regions, expected_regions)
 
             if fully_matched:
                 print("  ✅ FULLY MATCHED")
@@ -215,7 +214,8 @@ class TestRealWorldLinkerScripts(unittest.TestCase):
                               f"0x{region['end_address']:08x} "
                               f"({size_kb:8.1f} KB)")
 
-            # For unit test assertions, be strict but allow minor ESP32 edge cases
+            # For unit test assertions, be strict but allow minor ESP32 edge
+            # cases
             if not partially_matched and expected_regions:
                 self.fail(
                     f"Failed to parse any expected memory regions for {port_name}/{config_name}")
@@ -235,7 +235,8 @@ class TestRealWorldLinkerScripts(unittest.TestCase):
                 )
 
                 # Allow MIMXRT origin mismatches where expected is 0x00000000
-                # The metadata has all origins as 0x00000000 but should be 0x60000000+
+                # The metadata has all origins as 0x00000000 but should be
+                # 0x60000000+
                 mimxrt_origin_differences = (
                     'mimxrt' in port_name.lower() and
                     all('origin mismatch - expected 0x00000000' in diff or
@@ -245,25 +246,30 @@ class TestRealWorldLinkerScripts(unittest.TestCase):
                 )
 
                 if esp32_minor_differences:
-                    print("  ℹ️  Allowing minor ESP32 reserved segment differences: "
-                          f"{'; '.join(differences)}")
+                    print(
+                        "  ℹ️  Allowing minor ESP32 reserved segment differences: "
+                        f"{'; '.join(differences)}")
                 elif samd_flash_differences:
-                    print("  ℹ️  Allowing SAMD FLASH length differences "
-                          "(metadata has 0, parser correctly resolves _codesize): "
-                          f"{'; '.join(differences)}")
+                    print(
+                        "  ℹ️  Allowing SAMD FLASH length differences "
+                        "(metadata has 0, parser correctly resolves _codesize): "
+                        f"{'; '.join(differences)}")
                 elif mimxrt_origin_differences:
-                    print("  ℹ️  Allowing MIMXRT origin differences "
-                          "(metadata has 0x00000000, parser correctly resolves "
-                          f"to 0x60000000+): {len(differences)} issues")
+                    print(
+                        "  ℹ️  Allowing MIMXRT origin differences "
+                        "(metadata has 0x00000000, parser correctly resolves "
+                        f"to 0x60000000+): {len(differences)} issues")
                 else:
                     self.fail(
                         f"Partial match with differences for "
                         f"{port_name}/{config_name}: {'; '.join(differences)}")
 
-            # Also fail if validation warnings (allow overlaps in embedded systems)
+            # Also fail if validation warnings (allow overlaps in embedded
+            # systems)
             if parsed_regions:
                 # Capture validation output to check for serious issues
-                # pylint: disable=import-outside-toplevel,reimported,redefined-outer-name
+                # pylint:
+                # disable=import-outside-toplevel,reimported,redefined-outer-name
                 import io
                 import sys
                 old_stdout = sys.stdout
@@ -276,7 +282,8 @@ class TestRealWorldLinkerScripts(unittest.TestCase):
                 validation_output = mystdout.getvalue()
 
                 # Only fail for serious validation issues, not overlap warnings
-                validation_has_warnings = validation_output.startswith("Warning: Memory regions")
+                validation_has_warnings = validation_output.startswith(
+                    "Warning: Memory regions")
                 validation_has_overlaps = "overlap" in validation_output
                 if (not validation_passed and not validation_has_warnings and
                         not validation_has_overlaps):
@@ -287,7 +294,8 @@ class TestRealWorldLinkerScripts(unittest.TestCase):
         except Exception as e:  # pylint: disable=broad-exception-caught
             print(f"  ❌ EXCEPTION: {e}")
             self.stats['failed'] += 1
-            self.fail(f"Exception parsing linker scripts for {port_name}/{config_name}: {e}")
+            self.fail(
+                f"Exception parsing linker scripts for {port_name}/{config_name}: {e}")
 
     def test_sample_configurations(self):
         """Test a smaller subset of configurations for faster testing"""
@@ -311,9 +319,11 @@ class TestRealWorldLinkerScripts(unittest.TestCase):
                     config_name in self.expected_metadata[port_name]):
                 config_data = self.expected_metadata[port_name][config_name]
                 with self.subTest(port=port_name, config=config_name):
-                    self._test_single_configuration(port_name, config_name, config_data)
+                    self._test_single_configuration(
+                        port_name, config_name, config_data)
             else:
-                print(f"Sample configuration not found: {port_name}/{config_name}")
+                print(
+                    f"Sample configuration not found: {port_name}/{config_name}")
 
     def test_stm32_configurations_only(self):
         """Test only STM32 configurations (most common and well-defined)"""
@@ -326,11 +336,13 @@ class TestRealWorldLinkerScripts(unittest.TestCase):
         stm32_configs = self.expected_metadata['stm32']
 
         # Test a subset for faster execution
-        test_configs = list(stm32_configs.items())[:10]  # First 10 configurations
+        test_configs = list(stm32_configs.items())[
+            :10]  # First 10 configurations
 
         for config_name, config_data in test_configs:
             with self.subTest(port='stm32', config=config_name):
-                self._test_single_configuration('stm32', config_name, config_data)
+                self._test_single_configuration(
+                    'stm32', config_name, config_data)
 
 
 def create_test_report(metadata_path: Path) -> None:
@@ -363,7 +375,8 @@ def create_test_report(metadata_path: Path) -> None:
         total_regions = 0
         for config_data in port_configs.values():
             total_regions += len(config_data.get('memory_regions', {}))
-        print(f"  {port_name}: {total_regions} regions across {len(port_configs)} configs")
+        print(
+            f"  {port_name}: {total_regions} regions across {len(port_configs)} configs")
 
 
 if __name__ == '__main__':
@@ -372,7 +385,8 @@ if __name__ == '__main__':
 
     if not metadata_file.exists():
         print(f"ERROR: Metadata file not found: {metadata_file}")
-        print("Please ensure the MicroPython project is available at the expected location.")
+        print(
+            "Please ensure the MicroPython project is available at the expected location.")
         sys.exit(1)
 
     # Create test report

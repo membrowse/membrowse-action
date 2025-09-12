@@ -146,7 +146,9 @@ class TestMemoryRegions(unittest.TestCase):
 
         # Test G and GB
         self.assertEqual(regions['BIG_G']['limit_size'], 1024 * 1024 * 1024)
-        self.assertEqual(regions['BIG_GB']['limit_size'], 2 * 1024 * 1024 * 1024)
+        self.assertEqual(
+            regions['BIG_GB']['limit_size'],
+            2 * 1024 * 1024 * 1024)
 
     def test_whitespace_and_formatting(self):
         """Test parsing with various whitespace and formatting styles"""
@@ -155,13 +157,13 @@ class TestMemoryRegions(unittest.TestCase):
         {
             /* Compact format */
             FLASH(rx):ORIGIN=0x08000000,LENGTH=512K
-            
+
             /* Spaced format */
             RAM   (  rw  )  :  ORIGIN  =  0x20000000  ,  LENGTH  =  128K
-            
+
             /* Mixed format */
             SRAM2( rwx ): ORIGIN= 0x20020000 , LENGTH =32K
-            
+
             // C++ style comment
             CCMRAM (rw) : ORIGIN = 0x10000000, LENGTH = 64K // Another comment
         }
@@ -180,7 +182,8 @@ class TestMemoryRegions(unittest.TestCase):
             'CCMRAM': (0x10000000, 64 * 1024, 'rw')
         }
 
-        for name, (expected_addr, expected_size, expected_attrs) in expected_regions.items():
+        for name, (expected_addr, expected_size,
+                   expected_attrs) in expected_regions.items():
             self.assertIn(name, regions)
             self.assertEqual(regions[name]['address'], expected_addr)
             self.assertEqual(regions[name]['limit_size'], expected_size)
@@ -207,13 +210,17 @@ class TestMemoryRegions(unittest.TestCase):
 
         # Test type detection
         self.assertEqual(regions['FLASH']['type'], 'FLASH')
-        self.assertEqual(regions['ROM']['type'], 'FLASH')  # ROM in name -> FLASH type
+        self.assertEqual(
+            regions['ROM']['type'],
+            'FLASH')  # ROM in name -> FLASH type
         self.assertEqual(regions['RAM']['type'], 'RAM')
         self.assertEqual(regions['SRAM']['type'], 'RAM')
         self.assertEqual(regions['EEPROM']['type'], 'EEPROM')
         self.assertEqual(regions['CCM']['type'], 'CCM')
         self.assertEqual(regions['BACKUP']['type'], 'BACKUP')
-        self.assertEqual(regions['UNKNOWN']['type'], 'ROM')  # x but not w -> ROM
+        self.assertEqual(
+            regions['UNKNOWN']['type'],
+            'ROM')  # x but not w -> ROM
 
     def test_multiple_files(self):
         """Test parsing multiple linker script files"""
@@ -250,7 +257,7 @@ class TestMemoryRegions(unittest.TestCase):
         content = '''
         /* Linker script without MEMORY block */
         ENTRY(_start)
-        
+
         SECTIONS
         {
             .text : { *(.text) }
@@ -312,26 +319,26 @@ class TestMemoryRegions(unittest.TestCase):
         {
           /* Flash memory */
           FLASH (rx)      : ORIGIN = 0x08000000, LENGTH = 1024K
-          
+
           /* Main RAM */
           RAM (xrw)       : ORIGIN = 0x20000000, LENGTH = 112K
-          
+
           /* Core Coupled Memory */
           CCMRAM (rw)     : ORIGIN = 0x10000000, LENGTH = 64K
-          
+
           /* Additional SRAM */
           SRAM2 (rw)      : ORIGIN = 0x2001C000, LENGTH = 16K
-          
+
           /* Backup SRAM */
           BACKUP_SRAM(rw) : ORIGIN = 0x40024000, LENGTH = 4K
-          
+
           /* Option bytes */
           OTP (r)         : ORIGIN = 0x1FFF7800, LENGTH = 528
         }
-        
+
         /* Some other linker script content */
         ENTRY(Reset_Handler)
-        
+
         SECTIONS
         {
             .isr_vector : { . = ALIGN(4); } > FLASH
@@ -419,9 +426,10 @@ class TestMemoryRegions(unittest.TestCase):
         summary_lines = []
         for name, region in regions.items():
             size_kb = region["limit_size"] / 1024
-            line = (f"{name:12} ({region['type']:8}): "
-                    f"0x{region['address']:08x} - 0x{region['end_address']:08x} "
-                    f"({size_kb:8.1f} KB)")
+            line = (
+                f"{name:12} ({region['type']:8}): "
+                f"0x{region['address']:08x} - 0x{region['end_address']:08x} "
+                f"({size_kb:8.1f} KB)")
             summary_lines.append(line)
 
         summary = "\n".join(summary_lines)
@@ -513,7 +521,7 @@ class TestAdvancedLinkerFeatures(unittest.TestCase):
         content = '''
         _flash_start = 0x08000000;
         _flash_size = 512K;
-        
+
         MEMORY
         {
             FLASH (rx) : ORIGIN = _flash_start, LENGTH = _flash_size
@@ -567,14 +575,14 @@ class TestAdvancedLinkerFeatures(unittest.TestCase):
         /* Base addresses */
         _flash_base = 0x08000000;
         _ram_base = 0x20000000;
-        
+
         /* Sizes */
         _flash_size = 1024 * 1024;  /* 1MB */
         _ram_size = 256K;
-        
+
         /* Calculated addresses */
         _sram2_base = _ram_base + _ram_size;
-        
+
         MEMORY
         {
             FLASH (rx) : ORIGIN = _flash_base, LENGTH = _flash_size

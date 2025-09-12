@@ -49,8 +49,9 @@ class TestELFArchitectureDetection(unittest.TestCase):
 
     def test_esp32_elf_detection(self):
         """Test ESP32 ELF file detection if available"""
-        esp32_elf = ('/home/michael/projs/membrowse/micropython/build_logs/'
-                     '4c55b0879b38b373b44e84552d6754b7842b5b72/esp32/firmware.elf')
+        esp32_elf = (
+            '/home/michael/projs/membrowse/micropython/build_logs/'
+            '4c55b0879b38b373b44e84552d6754b7842b5b72/esp32/firmware.elf')
 
         if not os.path.exists(esp32_elf):
             self.skipTest("ESP32 ELF file not available")
@@ -109,7 +110,9 @@ class TestELFArchitectureDetection(unittest.TestCase):
         self.assertIn('memory_block_patterns', strategy)
         self.assertIn('esp_style', strategy['memory_block_patterns'])
         self.assertIn('default_variables', strategy)
-        self.assertIn('CONFIG_ESP32_SPIRAM_SIZE', strategy['default_variables'])
+        self.assertIn(
+            'CONFIG_ESP32_SPIRAM_SIZE',
+            strategy['default_variables'])
 
     def test_parsing_strategy_stm32(self):
         """Test STM32 parsing strategy generation"""
@@ -205,7 +208,8 @@ class TestELFArchitectureDetection(unittest.TestCase):
             self.assertIn('RAM', regions)
 
             # Check that default variables were applied
-            # STM32 defaults: _flash_size=0x100000 (1MB), _ram_size=0x20000 (128KB)
+            # STM32 defaults: _flash_size=0x100000 (1MB), _ram_size=0x20000
+            # (128KB)
             self.assertEqual(regions['FLASH']['limit_size'], 0x100000)
             self.assertEqual(regions['RAM']['limit_size'], 0x20000)
         else:

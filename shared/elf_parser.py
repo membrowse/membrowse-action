@@ -60,7 +60,7 @@ class ELFParseError(Exception):
     """Exception raised when ELF parsing fails"""
 
 
-class ELFParser:
+class ELFParser:  # pylint: disable=too-few-public-methods
     """Parser for ELF file headers to extract architecture information"""
     # ELF machine type constants mapped to pyelftools constants
     MACHINE_TYPES = {
@@ -78,6 +78,7 @@ class ELFParser:
         'EM_AARCH64': Architecture.AARCH64,
         'EM_RISCV': Architecture.RISC_V,
     }
+
     @classmethod
     def parse_elf_file(cls, elf_path: str) -> Optional[ELFInfo]:
         """Parse ELF file and extract architecture information
@@ -94,7 +95,8 @@ class ELFParser:
 
                 # Get machine type using pyelftools
                 e_machine = elffile.header['e_machine']
-                architecture = cls.MACHINE_TYPES.get(e_machine, Architecture.UNKNOWN)
+                architecture = cls.MACHINE_TYPES.get(
+                    e_machine, Architecture.UNKNOWN)
 
                 # Get bit width and endianness
                 bit_width = elffile.elfclass
@@ -117,45 +119,68 @@ class ELFParser:
         except (ELFError, ValueError) as e:
             logger.warning("Error parsing ELF file %s: %s", elf_path, e)
             return None
+
     @classmethod
-    def _detect_platform(cls, architecture: Architecture, elf_path: str) -> Platform:
+    def _detect_platform(
+            cls,
+            architecture: Architecture,
+            elf_path: str) -> Platform:
         """Detect specific platform based on architecture and path hints"""
         path_lower = elf_path.lower()
 
-        # Use path hints to determine specific platform
-        if architecture == Architecture.XTENSA:
-            if 'esp32' in path_lower:
-                return Platform.ESP32
-            if 'esp8266' in path_lower:
-                return Platform.ESP8266
-            return Platform.ESP32  # Default for Xtensa
+        # Platform detection mapping
+        platform_map = {
+            Architecture.XTENSA: cls._detect_xtensa_platform,
+            Architecture.ARM: cls._detect_arm_platform,
+            Architecture.RISC_V: cls._detect_riscv_platform,
+        }
 
-        if architecture == Architecture.ARM:
-            if 'stm32' in path_lower:
-                return Platform.STM32
-            if 'nrf' in path_lower or 'nordic' in path_lower:
-                return Platform.NRF
-            if 'samd' in path_lower:
-                return Platform.SAMD
-            if 'mimxrt' in path_lower or 'imxrt' in path_lower:
-                return Platform.MIMXRT
-            if 'renesas' in path_lower or 'ra' in path_lower:
-                return Platform.RENESAS
-            if 'rp2' in path_lower or 'pico' in path_lower:
-                return Platform.RP2
-            if 'bare-arm' in path_lower:
-                return Platform.STM32  # bare-arm typically uses STM32-style
-            return Platform.STM32  # Default for ARM embedded
-
-        if architecture == Architecture.RISC_V:
-            if 'qemu' in path_lower:
-                return Platform.QEMU
-            return Platform.QEMU  # Default for RISC-V
+        if architecture in platform_map:
+            return platform_map[architecture](path_lower)
 
         if architecture in (Architecture.X86, Architecture.X86_64):
             return Platform.UNIX
 
         return Platform.UNKNOWN
+
+    @classmethod
+    def _detect_xtensa_platform(cls, path_lower: str) -> Platform:
+        """Detect Xtensa-specific platform"""
+        if 'esp32' in path_lower:
+            return Platform.ESP32
+        if 'esp8266' in path_lower:
+            return Platform.ESP8266
+        return Platform.ESP32  # Default for Xtensa
+
+    @classmethod
+    def _detect_arm_platform(cls, path_lower: str) -> Platform:
+        """Detect ARM-specific platform"""
+        arm_platforms = [
+            ('stm32', Platform.STM32),
+            ('nrf', Platform.NRF),
+            ('nordic', Platform.NRF),
+            ('samd', Platform.SAMD),
+            ('mimxrt', Platform.MIMXRT),
+            ('imxrt', Platform.MIMXRT),
+            ('renesas', Platform.RENESAS),
+            ('ra', Platform.RENESAS),
+            ('rp2', Platform.RP2),
+            ('pico', Platform.RP2),
+            ('bare-arm', Platform.STM32),
+        ]
+
+        for keyword, platform in arm_platforms:
+            if keyword in path_lower:
+                return platform
+        return Platform.STM32  # Default for ARM embedded
+
+    @classmethod
+    def _detect_riscv_platform(cls, path_lower: str) -> Platform:
+        """Detect RISC-V specific platform"""
+        if 'qemu' in path_lower:
+            return Platform.QEMU
+        return Platform.QEMU  # Default for RISC-V
+
     @classmethod
     def _is_embedded_platform(cls, platform: Platform) -> bool:
         """Determine if platform is embedded (vs desktop/server)"""

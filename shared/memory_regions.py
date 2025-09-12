@@ -213,7 +213,9 @@ class ExpressionEvaluator:
         """Add variables to existing variables dictionary"""
         self.variables.update(variables)
 
-    def set_memory_regions(self, memory_regions: Dict[str, MemoryRegion]) -> None:
+    def set_memory_regions(self,
+                           memory_regions: Dict[str,
+                                                MemoryRegion]) -> None:
         """Set memory regions for ORIGIN/LENGTH function resolution"""
         self._memory_regions = memory_regions.copy()
 
@@ -827,13 +829,15 @@ class LinkerScriptParser:  # pylint: disable=too-few-public-methods
         if self.elf_file:
             self.elf_info = get_architecture_info(self.elf_file)
             if self.elf_info:
-                self.parsing_strategy = get_linker_parsing_strategy(self.elf_info)
+                self.parsing_strategy = get_linker_parsing_strategy(
+                    self.elf_info)
                 logger.info("Detected architecture: %s, platform: %s",
                             self.elf_info.architecture.value,
                             self.elf_info.platform.value)
             else:
-                logger.warning("Could not extract architecture info from ELF file: %s",
-                               self.elf_file)
+                logger.warning(
+                    "Could not extract architecture info from ELF file: %s",
+                    self.elf_file)
 
         # Initialize components
         self.evaluator = ExpressionEvaluator()
@@ -842,7 +846,8 @@ class LinkerScriptParser:  # pylint: disable=too-few-public-methods
 
         # Apply architecture-specific default variables
         if self.parsing_strategy.get('default_variables'):
-            self.evaluator.add_variables(self.parsing_strategy['default_variables'])
+            self.evaluator.add_variables(
+                self.parsing_strategy['default_variables'])
 
     def _validate_scripts(self) -> None:
         """Validate that all linker scripts exist"""
@@ -872,7 +877,8 @@ class LinkerScriptParser:  # pylint: disable=too-few-public-methods
         for script_path in self.ld_scripts:
             self.variable_extractor.extract_from_script(script_path)
 
-        # Merge extracted variables with existing default variables (preserve architecture defaults)
+        # Merge extracted variables with existing default variables (preserve
+        # architecture defaults)
         self.evaluator.add_variables(self.variable_extractor.variables)
 
     def _parse_all_memory_regions(self) -> Dict[str, MemoryRegion]:
