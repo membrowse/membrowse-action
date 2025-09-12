@@ -44,7 +44,7 @@ runs:
     - name: Run historical analysis
       shell: bash
       env:
-        MEMBROWSE_UPLOAD_URL: ${{ vars.MEMBROWSE_UPLOAD_URL }}
+        MEMBROWSE_UPLOAD_URL: ${{ secrets.MEMBROWSE_UPLOAD_URL }}
       run: |
         ${{ github.action_path }}/entrypoint.sh \
           "${{ inputs.num_commits }}" \
