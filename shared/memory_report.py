@@ -173,6 +173,7 @@ class ELFAnalyzer:
             'cu_file_list': [],             # List of CU filenames
             'system_headers': set(),        # Cache of known system headers
             'processed_cus': set(),         # Cache of processed CUs to avoid duplicates
+            'die_offset_cache': {},         # DIE offset -> (decl_file, cu_source_file) for abstract_origin resolution
         }
         
         try:
@@ -389,6 +390,9 @@ class ELFAnalyzer:
                 
             attrs = die.attributes
             
+            # Cache DIE information for abstract_origin/specification resolution
+            self._cache_die_info(die, attrs, file_entries, cu_source_file)
+            
             # Get symbol name
             die_name = None
             name_attr = attrs.get('DW_AT_name')
@@ -419,18 +423,27 @@ class ELFAnalyzer:
             if die_address and die_address not in symbol_addresses:
                 return
                         
-            # Get declaration file
+            # Get declaration file and line
             decl_file = None
+            decl_line = None
             decl_file_attr = attrs.get('DW_AT_decl_file')
+            decl_line_attr = attrs.get('DW_AT_decl_line')
+            
             if decl_file_attr and hasattr(decl_file_attr, 'value'):
                 file_idx = decl_file_attr.value
                 if file_idx in file_entries:
                     decl_file = file_entries[file_idx]
                     
+            if decl_line_attr and hasattr(decl_line_attr, 'value'):
+                decl_line = decl_line_attr.value
+                    
+            
             # Determine best source file
             is_declaration = 'DW_AT_declaration' in attrs
             best_source_file = self._determine_best_source_file_dict(
-                is_declaration, cu_source_file, decl_file, die_name, die_address)
+                is_declaration, cu_source_file, decl_file, die_name, die_address,
+                decl_line, file_entries, attrs)
+                
                 
             if best_source_file:
                 # Store symbol mappings
@@ -445,20 +458,38 @@ class ELFAnalyzer:
             
     def _determine_best_source_file_dict(self, is_declaration: bool, cu_source_file: Optional[str],
                                         decl_file: Optional[str], die_name: Optional[str], 
-                                        die_address: Optional[int] = None) -> Optional[str]:
-        """Determine best source file - optimized for dictionary storage."""
-        # For invalid addresses, prefer declaration file
-        if (die_address == 0 or die_address is None) and decl_file:
-            return decl_file
+                                        die_address: Optional[int] = None,
+                                        decl_line: Optional[int] = None,
+                                        file_entries: Optional[Dict[int, str]] = None,
+                                        die_attrs: Optional[Dict] = None) -> Optional[str]:
+        """Determine best source file using DWARF-native approach."""
+        
+        # Phase 1: Check for abstract origin or specification references
+        if die_attrs:
+            resolved_file = self._resolve_abstract_origin_or_specification(
+                die_attrs, file_entries, cu_source_file)
+            if resolved_file:
+                return resolved_file
+        
+        # Phase 2: Non-declarations (definitions) 
+        if not is_declaration:
             
-        # Non-declarations in CU are likely defined there
-        if not is_declaration and cu_source_file:
-            return cu_source_file
+            if decl_file:
+                # Trust DWARF's decl_file for definitions
+                return decl_file
+            elif cu_source_file:
+                # No decl_file info, use CU source
+                return cu_source_file
             
         # For declarations, check if pointing to system header
         if is_declaration and cu_source_file and decl_file:
             if decl_file in self._dwarf_data['system_headers'] or self._is_likely_system_header(decl_file):
                 self._dwarf_data['system_headers'].add(decl_file)  # Cache result
+                return cu_source_file
+                
+            # If the CU is a .c file and we have a declaration from a .h file,
+            # the definition is likely in the .c file
+            if cu_source_file.endswith('.c') and decl_file.endswith('.h'):
                 return cu_source_file
                 
         # Use declaration file if available
@@ -467,6 +498,91 @@ class ELFAnalyzer:
             
         # Fall back to CU source file
         return cu_source_file
+        
+    def _resolve_abstract_origin_or_specification(self, die_attrs: Dict, 
+                                                 file_entries: Optional[Dict[int, str]], 
+                                                 cu_source_file: Optional[str]) -> Optional[str]:
+        """Resolve source file using DW_AT_abstract_origin or DW_AT_specification attributes.
+        
+        This implements the DWARF-native approach for finding the correct source file
+        for inline functions and symbol specifications.
+        """
+        # Phase 1: Check for DW_AT_abstract_origin (inline functions)
+        abstract_origin_attr = die_attrs.get('DW_AT_abstract_origin')
+        if abstract_origin_attr and hasattr(abstract_origin_attr, 'value'):
+            resolved_file = self._resolve_die_reference(
+                abstract_origin_attr.value, file_entries)
+            if resolved_file:
+                # For inline functions, prefer header files over C files
+                if resolved_file.endswith('.h'):
+                    return resolved_file
+                # Otherwise use the resolved file as-is
+                return resolved_file
+        
+        # Phase 2: Check for DW_AT_specification (variable/function specifications)  
+        specification_attr = die_attrs.get('DW_AT_specification')
+        if specification_attr and hasattr(specification_attr, 'value'):
+            resolved_file = self._resolve_die_reference(
+                specification_attr.value, file_entries)
+            if resolved_file:
+                return resolved_file
+        
+        return None
+        
+        
+    def _resolve_die_reference(self, die_offset: int, 
+                              file_entries: Optional[Dict[int, str]]) -> Optional[str]:
+        """Resolve a DIE reference to get the source file information.
+        
+        This follows DWARF DIE references (abstract_origin, specification) to find
+        the original declaration and extract its source file information.
+        """
+        try:
+            # Check if we have cached DIE information for this offset
+            cached_die = self._dwarf_data['die_offset_cache'].get(die_offset)
+            if not cached_die:
+                return None
+                
+            # Get the declaration file from the referenced DIE
+            decl_file = cached_die.get('decl_file')
+            if decl_file:
+                return decl_file
+                
+            # If no declaration file, check if the CU source file is better
+            cu_source_file = cached_die.get('cu_source_file')
+            if cu_source_file:
+                return cu_source_file
+                
+            return None
+            
+        except Exception:  # pylint: disable=broad-exception-caught
+            return None
+        
+        
+    def _cache_die_info(self, die, attrs: Dict, file_entries: Optional[Dict[int, str]], 
+                       cu_source_file: Optional[str]) -> None:
+        """Cache DIE information for later abstract_origin/specification resolution."""
+        try:
+            if not hasattr(die, 'offset') or not attrs:
+                return
+                
+            # Get declaration file for this DIE
+            decl_file = None
+            decl_file_attr = attrs.get('DW_AT_decl_file')
+            if decl_file_attr and hasattr(decl_file_attr, 'value') and file_entries:
+                file_idx = decl_file_attr.value
+                if file_idx in file_entries:
+                    decl_file = file_entries[file_idx]
+            
+            # Cache the information we need for resolution
+            self._dwarf_data['die_offset_cache'][die.offset] = {
+                'decl_file': decl_file,
+                'cu_source_file': cu_source_file
+            }
+            
+        except Exception:  # pylint: disable=broad-exception-caught
+            pass
+            
         
     def _resolve_line_program_path(self, filename: str, line_header) -> str:
         """Resolve full file path from line program."""
