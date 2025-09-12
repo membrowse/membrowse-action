@@ -331,21 +331,21 @@ class TestMicroPythonFirmware(unittest.TestCase):
             from memory_report import ELFAnalyzer
             analyzer = ELFAnalyzer(str(self.firmware_path))
 
-            # Check if CU ranges were built
-            if hasattr(analyzer, '_all_cus'):
-                print(f"  Total CUs in binary: {len(analyzer._all_cus)}")
+            # Check if CU data was built
+            if analyzer._dwarf_data['cu_file_list']:
+                print(f"  Total CUs in binary: {len(analyzer._dwarf_data['cu_file_list'])}")
                 # Show some example CUs
                 print(f"  Sample CUs:")
-                for cu in analyzer._all_cus[:10]:
-                    if 'micropython' in cu or 'ports' in cu or not cu.startswith(
-                            '../'):
+                for cu in analyzer._dwarf_data['cu_file_list'][:10]:
+                    if cu and ('micropython' in cu or 'ports' in cu or not cu.startswith('../')):
                         print(f"    - {cu}")
 
-            if hasattr(analyzer, '_cu_ranges'):
-                print(f"  CUs with address ranges: {len(analyzer._cu_ranges)}")
-                # Show first few CUs with ranges
-                for low, high, name, path in analyzer._cu_ranges[:5]:
-                    print(f"    CU: {name} (0x{low:08x} - 0x{high:08x})")
+            if analyzer._dwarf_data['address_to_file']:
+                print(f"  Address mappings available: {len(analyzer._dwarf_data['address_to_file'])}")
+                # Show first few address ranges  
+                addresses = sorted(analyzer._dwarf_data['address_to_file'].keys())[:5]
+                for addr in addresses:
+                    print(f"    Address: 0x{addr:08x} -> {analyzer._dwarf_data['address_to_file'][addr]}")
             else:
                 print(f"  No CU ranges found - debug info may be missing")
 

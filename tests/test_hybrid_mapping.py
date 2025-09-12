@@ -26,9 +26,9 @@ def test_hybrid_mapping():
     # Create analyzer
     analyzer = ELFAnalyzer(str(elf_file))
 
-    print(f"\n.debug_line mappings loaded: {len(analyzer._line_mapping)}")
+    print(f"\n.debug_line mappings loaded: {len(analyzer._dwarf_data['address_to_file'])}")
     print(
-        f"DIE mappings loaded: {len(analyzer._source_file_mapping['by_compound_key'])}")
+        f"DIE mappings loaded: {len(analyzer._dwarf_data.get('symbol_to_file', {}))}")
 
     # Get symbols
     symbols = analyzer.get_symbols()
@@ -43,23 +43,23 @@ def test_hybrid_mapping():
             method_used = "UNKNOWN"
 
             # Check .debug_line first
-            if symbol.address in analyzer._line_mapping:
+            if symbol.address in analyzer._dwarf_data['address_to_file']:
                 method_used = ".debug_line (exact)"
             else:
                 # Check nearby addresses
                 found_nearby = False
                 for offset in range(-20, 21):
                     check_addr = symbol.address + offset
-                    if check_addr in analyzer._line_mapping:
+                    if check_addr in analyzer._dwarf_data['address_to_file']:
                         method_used = f".debug_line (offset {offset})"
                         found_nearby = True
                         break
 
                 if not found_nearby:
                     # Must have used DIE fallback
-                    if symbol.address in analyzer._source_file_mapping['by_address']:
+                    if symbol.address in analyzer._dwarf_data.get('address_to_cu_file', {}):
                         method_used = "DIE fallback (by_address)"
-                    elif (symbol.name, symbol.address) in analyzer._source_file_mapping['by_compound_key']:
+                    elif (symbol.name, symbol.address) in analyzer._dwarf_data.get('symbol_to_file', {}):
                         method_used = "DIE fallback (compound_key)"
                     else:
                         method_used = "No mapping found"
@@ -72,15 +72,15 @@ def test_hybrid_mapping():
     for symbol in symbols:
         if symbol.type == 'OBJECT' and 'uart' in symbol.name.lower():
             # Variables should never be in .debug_line
-            in_line_mapping = symbol.address in analyzer._line_mapping
+            in_line_mapping = symbol.address in analyzer._dwarf_data['address_to_file']
 
             # Determine DIE method used
             die_method = "UNKNOWN"
-            if symbol.address in analyzer._source_file_mapping['by_address']:
+            if symbol.address in analyzer._dwarf_data.get('address_to_cu_file', {}):
                 die_method = "DIE (by_address)"
-            elif (symbol.name, symbol.address) in analyzer._source_file_mapping['by_compound_key']:
+            elif (symbol.name, symbol.address) in analyzer._dwarf_data.get('symbol_to_file', {}):
                 die_method = "DIE (compound_key exact)"
-            elif (symbol.name, 0) in analyzer._source_file_mapping['by_compound_key']:
+            elif (symbol.name, 0) in analyzer._dwarf_data.get('symbol_to_file', {}):
                 die_method = "DIE (compound_key fallback)"
 
             print(
