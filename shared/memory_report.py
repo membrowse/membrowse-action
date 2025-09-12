@@ -713,7 +713,11 @@ class ELFAnalyzer:
             elffile = self._get_cached_elf_file()
 
             for section in elffile.iter_sections():
-                    if not section.name or section.name.startswith('.debug'):
+                    if not section.name:
+                        continue
+                        
+                    # Only include sections with SHF_ALLOC flag (0x2) - sections loaded into memory
+                    if not (section['sh_flags'] & 0x2):
                         continue
 
                     section_type = self._categorize_section(section.name)
@@ -1110,7 +1114,7 @@ class MemoryReportGenerator:  # pylint: disable=too-few-public-methods
             # Extract ELF data
             metadata = self.elf_analyzer.get_metadata()
             symbols = self.elf_analyzer.get_symbols()
-            _, sections = self.elf_analyzer.get_sections()  # totals unused
+            totals, sections = self.elf_analyzer.get_sections()
             program_headers = self.elf_analyzer.get_program_headers()
 
             # Convert memory regions data to MemoryRegion objects
