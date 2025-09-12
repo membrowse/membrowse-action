@@ -25,7 +25,7 @@ class TestRealWorldLinkerScripts(unittest.TestCase):
     def setUp(self):
         """Set up test environment"""
         # Path to MicroPython project and metadata
-        self.micropython_root = Path("../../micropython")
+        self.micropython_root = Path("../micropython")
         self.metadata_file = self.micropython_root / "linker_metadata.json"
 
         # Load expected metadata

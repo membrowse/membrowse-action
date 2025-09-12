@@ -1,0 +1,703 @@
+{
+  "file_path": "/tmp/tmp6s430vkq/simple_program.elf",
+  "architecture": "ELF64",
+  "entry_point": 134217728,
+  "file_type": "EXEC",
+  "machine": "x86_64",
+  "symbols": [
+    {
+      "name": "buffer",
+      "address": 536871200,
+      "size": 256,
+      "type": "OBJECT",
+      "binding": "LOCAL",
+      "section": ".bss",
+      "source_file": "simple_program.c",
+      "visibility": ""
+    },
+    {
+      "name": "current_config",
+      "address": 536871456,
+      "size": 8,
+      "type": "OBJECT",
+      "binding": "LOCAL",
+      "section": ".bss",
+      "source_file": "simple_program.c",
+      "visibility": ""
+    },
+    {
+      "name": "uart_status",
+      "address": 536871464,
+      "size": 1,
+      "type": "OBJECT",
+      "binding": "LOCAL",
+      "section": ".bss",
+      "source_file": "simple_program.c",
+      "visibility": ""
+    },
+    {
+      "name": "_DYNAMIC",
+      "address": 536870920,
+      "size": 0,
+      "type": "OBJECT",
+      "binding": "LOCAL",
+      "section": ".dynamic",
+      "source_file": "",
+      "visibility": ""
+    },
+    {
+      "name": "_ram_used",
+      "address": 130564,
+      "size": 0,
+      "type": "NOTYPE",
+      "binding": "GLOBAL",
+      "section": "",
+      "source_file": "",
+      "visibility": ""
+    },
+    {
+      "name": "_sram2_size",
+      "address": 32768,
+      "size": 0,
+      "type": "NOTYPE",
+      "binding": "GLOBAL",
+      "section": "",
+      "source_file": "",
+      "visibility": ""
+    },
+    {
+      "name": "version_string",
+      "address": 134218656,
+      "size": 7,
+      "type": "OBJECT",
+      "binding": "GLOBAL",
+      "section": ".rodata",
+      "source_file": "simple_program.c",
+      "visibility": ""
+    },
+    {
+      "name": "_sidata",
+      "address": 134219352,
+      "size": 0,
+      "type": "NOTYPE",
+      "binding": "GLOBAL",
+      "section": "",
+      "source_file": "",
+      "visibility": ""
+    },
+    {
+      "name": "uart_receive",
+      "address": 134218483,
+      "size": 133,
+      "type": "FUNC",
+      "binding": "GLOBAL",
+      "section": ".text",
+      "source_file": "simple_program.c",
+      "visibility": ""
+    },
+    {
+      "name": "initialize_system",
+      "address": 134217971,
+      "size": 62,
+      "type": "FUNC",
+      "binding": "GLOBAL",
+      "section": ".text",
+      "source_file": "simple_program.c",
+      "visibility": ""
+    },
+    {
+      "name": "_sheap",
+      "address": 536879664,
+      "size": 0,
+      "type": "NOTYPE",
+      "binding": "GLOBAL",
+      "section": ".heap",
+      "source_file": "",
+      "visibility": ""
+    },
+    {
+      "name": "_sbss",
+      "address": 536871168,
+      "size": 0,
+      "type": "NOTYPE",
+      "binding": "GLOBAL",
+      "section": ".bss",
+      "source_file": "",
+      "visibility": ""
+    },
+    {
+      "name": "uart_tx_count",
+      "address": 536871172,
+      "size": 4,
+      "type": "OBJECT",
+      "binding": "GLOBAL",
+      "section": ".bss",
+      "source_file": "stdint-uintn.h",
+      "visibility": ""
+    },
+    {
+      "name": "lookup_table",
+      "address": 134218688,
+      "size": 64,
+      "type": "OBJECT",
+      "binding": "GLOBAL",
+      "section": ".rodata",
+      "source_file": "simple_program.c",
+      "visibility": ""
+    },
+    {
+      "name": "uart_get_status",
+      "address": 134218616,
+      "size": 17,
+      "type": "FUNC",
+      "binding": "GLOBAL",
+      "section": ".text",
+      "source_file": "simple_program.c",
+      "visibility": ""
+    },
+    {
+      "name": "_sdata",
+      "address": 536870912,
+      "size": 0,
+      "type": "NOTYPE",
+      "binding": "GLOBAL",
+      "section": ".data",
+      "source_file": "",
+      "visibility": ""
+    },
+    {
+      "name": "_sram2_start",
+      "address": 537001984,
+      "size": 0,
+      "type": "NOTYPE",
+      "binding": "GLOBAL",
+      "section": ".heap",
+      "source_file": "",
+      "visibility": ""
+    },
+    {
+      "name": "_ram_size",
+      "address": 131072,
+      "size": 0,
+      "type": "NOTYPE",
+      "binding": "GLOBAL",
+      "section": "",
+      "source_file": "",
+      "visibility": ""
+    },
+    {
+      "name": "_ebss",
+      "address": 536871468,
+      "size": 0,
+      "type": "NOTYPE",
+      "binding": "GLOBAL",
+      "section": ".bss",
+      "source_file": "",
+      "visibility": ""
+    },
+    {
+      "name": "global_counter",
+      "address": 536870912,
+      "size": 4,
+      "type": "OBJECT",
+      "binding": "GLOBAL",
+      "section": ".data",
+      "source_file": "simple_program.c",
+      "visibility": ""
+    },
+    {
+      "name": "_ram_start",
+      "address": 536870912,
+      "size": 0,
+      "type": "NOTYPE",
+      "binding": "GLOBAL",
+      "section": ".heap",
+      "source_file": "",
+      "visibility": ""
+    },
+    {
+      "name": "uart_transmit",
+      "address": 134218381,
+      "size": 102,
+      "type": "FUNC",
+      "binding": "GLOBAL",
+      "section": ".text",
+      "source_file": "simple_program.c",
+      "visibility": ""
+    },
+    {
+      "name": "uart_init",
+      "address": 134218328,
+      "size": 53,
+      "type": "FUNC",
+      "binding": "GLOBAL",
+      "section": ".text",
+      "source_file": "simple_program.c",
+      "visibility": ""
+    },
+    {
+      "name": "timer_interrupt_handler",
+      "address": 134218187,
+      "size": 41,
+      "type": "FUNC",
+      "binding": "GLOBAL",
+      "section": ".text",
+      "source_file": "simple_program.c",
+      "visibility": ""
+    },
+    {
+      "name": "error_flags",
+      "address": 536871168,
+      "size": 4,
+      "type": "OBJECT",
+      "binding": "GLOBAL",
+      "section": ".bss",
+      "source_file": "simple_program.c",
+      "visibility": ""
+    },
+    {
+      "name": "main",
+      "address": 134217728,
+      "size": 243,
+      "type": "FUNC",
+      "binding": "GLOBAL",
+      "section": ".text",
+      "source_file": "simple_program.c",
+      "visibility": ""
+    },
+    {
+      "name": "delay_ms",
+      "address": 134218129,
+      "size": 58,
+      "type": "FUNC",
+      "binding": "GLOBAL",
+      "section": ".text",
+      "source_file": "simple_program.c",
+      "visibility": ""
+    },
+    {
+      "name": "_flash_size",
+      "address": 524288,
+      "size": 0,
+      "type": "NOTYPE",
+      "binding": "GLOBAL",
+      "section": "",
+      "source_file": "",
+      "visibility": ""
+    },
+    {
+      "name": "_sstack",
+      "address": 536871472,
+      "size": 0,
+      "type": "NOTYPE",
+      "binding": "GLOBAL",
+      "section": ".stack",
+      "source_file": "",
+      "visibility": ""
+    },
+    {
+      "name": "calculate_checksum",
+      "address": 134218033,
+      "size": 96,
+      "type": "FUNC",
+      "binding": "GLOBAL",
+      "section": ".text",
+      "source_file": "simple_program.c",
+      "visibility": ""
+    },
+    {
+      "name": "_flash_used",
+      "address": 1008,
+      "size": 0,
+      "type": "NOTYPE",
+      "binding": "GLOBAL",
+      "section": "",
+      "source_file": "",
+      "visibility": ""
+    },
+    {
+      "name": "_estack",
+      "address": 536879664,
+      "size": 0,
+      "type": "NOTYPE",
+      "binding": "GLOBAL",
+      "section": ".stack",
+      "source_file": "",
+      "visibility": ""
+    },
+    {
+      "name": "_eheap",
+      "address": 537001728,
+      "size": 0,
+      "type": "NOTYPE",
+      "binding": "GLOBAL",
+      "section": ".heap",
+      "source_file": "",
+      "visibility": ""
+    },
+    {
+      "name": "_edata",
+      "address": 536870916,
+      "size": 0,
+      "type": "NOTYPE",
+      "binding": "GLOBAL",
+      "section": ".data",
+      "source_file": "",
+      "visibility": ""
+    },
+    {
+      "name": "_flash_start",
+      "address": 134217728,
+      "size": 0,
+      "type": "NOTYPE",
+      "binding": "GLOBAL",
+      "section": ".heap",
+      "source_file": "simple_program.c",
+      "visibility": ""
+    },
+    {
+      "name": "_sram2_used",
+      "address": 0,
+      "size": 0,
+      "type": "NOTYPE",
+      "binding": "GLOBAL",
+      "section": "",
+      "source_file": "",
+      "visibility": ""
+    },
+    {
+      "name": "utility_function",
+      "address": 134218228,
+      "size": 100,
+      "type": "FUNC",
+      "binding": "GLOBAL",
+      "section": ".text",
+      "source_file": "simple_program.c",
+      "visibility": ""
+    }
+  ],
+  "program_headers": [
+    {
+      "type": "PT_PHDR",
+      "offset": 64,
+      "virt_addr": 134213696,
+      "phys_addr": 134213696,
+      "file_size": 840,
+      "mem_size": 840,
+      "flags": "R",
+      "align": 8
+    },
+    {
+      "type": "PT_INTERP",
+      "offset": 5464,
+      "virt_addr": 134219096,
+      "phys_addr": 134219096,
+      "file_size": 28,
+      "mem_size": 28,
+      "flags": "R",
+      "align": 1
+    },
+    {
+      "type": "PT_LOAD",
+      "offset": 0,
+      "virt_addr": 134213632,
+      "phys_addr": 134213632,
+      "file_size": 904,
+      "mem_size": 904,
+      "flags": "R",
+      "align": 4096
+    },
+    {
+      "type": "PT_LOAD",
+      "offset": 4096,
+      "virt_addr": 134217728,
+      "phys_addr": 134217728,
+      "file_size": 1624,
+      "mem_size": 1624,
+      "flags": "RX",
+      "align": 4096
+    },
+    {
+      "type": "PT_LOAD",
+      "offset": 8192,
+      "virt_addr": 536870912,
+      "phys_addr": 134219352,
+      "file_size": 4,
+      "mem_size": 4,
+      "flags": "RW",
+      "align": 4096
+    },
+    {
+      "type": "PT_LOAD",
+      "offset": 8200,
+      "virt_addr": 536870920,
+      "phys_addr": 134219356,
+      "file_size": 224,
+      "mem_size": 224,
+      "flags": "RW",
+      "align": 4096
+    },
+    {
+      "type": "PT_LOAD",
+      "offset": 256,
+      "virt_addr": 536871168,
+      "phys_addr": 134219580,
+      "file_size": 0,
+      "mem_size": 300,
+      "flags": "RW",
+      "align": 4096
+    },
+    {
+      "type": "PT_LOAD",
+      "offset": 556,
+      "virt_addr": 536871468,
+      "phys_addr": 134219580,
+      "file_size": 0,
+      "mem_size": 8196,
+      "flags": "RW",
+      "align": 4096
+    },
+    {
+      "type": "PT_LOAD",
+      "offset": 560,
+      "virt_addr": 536879664,
+      "phys_addr": 134219580,
+      "file_size": 0,
+      "mem_size": 122064,
+      "flags": "RW",
+      "align": 4096
+    },
+    {
+      "type": "PT_DYNAMIC",
+      "offset": 8200,
+      "virt_addr": 536870920,
+      "phys_addr": 134219356,
+      "file_size": 224,
+      "mem_size": 224,
+      "flags": "RW",
+      "align": 8
+    },
+    {
+      "type": "PT_NOTE",
+      "offset": 5560,
+      "virt_addr": 134219192,
+      "phys_addr": 134219192,
+      "file_size": 32,
+      "mem_size": 32,
+      "flags": "R",
+      "align": 8
+    },
+    {
+      "type": "PT_NOTE",
+      "offset": 5592,
+      "virt_addr": 134219224,
+      "phys_addr": 134219224,
+      "file_size": 36,
+      "mem_size": 36,
+      "flags": "R",
+      "align": 4
+    },
+    {
+      "type": "PT_GNU_PROPERTY",
+      "offset": 5560,
+      "virt_addr": 134219192,
+      "phys_addr": 134219192,
+      "file_size": 32,
+      "mem_size": 32,
+      "flags": "R",
+      "align": 8
+    },
+    {
+      "type": "PT_GNU_EH_FRAME",
+      "offset": 5628,
+      "virt_addr": 134219260,
+      "phys_addr": 134219260,
+      "file_size": 92,
+      "mem_size": 92,
+      "flags": "R",
+      "align": 4
+    },
+    {
+      "type": "PT_GNU_STACK",
+      "offset": 0,
+      "virt_addr": 0,
+      "phys_addr": 0,
+      "file_size": 0,
+      "mem_size": 0,
+      "flags": "RW",
+      "align": 16
+    }
+  ],
+  "memory_layout": {
+    "FLASH": {
+      "address": 134217728,
+      "limit_size": 524288,
+      "type": "FLASH",
+      "used_size": 3366,
+      "free_size": 520922,
+      "utilization_percent": 0.6420135498046875,
+      "sections": [
+        {
+          "name": ".text",
+          "address": 134217728,
+          "size": 908,
+          "type": "text",
+          "end_address": 134218636
+        },
+        {
+          "name": ".rodata",
+          "address": 134218656,
+          "size": 96,
+          "type": "rodata",
+          "end_address": 134218752
+        },
+        {
+          "name": ".eh_frame",
+          "address": 134218752,
+          "size": 344,
+          "type": "other",
+          "end_address": 134219096
+        },
+        {
+          "name": ".interp",
+          "address": 134219096,
+          "size": 28,
+          "type": "other",
+          "end_address": 134219124
+        },
+        {
+          "name": ".dynsym",
+          "address": 134219128,
+          "size": 24,
+          "type": "other",
+          "end_address": 134219152
+        },
+        {
+          "name": ".dynstr",
+          "address": 134219152,
+          "size": 1,
+          "type": "other",
+          "end_address": 134219153
+        },
+        {
+          "name": ".gnu.hash",
+          "address": 134219160,
+          "size": 28,
+          "type": "other",
+          "end_address": 134219188
+        },
+        {
+          "name": ".note.gnu.property",
+          "address": 134219192,
+          "size": 32,
+          "type": "other",
+          "end_address": 134219224
+        },
+        {
+          "name": ".note.gnu.build-id",
+          "address": 134219224,
+          "size": 36,
+          "type": "other",
+          "end_address": 134219260
+        },
+        {
+          "name": ".eh_frame_hdr",
+          "address": 134219260,
+          "size": 92,
+          "type": "other",
+          "end_address": 134219352
+        },
+        {
+          "name": ".comment",
+          "address": 0,
+          "size": 43,
+          "type": "other",
+          "end_address": 43
+        },
+        {
+          "name": ".symtab",
+          "address": 0,
+          "size": 984,
+          "type": "other",
+          "end_address": 984
+        },
+        {
+          "name": ".strtab",
+          "address": 0,
+          "size": 463,
+          "type": "other",
+          "end_address": 463
+        },
+        {
+          "name": ".shstrtab",
+          "address": 0,
+          "size": 287,
+          "type": "other",
+          "end_address": 287
+        }
+      ]
+    },
+    "RAM": {
+      "address": 536870912,
+      "limit_size": 131072,
+      "type": "RAM",
+      "used_size": 130788,
+      "free_size": 284,
+      "utilization_percent": 99.7833251953125,
+      "sections": [
+        {
+          "name": ".data",
+          "address": 536870912,
+          "size": 4,
+          "type": "data",
+          "end_address": 536870916
+        },
+        {
+          "name": ".dynamic",
+          "address": 536870920,
+          "size": 224,
+          "type": "other",
+          "end_address": 536871144
+        },
+        {
+          "name": ".bss",
+          "address": 536871168,
+          "size": 300,
+          "type": "bss",
+          "end_address": 536871468
+        },
+        {
+          "name": ".stack",
+          "address": 536871468,
+          "size": 8196,
+          "type": "other",
+          "end_address": 536879664
+        },
+        {
+          "name": ".heap",
+          "address": 536879664,
+          "size": 122064,
+          "type": "other",
+          "end_address": 537001728
+        }
+      ]
+    },
+    "SRAM2": {
+      "address": 537001984,
+      "limit_size": 32768,
+      "type": "RAM",
+      "used_size": 0,
+      "free_size": 32768,
+      "utilization_percent": 0.0,
+      "sections": [
+        {
+          "name": ".sram2_data",
+          "address": 537001984,
+          "size": 0,
+          "type": "other",
+          "end_address": 537001984
+        }
+      ]
+    }
+  }
+}

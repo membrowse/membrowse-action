@@ -342,9 +342,13 @@ class ELFAnalyzer:
                     except (ValueError, TypeError):
                         pass
 
+        # Treat address 0 as likely declaration (invalid address)
+        if die_address is not None and die_address == 0:
+            is_declaration = True
+            
         # Determine which source file to use - simplified logic
         source_file = self._determine_best_source_file(
-            is_declaration, cu_source_file, decl_file, die_name
+            is_declaration, cu_source_file, decl_file, die_name, die_address
         )
         
         # Store the mapping if we have useful information
@@ -370,15 +374,21 @@ class ELFAnalyzer:
                 self._source_file_mapping['by_compound_key'][compound_key] = source_file
             
     def _determine_best_source_file(self, is_declaration: bool, cu_source_file: Optional[str], 
-                                  decl_file: Optional[str], die_name: Optional[str]) -> Optional[str]:
+                                  decl_file: Optional[str], die_name: Optional[str], 
+                                  die_address: Optional[int] = None) -> Optional[str]:
         """Determine the best source file to use based on available information.
         
         Simplified logic without heuristic guessing:
         1. For non-declarations in a CU: Use CU source file (likely defined here)
         2. For declarations pointing to system headers: Use CU source file  
         3. For declarations in a .c file's CU: Use CU source file (likely defined there)
-        4. Otherwise: Use declaration file
+        4. For address 0 (invalid) or no address: Always prefer declaration file over heuristics
+        5. Otherwise: Use declaration file
         """
+        # For address 0 (invalid) or no address, always prefer declaration file if available
+        if (die_address == 0 or die_address is None) and decl_file:
+            return decl_file
+            
         # Non-declarations in a CU are likely defined in that CU
         if not is_declaration and cu_source_file:
             return cu_source_file
@@ -518,7 +528,7 @@ class ELFAnalyzer:
                             type=symbol_type,
                             binding=self._get_symbol_binding(symbol['st_info']['bind']),
                             section=section_name,
-                            source_file=self._extract_source_file(symbol.name, symbol_address, symbol_type),
+                            source_file=self._extract_source_file(symbol.name, symbol_type, symbol_address),
                             visibility=""  # Could be extracted if needed
                         ))
 
@@ -654,8 +664,7 @@ class ELFAnalyzer:
             flag_str += "X"
         return flag_str or "---"
 
-    def _extract_source_file(self, symbol_name: str, symbol_address: int = None, 
-                           symbol_type: str = None) -> str:
+    def _extract_source_file(self, symbol_name: str, symbol_type: str, symbol_address: int = None) -> str:
         """Extract source file using .debug_line as primary source.
         
         Uses the clean approach: .debug_line provides compiler-verified source locations
@@ -712,15 +721,22 @@ class ELFAnalyzer:
                     return source_file_basename
         
         # DIE-based fallback for cases where .debug_line doesn't help
-        # This is especially important for OBJECT symbols (global variables)
+        # This covers both OBJECT symbols (global variables) and FUNC symbols not found in .debug_line
         
-        # For OBJECT symbols with addresses, check by_address mapping first
-        if symbol_type == 'OBJECT' and symbol_address is not None and symbol_address > 0:
+        # For symbols with addresses, check by_address mapping
+        if symbol_address is not None and symbol_address > 0:
             if symbol_address in self._source_file_mapping['by_address']:
                 source_file = self._source_file_mapping['by_address'][symbol_address]
                 return os.path.basename(source_file)
         
         # Check compound key fallback (for symbols without addresses in line info)
+        # Try with actual address first, then fall back to address 0
+        if symbol_address is not None:
+            compound_key_with_addr = (symbol_name, symbol_address)
+            if compound_key_with_addr in self._source_file_mapping['by_compound_key']:
+                source_file = self._source_file_mapping['by_compound_key'][compound_key_with_addr]
+                return os.path.basename(source_file)
+        
         compound_key_fallback = (symbol_name, 0)
         if compound_key_fallback in self._source_file_mapping['by_compound_key']:
             source_file = self._source_file_mapping['by_compound_key'][compound_key_fallback]

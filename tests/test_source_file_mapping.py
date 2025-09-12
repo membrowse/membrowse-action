@@ -186,7 +186,7 @@ class TestSourceFileMapping(unittest.TestCase):
         analyzer._source_file_mapping['by_compound_key'][('test_func', 0x1000)] = 'wrong_file.c'
         
         # Should return from address mapping (priority 1)
-        result = analyzer._extract_source_file('test_func', 0x1000)
+        result = analyzer._extract_source_file('test_func', 'FUNC', 0x1000)
         self.assertEqual(result, 'correct_file.c')
 
     @patch('memory_report.Path.exists')
@@ -204,7 +204,7 @@ class TestSourceFileMapping(unittest.TestCase):
         analyzer._source_file_mapping['by_compound_key'][('test_func', 0x1000)] = 'fallback_file.c'
         
         # Should return from compound key mapping (priority 2)
-        result = analyzer._extract_source_file('test_func', 0x1000)
+        result = analyzer._extract_source_file('test_func', 'FUNC', 0x1000)
         self.assertEqual(result, 'fallback_file.c')
 
     @patch('memory_report.Path.exists')
@@ -222,7 +222,7 @@ class TestSourceFileMapping(unittest.TestCase):
         analyzer._source_file_mapping['by_compound_key'][('test_func', 0)] = 'placeholder_file.c'
         
         # Should return from placeholder compound key mapping (priority 3)
-        result = analyzer._extract_source_file('test_func', None)
+        result = analyzer._extract_source_file('test_func', 'FUNC', None)
         self.assertEqual(result, 'placeholder_file.c')
 
     @patch('memory_report.Path.exists')
@@ -241,11 +241,11 @@ class TestSourceFileMapping(unittest.TestCase):
         analyzer._source_file_mapping['by_compound_key'][('test_func', 0)] = 'correct_file.c'
         
         # Test with address 0 - should skip address lookup and use compound key
-        result = analyzer._extract_source_file('test_func', 0)
+        result = analyzer._extract_source_file('test_func', 'FUNC', 0)
         self.assertEqual(result, 'correct_file.c')
         
         # Test with None address - should use placeholder compound key
-        result = analyzer._extract_source_file('test_func', None)
+        result = analyzer._extract_source_file('test_func', 'FUNC', None)
         self.assertEqual(result, 'correct_file.c')
 
     @patch('memory_report.Path.exists')
@@ -260,7 +260,7 @@ class TestSourceFileMapping(unittest.TestCase):
                 analyzer = ELFAnalyzer(self.test_elf_path)
         
         # No mappings exist
-        result = analyzer._extract_source_file('unknown_func', 0x1000)
+        result = analyzer._extract_source_file('unknown_func', 'FUNC', 0x1000)
         self.assertEqual(result, '')
 
     @patch('memory_report.Path.exists')
@@ -277,7 +277,7 @@ class TestSourceFileMapping(unittest.TestCase):
         # Set up mapping with full path
         analyzer._source_file_mapping['by_address'][0x1000] = '/full/path/to/source.c'
         
-        result = analyzer._extract_source_file('test_func', 0x1000)
+        result = analyzer._extract_source_file('test_func', 'FUNC', 0x1000)
         self.assertEqual(result, 'source.c')
 
 

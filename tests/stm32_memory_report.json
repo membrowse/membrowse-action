@@ -1,0 +1,112 @@
+{
+  "target": "NUCLEO_F401RE_basic",
+  "linker_scripts": [
+    "../../micropython/ports/stm32/boards/stm32f401xe.ld",
+    "../../micropython/ports/stm32/boards/common_ifs.ld"
+  ],
+  "memory_regions": {
+    "FLASH": {
+      "type": "FLASH",
+      "attributes": "rx",
+      "address": 134217728,
+      "end_address": 134742015,
+      "limit_size": 524288,
+      "used_size": 0,
+      "free_size": 524288,
+      "utilization_percent": 0.0,
+      "sections": []
+    },
+    "FLASH_START": {
+      "type": "FLASH",
+      "attributes": "rx",
+      "address": 134217728,
+      "end_address": 134234111,
+      "limit_size": 16384,
+      "used_size": 0,
+      "free_size": 16384,
+      "utilization_percent": 0.0,
+      "sections": []
+    },
+    "FLASH_FS": {
+      "type": "FLASH",
+      "attributes": "rx",
+      "address": 134234112,
+      "end_address": 134299647,
+      "limit_size": 65536,
+      "used_size": 0,
+      "free_size": 65536,
+      "utilization_percent": 0.0,
+      "sections": []
+    },
+    "FLASH_TEXT": {
+      "type": "FLASH",
+      "attributes": "rx",
+      "address": 134348800,
+      "end_address": 134742015,
+      "limit_size": 393216,
+      "used_size": 0,
+      "free_size": 393216,
+      "utilization_percent": 0.0,
+      "sections": []
+    },
+    "RAM": {
+      "type": "RAM",
+      "attributes": "xrw",
+      "address": 536870912,
+      "end_address": 536952831,
+      "limit_size": 81920,
+      "used_size": 0,
+      "free_size": 81920,
+      "utilization_percent": 0.0,
+      "sections": []
+    },
+    "FS_CACHE": {
+      "type": "RAM",
+      "attributes": "xrw",
+      "address": 536952832,
+      "end_address": 536969215,
+      "limit_size": 16384,
+      "used_size": 0,
+      "free_size": 16384,
+      "utilization_percent": 0.0,
+      "sections": []
+    }
+  },
+  "expected_regions": {
+    "FLASH": {
+      "origin": "0x08000000",
+      "length": 524288
+    },
+    "FLASH_START": {
+      "origin": "0x08000000",
+      "length": 16384
+    },
+    "FLASH_FS": {
+      "origin": "0x08004000",
+      "length": 65536
+    },
+    "FLASH_TEXT": {
+      "origin": "0x08020000",
+      "length": 393216
+    },
+    "RAM": {
+      "origin": "0x20000000",
+      "length": 81920
+    },
+    "FS_CACHE": {
+      "origin": "0x20014000",
+      "length": 16384
+    }
+  },
+  "validation": {
+    "valid": true,
+    "warnings": []
+  },
+  "statistics": {
+    "total_regions": 6,
+    "flash_regions": 4,
+    "ram_regions": 2,
+    "total_flash_size": 999424,
+    "total_ram_size": 98304
+  }
+}
