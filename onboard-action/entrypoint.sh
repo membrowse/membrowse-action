@@ -52,14 +52,16 @@ while IFS= read -r commit; do
     # Build the firmware
     echo "Building firmware with: $BUILD_SCRIPT"
     if ! eval "$BUILD_SCRIPT"; then
-        echo "Build failed for commit $commit, skipping..."
-        continue
+        echo "Build failed for commit $commit, stopping workflow..."
+        git checkout "$ORIGINAL_HEAD" --quiet
+        exit 1
     fi
     
     # Check if ELF file was generated
     if [[ ! -f "$ELF_PATH" ]]; then
-        echo "ELF file not found at $ELF_PATH for commit $commit, skipping..."
-        continue
+        echo "ELF file not found at $ELF_PATH for commit $commit, stopping workflow..."
+        git checkout "$ORIGINAL_HEAD" --quiet
+        exit 1
     fi
     
     # Get parent commit SHA for base comparison
@@ -69,7 +71,7 @@ while IFS= read -r commit; do
     echo "Base commit: $BASE_SHA"
     
     # Run the modular memory collection script
-    if bash "$SHARED_DIR/collect_report.sh" \
+    if ! bash "$SHARED_DIR/collect_report.sh" \
         "$ELF_PATH" \
         "$LD_PATHS" \
         "$TARGET_NAME" \
@@ -78,10 +80,11 @@ while IFS= read -r commit; do
         "$BASE_SHA" \
         "$CURRENT_BRANCH" \
         "$REPO_NAME"; then
-        echo "Memory report generated successfully for commit $commit"
-    else
-        echo "Failed to generate memory report for commit $commit"
+        echo "Failed to generate or upload memory report for commit $commit, stopping workflow..."
+        git checkout "$ORIGINAL_HEAD" --quiet
+        exit 1
     fi
+    echo "Memory report generated and uploaded successfully for commit $commit"
     
     # Small delay to avoid overwhelming the API
     sleep 1
