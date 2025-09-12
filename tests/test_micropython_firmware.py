@@ -393,5 +393,288 @@ class TestMicroPythonFirmware(unittest.TestCase):
                 pass
 
 
+class TestMicroPythonESP32Firmware(unittest.TestCase):
+    """Test MicroPython ESP32 firmware analysis"""
+
+    @classmethod
+    def setUpClass(cls):
+        """Set up class with ESP32 firmware paths"""
+        cls.firmware_path = Path(
+            "../micropython/ports/esp32/build-ESP32_GENERIC/micropython.elf")
+        cls.linker_scripts = [
+            Path("../micropython/ports/esp32/build-ESP32_GENERIC/esp-idf/esp_system/ld/memory.ld"),
+            Path("../micropython/ports/esp32/build-ESP32_GENERIC/esp-idf/esp_system/ld/sections.ld"),
+            Path("../micropython/esp-idf/components/esp_rom/esp32/ld/esp32.rom.ld"),
+            Path("../micropython/esp-idf/components/esp_rom/esp32/ld/esp32.rom.api.ld"),
+            Path("../micropython/esp-idf/components/esp_rom/esp32/ld/esp32.rom.libgcc.ld"),
+            Path("../micropython/esp-idf/components/esp_rom/esp32/ld/esp32.rom.newlib-data.ld"),
+            Path("../micropython/esp-idf/components/esp_rom/esp32/ld/esp32.rom.syscalls.ld"),
+            Path("../micropython/esp-idf/components/esp_rom/esp32/ld/esp32.rom.newlib-funcs.ld"),
+            Path("../micropython/esp-idf/components/soc/esp32/ld/esp32.peripherals.ld"),
+            Path("../micropython/esp-idf/components/esp_rom/esp32/ld/esp32.rom.newlib-time.ld"),
+            Path("../micropython/esp-idf/components/esp_rom/esp32/ld/esp32.rom.newlib-nano.ld"),
+            Path("../micropython/esp-idf/components/esp_rom/esp32/ld/esp32.rom.newlib-locale.ld"),
+            Path("../micropython/esp-idf/components/esp_rom/esp32/ld/esp32.rom.eco3.ld"),
+            Path("../micropython/esp-idf/components/esp_rom/esp32/ld/esp32.rom.redefined.ld"),
+            Path("../micropython/esp-idf/components/esp_rom/esp32/ld/esp32.rom.spiflash_legacy.ld"),
+        ]
+
+        # Check if firmware exists
+        if not cls.firmware_path.exists():
+            raise unittest.SkipTest(
+                f"MicroPython ESP32 firmware not found at {cls.firmware_path}")
+
+    def test_micropython_esp32_firmware_analysis(self):
+        """Test full MicroPython ESP32 firmware analysis and source file mapping"""
+
+        # Create temporary files for memory regions and report
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as regions_file:
+            # Create ESP32-specific memory regions in the expected format
+            regions_data = {
+                "iram0_0_seg": {
+                    "type": "RAM",
+                    "attributes": "rwx",
+                    "address": int("0x40080000", 16),
+                    "end_address": int("0x40080000", 16) + int("0x20000", 16) - 1,
+                    "limit_size": int("0x20000", 16),
+                    "used_size": 0,
+                    "free_size": int("0x20000", 16),
+                    "utilization_percent": 0.0,
+                    "sections": []
+                },
+                "dram0_0_seg": {
+                    "type": "RAM",
+                    "attributes": "rw",
+                    "address": int("0x3FFB0000", 16),
+                    "end_address": int("0x3FFB0000", 16) + int("0x50000", 16) - 1,
+                    "limit_size": int("0x50000", 16),
+                    "used_size": 0,
+                    "free_size": int("0x50000", 16),
+                    "utilization_percent": 0.0,
+                    "sections": []
+                },
+                "flash_text": {
+                    "type": "FLASH",
+                    "attributes": "rx",
+                    "address": int("0x400D0000", 16),
+                    "end_address": int("0x400D0000", 16) + int("0x330000", 16) - 1,
+                    "limit_size": int("0x330000", 16),
+                    "used_size": 0,
+                    "free_size": int("0x330000", 16),
+                    "utilization_percent": 0.0,
+                    "sections": []
+                },
+                "flash_rodata": {
+                    "type": "FLASH",
+                    "attributes": "r",
+                    "address": int("0x3F400000", 16),
+                    "end_address": int("0x3F400000", 16) + int("0x400000", 16) - 1,
+                    "limit_size": int("0x400000", 16),
+                    "used_size": 0,
+                    "free_size": int("0x400000", 16),
+                    "utilization_percent": 0.0,
+                    "sections": []
+                }
+            }
+            json.dump(regions_data, regions_file, indent=2)
+            regions_file_path = regions_file.name
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as report_file:
+            report_file_path = report_file.name
+
+        try:
+            # Load memory regions data
+            with open(regions_file_path, 'r') as f:
+                memory_regions_data = json.load(f)
+
+            # Initialize the generator
+            generator = MemoryReportGenerator(
+                str(self.firmware_path), memory_regions_data)
+
+            # Generate the report
+            report = generator.generate_report()
+
+            # Write report to file
+            with open(report_file_path, 'w') as f:
+                json.dump(report, f, indent=2)
+
+            # Also save to a known location for inspection
+            known_report_path = Path("micropython_esp32_report.json")
+            with open(known_report_path, 'w') as f:
+                json.dump(report, f, indent=2)
+            print(f"\n📁 ESP32 Report saved to: {known_report_path.absolute()}")
+
+            # Check that analysis succeeded
+            self.assertIsInstance(
+                report, dict, "Report should be a dictionary")
+
+            # Load the generated report
+            with open(report_file_path, 'r') as f:
+                report = json.load(f)
+
+            # Basic report structure validation
+            self.assertIn('symbols', report)
+            self.assertIn('architecture', report)
+            self.assertIn('entry_point', report)
+
+            # Verify ESP32 architecture
+            self.assertIn('xtensa', report['machine'].lower())
+            print(f"✅ Detected ESP32 architecture: {report['architecture']} / Machine: {report['machine']}")
+
+            # Find ESP32-specific symbols
+            esp_timer_init_symbol = None
+            uart_init_symbol = None
+            esp_symbols = []
+            uart_symbols = []
+
+            for symbol in report['symbols']:
+                if 'esp_timer' in symbol['name'].lower():
+                    esp_symbols.append(symbol['name'])
+                if symbol['name'] == 'esp_timer_init':
+                    esp_timer_init_symbol = symbol
+
+                if 'uart' in symbol['name'].lower():
+                    uart_symbols.append(symbol['name'])
+                if symbol['name'] == 'uart_init':
+                    uart_init_symbol = symbol
+
+            print(f"\nFound {len(esp_symbols)} ESP timer-related symbols:")
+            for esp_sym in esp_symbols[:10]:  # Show first 10
+                print(f"  - {esp_sym}")
+            if len(esp_symbols) > 10:
+                print(f"  ... and {len(esp_symbols) - 10} more")
+
+            print(f"\nFound {len(uart_symbols)} UART-related symbols:")
+            for uart_sym in uart_symbols[:10]:  # Show first 10
+                print(f"  - {uart_sym}")
+            if len(uart_symbols) > 10:
+                print(f"  ... and {len(uart_symbols) - 10} more")
+
+            # Check if esp_timer_init was found
+            if esp_timer_init_symbol:
+                print(f"\nFound esp_timer_init symbol:")
+                print(f"  Address: 0x{esp_timer_init_symbol['address']:08x}")
+                print(f"  Size: {esp_timer_init_symbol['size']}")
+                print(f"  Type: {esp_timer_init_symbol['type']}")
+                print(f"  Source file: {esp_timer_init_symbol['source_file']}")
+
+                # Verify source file mapping
+                self.assertIsInstance(esp_timer_init_symbol['source_file'], str)
+
+                # Check source file mapping behavior
+                if esp_timer_init_symbol['source_file']:
+                    print(
+                        f"📍 esp_timer_init maps to: {esp_timer_init_symbol['source_file']}")
+
+                    # Should not be a system header
+                    self.assertNotIn(
+                        'stdint', esp_timer_init_symbol['source_file'].lower())
+                    self.assertNotIn(
+                        'stdio', esp_timer_init_symbol['source_file'].lower())
+                    self.assertNotIn(
+                        '/usr/include', esp_timer_init_symbol['source_file'])
+
+                    # Accept both .c and .h files - real firmware may have
+                    # legitimate header mappings
+                    if esp_timer_init_symbol['source_file'].endswith('.c'):
+                        print(
+                            f"✅ esp_timer_init maps to .c source file: {esp_timer_init_symbol['source_file']}")
+                    elif esp_timer_init_symbol['source_file'].endswith('.h'):
+                        print(
+                            f"ℹ️  esp_timer_init maps to .h header file: {esp_timer_init_symbol['source_file']}")
+                        print(
+                            "    This may be legitimate for inline/static functions in headers")
+                    else:
+                        print(
+                            f"⚠️  esp_timer_init maps to unexpected file type: {esp_timer_init_symbol['source_file']}")
+
+                    # The key test: it should not be a system/standard library
+                    # header
+                    is_project_file = (
+                        not esp_timer_init_symbol['source_file'].startswith('/usr/') and
+                        not esp_timer_init_symbol['source_file'].startswith('/opt/') and
+                        'stdint' not in esp_timer_init_symbol['source_file'].lower() and
+                        'stdio' not in esp_timer_init_symbol['source_file'].lower()
+                    )
+
+                    self.assertTrue(
+                        is_project_file,
+                        f"esp_timer_init should map to project file, not system header: {esp_timer_init_symbol['source_file']}")
+
+                    print(
+                        f"✅ esp_timer_init correctly maps to project file: {esp_timer_init_symbol['source_file']}")
+                else:
+                    print(
+                        "⚠️  esp_timer_init has empty source_file - this might be expected for optimized builds")
+
+            else:
+                # If esp_timer_init not found, look for similar ESP functions
+                print(
+                    f"\n⚠️  esp_timer_init not found. Looking for similar ESP functions...")
+
+                esp_funcs = [s for s in report['symbols']
+                             if 'esp_' in s['name'].lower() and s['type'] == 'FUNC']
+
+                if esp_funcs:
+                    print(f"Found {len(esp_funcs)} ESP functions:")
+                    for func in esp_funcs[:5]:  # Show first 5
+                        print(f"  - {func['name']}: {func['source_file']}")
+
+                    # Test with the first ESP function found
+                    test_func = esp_funcs[0]
+                    print(f"\nTesting with {test_func['name']} instead:")
+                    if test_func['source_file']:
+                        is_project_file = (
+                            not test_func['source_file'].startswith('/usr/') and
+                            not test_func['source_file'].startswith('/opt/') and
+                            'stdint' not in test_func['source_file'].lower() and
+                            'stdio' not in test_func['source_file'].lower()
+                        )
+                        self.assertTrue(
+                            is_project_file,
+                            f"ESP function should map to project file, got: {test_func['source_file']}")
+                        print(
+                            f"✅ {test_func['name']} correctly maps to: {test_func['source_file']}")
+
+            # Check uart_init symbol for ESP32
+            if uart_init_symbol:
+                print(f"\nFound uart_init symbol:")
+                print(f"  Address: 0x{uart_init_symbol['address']:08x}")
+                print(f"  Size: {uart_init_symbol['size']}")
+                print(f"  Type: {uart_init_symbol['type']}")
+                print(f"  Source file: {uart_init_symbol['source_file']}")
+
+                if uart_init_symbol['source_file']:
+                    if uart_init_symbol['source_file'].endswith('.c'):
+                        print(
+                            f"✅ uart_init correctly maps to: {uart_init_symbol['source_file']}")
+                    else:
+                        print(
+                            f"ℹ️  uart_init maps to: {uart_init_symbol['source_file']}")
+
+            # Print summary statistics
+            total_symbols = len(report['symbols'])
+            symbols_with_source = len(
+                [s for s in report['symbols'] if s['source_file']])
+
+            print(f"\nESP32 Report summary:")
+            print(f"  Total symbols: {total_symbols}")
+            print(f"  Symbols with source files: {symbols_with_source}")
+            print(f"  Architecture: {report['architecture']}")
+            print(f"  Machine: {report.get('machine', 'Unknown')}")
+
+            # Test that we got a reasonable number of symbols
+            self.assertGreater(total_symbols, 1000, "Should have found many symbols in ESP32 firmware")
+            self.assertGreater(symbols_with_source, 100, "Should have source file mappings for many symbols")
+
+        finally:
+            # Clean up temporary files
+            try:
+                os.unlink(regions_file_path)
+                os.unlink(report_file_path)
+            except OSError:
+                pass
+
+
 if __name__ == '__main__':
     unittest.main()
