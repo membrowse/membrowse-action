@@ -19,7 +19,7 @@ BRANCH_NAME="${7:-}"
 REPO_NAME="${8:-}"
 PR_NUMBER="${9:-}"
 
-MEMBROWSE_API_URL="https://membrowse.uc.r.appspot.com/api/upload"
+MEMBROWSE_API_URL="$MEMBROWSE_UPLOAD_URL"
 
 # Validate required arguments
 if [[ -z "$ELF_PATH" ]]; then
