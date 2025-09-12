@@ -98,6 +98,14 @@ class ELFAnalysisError(Exception):
 
 class ELFAnalyzer:
     """Handles ELF file analysis and data extraction with performance optimizations"""
+    
+    # Class constants for optimization - avoid recreating sets in hot loops
+    RELEVANT_DIE_TAGS = frozenset({
+        'DW_TAG_subprogram',      # Functions
+        'DW_TAG_variable',        # Variables
+        'DW_TAG_formal_parameter', # Parameters
+        'DW_TAG_inlined_subroutine', # Inlined functions
+    })
 
     def __init__(self, elf_path: str):
         self.elf_path = Path(elf_path)
@@ -148,12 +156,13 @@ class ELFAnalyzer:
                 pass
                 
     def _build_dwarf_dictionaries(self) -> None:
-        """Single-pass DWARF parsing to build lookup dictionaries.
+        """Optimized DWARF parsing that only processes symbols we actually need.
         
         This approach:
-        1. Parses DWARF once and stores all relevant data in dictionaries
-        2. Symbol processing then uses fast dictionary lookups
-        3. Eliminates redundant DWARF parsing between line/source mapping
+        1. First gets ELF symbol table to know which addresses we need to map
+        2. Only processes DWARF info for relevant addresses
+        3. Uses lazy line program processing
+        4. Filters DIEs early based on relevance
         """
         # Initialize lookup dictionaries
         self._dwarf_data = {
@@ -163,6 +172,7 @@ class ELFAnalyzer:
             'address_to_cu_file': {},       # address -> cu_filename
             'cu_file_list': [],             # List of CU filenames
             'system_headers': set(),        # Cache of known system headers
+            'processed_cus': set(),         # Cache of processed CUs to avoid duplicates
         }
         
         try:
@@ -173,10 +183,15 @@ class ELFAnalyzer:
                     
                 dwarfinfo = elffile.get_dwarf_info()
                 
-                # Single pass through all compilation units
+                # OPTIMIZATION: Get symbol addresses we actually need to map
+                symbol_addresses = self._get_symbol_addresses_to_map(elffile)
+                if not symbol_addresses:
+                    return
+                
+                # OPTIMIZATION: Only process CUs that contain relevant addresses
                 for cu in dwarfinfo.iter_CUs():
                     try:
-                        self._process_cu_for_dictionaries(cu, dwarfinfo)
+                        self._process_cu_for_dictionaries_optimized(cu, dwarfinfo, symbol_addresses)
                     except Exception:  # pylint: disable=broad-exception-caught
                         continue
                         
@@ -184,8 +199,31 @@ class ELFAnalyzer:
         except (IOError, OSError, ELFError, Exception):  # pylint: disable=broad-exception-caught
             pass
             
-    def _process_cu_for_dictionaries(self, cu, dwarfinfo) -> None:
-        """Process a compilation unit and store all data in dictionaries."""
+    def _get_symbol_addresses_to_map(self, elffile) -> set:
+        """Get set of symbol addresses that we actually need to map."""
+        symbol_addresses = set()
+        
+        try:
+            symbol_table_section = elffile.get_section_by_name('.symtab')
+            if not symbol_table_section:
+                return symbol_addresses
+                
+            for symbol in symbol_table_section.iter_symbols():
+                if self._is_valid_symbol(symbol):
+                    symbol_addresses.add(symbol['st_value'])
+                    
+        except Exception:  # pylint: disable=broad-exception-caught
+            pass
+            
+        return symbol_addresses
+    
+    def _process_cu_for_dictionaries_optimized(self, cu, dwarfinfo, symbol_addresses: set) -> None:
+        """Process a compilation unit optimized for only relevant symbols."""
+        cu_offset = cu.cu_offset
+        if cu_offset in self._dwarf_data['processed_cus']:
+            return
+        self._dwarf_data['processed_cus'].add(cu_offset)
+        
         # Get CU basic info
         cu_name = None
         cu_source_file = None
@@ -209,11 +247,15 @@ class ELFAnalyzer:
                 
         self._dwarf_data['cu_file_list'].append(cu_source_file)
         
-        # Process line program (address -> file mapping)
+        # OPTIMIZATION: Check if this CU contains any relevant addresses
+        if not self._cu_contains_relevant_addresses(cu, symbol_addresses):
+            return
+        
+        # Process line program (address -> file mapping) - only for relevant CUs
         self._extract_line_program_data(cu, dwarfinfo, cu_source_file)
         
-        # Process DIEs (symbol -> file mapping)
-        self._extract_die_symbol_data(cu, dwarfinfo, cu_source_file, cu_name)
+        # Process DIEs (symbol -> file mapping) - only for relevant symbols
+        self._extract_die_symbol_data_optimized(cu, dwarfinfo, cu_source_file, cu_name, symbol_addresses)
         
     def _extract_line_program_data(self, cu, dwarfinfo, cu_source_file: Optional[str]) -> None:
         """Extract line program data into dictionaries."""
@@ -266,8 +308,37 @@ class ELFAnalyzer:
         except Exception:  # pylint: disable=broad-exception-caught
             pass
             
-    def _extract_die_symbol_data(self, cu, dwarfinfo, cu_source_file: Optional[str], cu_name: Optional[str]) -> None:
-        """Extract DIE symbol data into dictionaries."""
+    def _cu_contains_relevant_addresses(self, cu, symbol_addresses: set) -> bool:
+        """Check if CU contains any addresses we care about."""
+        try:
+            top_die = cu.get_top_DIE()
+            low_pc_attr = top_die.attributes.get('DW_AT_low_pc')
+            high_pc_attr = top_die.attributes.get('DW_AT_high_pc')
+            
+            if not (low_pc_attr and high_pc_attr):
+                return True  # Can't determine range, process it
+                
+            low_pc = int(low_pc_attr.value)
+            high_pc_val = high_pc_attr.value
+            
+            # Handle both absolute and offset forms of DW_AT_high_pc
+            if isinstance(high_pc_val, int) and high_pc_val < low_pc:
+                high_pc = low_pc + high_pc_val  # Offset form
+            else:
+                high_pc = int(high_pc_val)  # Absolute form
+                
+            # Check if any symbol addresses fall in this range
+            for addr in symbol_addresses:
+                if low_pc <= addr <= high_pc:
+                    return True
+                    
+            return False
+            
+        except Exception:  # pylint: disable=broad-exception-caught
+            return True  # If we can't determine, process it to be safe
+    
+    def _extract_die_symbol_data_optimized(self, cu, dwarfinfo, cu_source_file: Optional[str], cu_name: Optional[str], symbol_addresses: set) -> None:
+        """Extract DIE symbol data optimized for only relevant symbols."""
         try:
             # Build file entries for this CU
             file_entries = {}
@@ -279,20 +350,39 @@ class ELFAnalyzer:
                         if filename:
                             file_entries[i + 1] = filename
                             
-            # Process all DIEs recursively - start from top DIE
+            # OPTIMIZATION: Process DIEs with early filtering
             top_die = cu.get_top_DIE()
-            for die in top_die.iter_children():
-                self._process_die_for_dictionaries(die, file_entries, cu_source_file)
-                for child_die in die.iter_children():
-                    self._process_die_for_dictionaries(child_die, file_entries, cu_source_file)
-                    for grandchild in child_die.iter_children():
-                        self._process_die_for_dictionaries(grandchild, file_entries, cu_source_file)
+            self._process_die_tree_optimized(top_die, file_entries, cu_source_file, symbol_addresses, 0)
                         
         except Exception:  # pylint: disable=broad-exception-caught
             pass
+    
+    def _process_die_tree_optimized(self, die, file_entries: Dict[int, str], cu_source_file: Optional[str], symbol_addresses: set, depth: int) -> None:
+        """Process DIE tree with optimization and depth limiting."""
+        if depth > 10:  # Prevent excessive recursion
+            return
             
-    def _process_die_for_dictionaries(self, die, file_entries: Dict[int, str], cu_source_file: Optional[str]) -> None:
-        """Process a DIE and store symbol data in dictionaries."""
+        try:
+            # OPTIMIZATION: Early filtering - only process relevant DIE tags
+            if hasattr(die, 'tag') and die.tag:
+                if die.tag not in self.RELEVANT_DIE_TAGS:
+                    # Still need to recurse for nested relevant DIEs
+                    for child_die in die.iter_children():
+                        self._process_die_tree_optimized(child_die, file_entries, cu_source_file, symbol_addresses, depth + 1)
+                    return
+                    
+            # Process this DIE if it's relevant
+            self._process_die_for_dictionaries_optimized(die, file_entries, cu_source_file, symbol_addresses)
+            
+            # Recurse to children
+            for child_die in die.iter_children():
+                self._process_die_tree_optimized(child_die, file_entries, cu_source_file, symbol_addresses, depth + 1)
+                
+        except Exception:  # pylint: disable=broad-exception-caught
+            pass
+            
+    def _process_die_for_dictionaries_optimized(self, die, file_entries: Dict[int, str], cu_source_file: Optional[str], symbol_addresses: set) -> None:
+        """Process a DIE optimized to only handle symbols we need."""
         try:
             if not die.attributes:
                 return
@@ -324,6 +414,10 @@ class ELFAnalyzer:
                         die_address = int(location_attr.value)
                     except (ValueError, TypeError):
                         pass
+            
+            # Only process if this address is in our symbol table OR if no address (variables)
+            if die_address and die_address not in symbol_addresses:
+                return
                         
             # Get declaration file
             decl_file = None
