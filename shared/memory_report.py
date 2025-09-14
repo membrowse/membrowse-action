@@ -1107,7 +1107,7 @@ class MemoryReportGenerator:  # pylint: disable=too-few-public-methods
         self.memory_regions_data = memory_regions_data
         self.elf_path = elf_path
 
-    def generate_report(self) -> Dict[str, Any]:
+    def generate_report(self, verbose) -> Dict[str, Any]:
         """Generate comprehensive memory report with performance tracking"""
         report_start_time = time.time()
         try:
@@ -1151,16 +1151,17 @@ class MemoryReportGenerator:  # pylint: disable=too-few-public-methods
                     region in memory_regions.items()}
             }
             
-            # Print performance summary
-            print(f"\n📊 Performance Summary:")
-            print(f"  Total time: {total_time:.2f}s")
-            print(f"  Symbols processed: {len(symbols)}")
-            print(f"  Avg time per symbol: {perf_stats['avg_time_per_symbol']*1000:.2f}ms")
-            print(f"  Source mapping success: {perf_stats['source_mapping_success_rate']:.1f}%")
-            print(f"  Line mapping time: {perf_stats['line_mapping_time']:.2f}s")
-            print(f"  Source mapping time: {perf_stats['source_mapping_time']:.2f}s")
-            print(f"  Binary searches: {perf_stats['binary_searches']}")
-            print(f"  Proximity searches: {perf_stats['proximity_searches']}")
+            # # Print performance summary
+            if verbose:
+                print(f"\nPerformance Summary:")
+                print(f"  Total time: {total_time:.2f}s")
+                print(f"  Symbols processed: {len(symbols)}")
+                print(f"  Avg time per symbol: {perf_stats['avg_time_per_symbol']*1000:.2f}ms")
+                print(f"  Source mapping success: {perf_stats['source_mapping_success_rate']:.1f}%")
+                print(f"  Line mapping time: {perf_stats['line_mapping_time']:.2f}s")
+                print(f"  Source mapping time: {perf_stats['source_mapping_time']:.2f}s")
+                print(f"  Binary searches: {perf_stats['binary_searches']}")
+                print(f"  Proximity searches: {perf_stats['proximity_searches']}")
             
             return report
 
@@ -1214,6 +1215,13 @@ Examples:
             required=True,
             help='Output JSON file path'
         )
+        parser.add_argument(
+            '--verbose',
+            required=False,
+            default=False,
+            action='store_true',
+            help='Enable verbose output'
+        )
 
         return parser
 
@@ -1227,13 +1235,13 @@ Examples:
 
             generator = MemoryReportGenerator(
                 args.elf_path, memory_regions_data)
-            report = generator.generate_report()
+            report = generator.generate_report(args.verbose)
 
             # Write report to file
             with open(args.output, 'w', encoding='utf-8') as f:
                 json.dump(report, f, indent=2)
-
-            print(f"Memory report generated successfully: {args.output}")
+            if args.verbose:
+                print(f"Memory report generated successfully: {args.output}")
 
         except ELFAnalysisError as e:
             print(f"Error: {e}", file=sys.stderr)
