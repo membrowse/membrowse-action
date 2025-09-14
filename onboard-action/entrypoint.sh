@@ -42,7 +42,7 @@ while IFS= read -r commit; do
     echo "=== Processing commit $COMMIT_COUNT/$NUM_COMMITS: $commit ==="
     
     # Checkout the commit
-    echo "Checking out commit $commit..."
+    echo "$commit: Checking out commit..."
     git checkout "$commit" --quiet
     
     # Clean any previous build artifacts
@@ -50,16 +50,16 @@ while IFS= read -r commit; do
     git clean -fd || true
     
     # Build the firmware
-    echo "Building firmware with: $BUILD_SCRIPT"
+    echo "$commit: Building firmware with: $BUILD_SCRIPT"
     if ! eval "$BUILD_SCRIPT"; then
-        echo "Build failed for commit $commit, stopping workflow..."
+        echo "$commit: Build failed, stopping workflow..."
         git checkout "$ORIGINAL_HEAD" --quiet
         exit 1
     fi
     
     # Check if ELF file was generated
     if [[ ! -f "$ELF_PATH" ]]; then
-        echo "ELF file not found at $ELF_PATH for commit $commit, stopping workflow..."
+        echo "$commit: ELF file not found at $ELF_PATH, stopping workflow..."
         git checkout "$ORIGINAL_HEAD" --quiet
         exit 1
     fi
@@ -67,9 +67,9 @@ while IFS= read -r commit; do
     # Get parent commit SHA for base comparison
     BASE_SHA=$(git rev-parse "$commit~1" 2>/dev/null || echo "")
     
-    echo "Generating memory report for commit $commit..."
-    echo "Base commit: $BASE_SHA"
-    
+    echo "$commit: Generating memory report for commit..."
+    echo "$commit: Base commit: $BASE_SHA"
+
     # Run the modular memory collection script
     if ! bash "$SHARED_DIR/collect_report.sh" \
         "$ELF_PATH" \
@@ -80,15 +80,12 @@ while IFS= read -r commit; do
         "$BASE_SHA" \
         "$CURRENT_BRANCH" \
         "$REPO_NAME"; then
-        echo "Failed to generate or upload memory report for commit $commit, stopping workflow..."
+        echo "$commit: Failed to generate or upload memory report, stopping workflow..."
         git checkout "$ORIGINAL_HEAD" --quiet
         exit 1
     fi
-    echo "Memory report generated and uploaded successfully for commit $commit"
-    
-    # Small delay to avoid overwhelming the API
-    sleep 1
-    
+    echo "$commit: Memory report generated and uploaded successfully"
+
 done <<< "$COMMITS"
 
 # Restore original HEAD

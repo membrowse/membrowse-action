@@ -50,37 +50,38 @@ for ld_script in $LD_SCRIPTS; do
     fi
 done
 
-echo "Starting memory analysis for target: $TARGET_NAME"
+echo "($COMMIT_SHA): Started MemBrowse Memory Report generation"
+echo "Target: $TARGET_NAME"
 echo "ELF file: $ELF_PATH"
 echo "Linker scripts: $LD_SCRIPTS"
 
-echo "Starting direct ELF analysis..."
+echo "($COMMIT_SHA): ELF analysis."
 
 # Get script directory for relative imports
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Parse memory regions from linker scripts
-echo "Parsing memory regions from linker scripts..."
+echo "($COMMIT_SHA): Parsing memory regions from linker scripts."
 MEMORY_REGIONS_JSON=$(mktemp)
 
 python3 "$SCRIPT_DIR/memory_regions.py" $LD_SCRIPTS > "$MEMORY_REGIONS_JSON" || {
-    echo "Error: Failed to parse memory regions"
+    echo "($COMMIT_SHA): Error: Failed to parse memory regions"
     exit 1
 }
 
 # Generate JSON report using Python script
-echo "Generating JSON memory report..."
+echo "($COMMIT_SHA): Generating JSON memory report..."
 REPORT_JSON=$(mktemp)
 
 python3 "$SCRIPT_DIR/memory_report.py" \
     --elf-path "$ELF_PATH" \
     --memory-regions "$MEMORY_REGIONS_JSON" \
     --output "$REPORT_JSON" || {
-    echo "Error: Failed to generate memory report"
+    echo "($COMMIT_SHA): Error: Failed to generate memory report"
     exit 1
 }
 
-echo "JSON report generated successfully"
+echo "($COMMIT_SHA): JSON report generated successfully"
 
 if [[ -z "$COMMIT_SHA" ]]; then
     COMMIT_SHA=$(git rev-parse HEAD)
@@ -97,7 +98,7 @@ fi
 COMMIT_MESSAGE=$(git log -1 --pretty=format:"%s" "$COMMIT_SHA" 2>/dev/null || echo "Unknown commit message")
 COMMIT_TIMESTAMP=$(git log -1 --pretty=format:"%cI" "$COMMIT_SHA" 2>/dev/null || echo "$(date -u +%Y-%m-%dT%H:%M:%SZ)")
 
-echo "Upload memory report to MemBrowse..."
+echo "($COMMIT_SHA): Starting upload of report to Membrowse..."
 
 UPLOAD_ARGS=(
     "--base-report" "$REPORT_JSON"
@@ -108,7 +109,6 @@ UPLOAD_ARGS=(
     "--branch-name" "$BRANCH_NAME"
     "--repository" "$REPO_NAME"
     "--target-name" "$TARGET_NAME"
-    "--print-report"
 )
 
 if [[ -n "$PR_NUMBER" ]]; then
@@ -123,8 +123,8 @@ if [[ -n "$API_KEY" ]]; then
 fi
 
 python3 "$SCRIPT_DIR/upload.py" "${UPLOAD_ARGS[@]}" || {
-    echo "Error: Failed upload report"
+    echo "($COMMIT_SHA): Error: Failed upload report"
     exit 1
 }
 
-echo "Memory analysis completed successfully"
+echo "($COMMIT_SHA): Memory report uploaded successfully"
