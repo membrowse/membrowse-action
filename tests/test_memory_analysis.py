@@ -268,7 +268,7 @@ LOAD,256,1280
             str(self.elf_file), memory_regions_data)
 
         try:
-            report = generator.generate_report()
+            report = generator.generate_report(verbose=False)
         except Exception as e:  # pylint: disable=broad-exception-caught
             self.fail(f"Failed to generate memory report: {e}")
 
@@ -423,7 +423,7 @@ LOAD,256,1280
             str(self.elf_file), memory_regions_data)
 
         try:
-            report = generator.generate_report()
+            report = generator.generate_report(verbose=False)
         except Exception as e:  # pylint: disable=broad-exception-caught
             self.fail(f"Failed to generate memory report: {e}")
 
@@ -525,7 +525,7 @@ LOAD,2816,2816
 
             # Generate report
             generator = MemoryReportGenerator(str(elf_file), {})
-            report = generator.generate_report()
+            report = generator.generate_report(verbose=False)
 
             # Verify basic report structure
             assert 'memory_layout' in report

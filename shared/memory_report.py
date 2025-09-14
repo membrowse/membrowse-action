@@ -98,7 +98,7 @@ class ELFAnalysisError(Exception):
 
 class ELFAnalyzer:
     """Handles ELF file analysis and data extraction with performance optimizations"""
-    
+
     # Class constants for optimization - avoid recreating sets in hot loops
     RELEVANT_DIE_TAGS = frozenset({
         'DW_TAG_subprogram',      # Functions
@@ -121,7 +121,7 @@ class ELFAnalyzer:
             'proximity_searches': 0,
             'binary_searches': 0
         }
-        
+
         # Dictionary-based DWARF parsing - single pass, then lookup
         start_time = time.time()
         self._build_dwarf_dictionaries()
@@ -137,27 +137,27 @@ class ELFAnalyzer:
 
         if not os.access(self.elf_path, os.R_OK):
             raise ELFAnalysisError(f"Cannot read ELF file: {self.elf_path}")
-            
+
     def _get_cached_elf_file(self):
         """Get cached ELF file handle to avoid repeated file I/O"""
         if self._cached_elf_file is None:
             self._elf_file_handle = open(self.elf_path, 'rb')
             self._cached_elf_file = ELFFile(self._elf_file_handle)
         return self._cached_elf_file
-        
-        
-        
+
+
+
     def __del__(self):
         """Clean up cached file handle"""
         if hasattr(self, '_elf_file_handle'):
             try:
                 self._elf_file_handle.close()
-            except:
+            except Exception:  # pylint: disable=broad-exception-caught
                 pass
-                
+
     def _build_dwarf_dictionaries(self) -> None:
         """Optimized DWARF parsing that only processes symbols we actually need.
-        
+
         This approach:
         1. First gets ELF symbol table to know which addresses we need to map
         2. Only processes DWARF info for relevant addresses
@@ -173,117 +173,117 @@ class ELFAnalyzer:
             'cu_file_list': [],             # List of CU filenames
             'system_headers': set(),        # Cache of known system headers
             'processed_cus': set(),         # Cache of processed CUs to avoid duplicates
-            'die_offset_cache': {},         # DIE offset -> (decl_file, cu_source_file) for abstract_origin resolution
+            'die_offset_cache': {},         # DIE offset -> (decl_file, cu_source_file)
         }
-        
+
         try:
             with open(self.elf_path, 'rb') as f:
                 elffile = ELFFile(f)
                 if not elffile.has_dwarf_info():
                     return
-                    
+
                 dwarfinfo = elffile.get_dwarf_info()
-                
+
                 # OPTIMIZATION: Get symbol addresses we actually need to map
                 symbol_addresses = self._get_symbol_addresses_to_map(elffile)
                 if not symbol_addresses:
                     return
-                
+
                 # OPTIMIZATION: Only process CUs that contain relevant addresses
                 for cu in dwarfinfo.iter_CUs():
                     try:
                         self._process_cu_for_dictionaries_optimized(cu, dwarfinfo, symbol_addresses)
                     except Exception:  # pylint: disable=broad-exception-caught
                         continue
-                        
-                
+
+
         except (IOError, OSError, ELFError, Exception):  # pylint: disable=broad-exception-caught
             pass
-            
+
     def _get_symbol_addresses_to_map(self, elffile) -> set:
         """Get set of symbol addresses that we actually need to map."""
         symbol_addresses = set()
-        
+
         try:
             symbol_table_section = elffile.get_section_by_name('.symtab')
             if not symbol_table_section:
                 return symbol_addresses
-                
+
             for symbol in symbol_table_section.iter_symbols():
                 if self._is_valid_symbol(symbol):
                     symbol_addresses.add(symbol['st_value'])
-                    
+
         except Exception:  # pylint: disable=broad-exception-caught
             pass
-            
+
         return symbol_addresses
-    
+
     def _process_cu_for_dictionaries_optimized(self, cu, dwarfinfo, symbol_addresses: set) -> None:
         """Process a compilation unit optimized for only relevant symbols."""
         cu_offset = cu.cu_offset
         if cu_offset in self._dwarf_data['processed_cus']:
             return
         self._dwarf_data['processed_cus'].add(cu_offset)
-        
+
         # Get CU basic info
         cu_name = None
         cu_source_file = None
         comp_dir = None
-        
+
         top_die = cu.get_top_DIE()
         if top_die.attributes:
             name_attr = top_die.attributes.get('DW_AT_name')
             if name_attr:
                 cu_name = self._extract_string_value(name_attr.value)
-                
+
             comp_dir_attr = top_die.attributes.get('DW_AT_comp_dir')
             if comp_dir_attr:
                 comp_dir = self._extract_string_value(comp_dir_attr.value)
-                
+
         if cu_name:
             if comp_dir and not os.path.isabs(cu_name):
                 cu_source_file = os.path.join(comp_dir, cu_name)
             else:
                 cu_source_file = cu_name
-                
+
         self._dwarf_data['cu_file_list'].append(cu_source_file)
-        
+
         # OPTIMIZATION: Check if this CU contains any relevant addresses
         if not self._cu_contains_relevant_addresses(cu, symbol_addresses):
             return
-        
+
         # Process line program (address -> file mapping) - only for relevant CUs
         self._extract_line_program_data(cu, dwarfinfo, cu_source_file)
-        
+
         # Process DIEs (symbol -> file mapping) - only for relevant symbols
         self._extract_die_symbol_data_optimized(cu, dwarfinfo, cu_source_file, cu_name, symbol_addresses)
-        
-    def _extract_line_program_data(self, cu, dwarfinfo, cu_source_file: Optional[str]) -> None:
+
+    def _extract_line_program_data(
+            self, cu, dwarfinfo, cu_source_file: Optional[str]) -> None:  # pylint: disable=unused-argument
         """Extract line program data into dictionaries."""
         try:
             line_program = dwarfinfo.line_program_for_CU(cu)
             if not line_program:
                 return
-                
+
             entries = line_program.get_entries()
             if not entries:
                 return
-                
+
             first_addr = None
-            last_addr = None
-            
+
             for entry in entries:
                 if entry.state is None:
                     continue
-                    
+
                 if hasattr(entry.state, 'address') and hasattr(entry.state, 'file'):
                     try:
                         address = entry.state.address
                         file_index = entry.state.file
-                        
+
                         if address == 0 or file_index == 0:
                             continue
-                            
+
                         # Get file from line program file table
                         file_entries = line_program.header.file_entry
                         if file_index <= len(file_entries):
@@ -293,52 +293,53 @@ class ELFAnalyzer:
                                 if filename:
                                     # Build full path
                                     filepath = self._resolve_line_program_path(filename, line_program.header)
-                                    
+
                                     # Store in dictionary
                                     self._dwarf_data['address_to_file'][address] = filepath
-                                    
+
                                     # Track CU address range
                                     if first_addr is None:
                                         first_addr = address
-                                    last_addr = address
-                                    
+
                     except (IndexError, AttributeError):
                         continue
-                        
-                                      
+
+
         except Exception:  # pylint: disable=broad-exception-caught
             pass
-            
+
     def _cu_contains_relevant_addresses(self, cu, symbol_addresses: set) -> bool:
         """Check if CU contains any addresses we care about."""
         try:
             top_die = cu.get_top_DIE()
             low_pc_attr = top_die.attributes.get('DW_AT_low_pc')
             high_pc_attr = top_die.attributes.get('DW_AT_high_pc')
-            
+
             if not (low_pc_attr and high_pc_attr):
                 return True  # Can't determine range, process it
-                
+
             low_pc = int(low_pc_attr.value)
             high_pc_val = high_pc_attr.value
-            
+
             # Handle both absolute and offset forms of DW_AT_high_pc
             if isinstance(high_pc_val, int) and high_pc_val < low_pc:
                 high_pc = low_pc + high_pc_val  # Offset form
             else:
                 high_pc = int(high_pc_val)  # Absolute form
-                
+
             # Check if any symbol addresses fall in this range
             for addr in symbol_addresses:
                 if low_pc <= addr <= high_pc:
                     return True
-                    
+
             return False
-            
+
         except Exception:  # pylint: disable=broad-exception-caught
             return True  # If we can't determine, process it to be safe
-    
-    def _extract_die_symbol_data_optimized(self, cu, dwarfinfo, cu_source_file: Optional[str], cu_name: Optional[str], symbol_addresses: set) -> None:
+
+    def _extract_die_symbol_data_optimized(
+            self, cu, dwarfinfo, cu_source_file: Optional[str],
+            cu_name: Optional[str], symbol_addresses: set) -> None:  # pylint: disable=unused-argument
         """Extract DIE symbol data optimized for only relevant symbols."""
         try:
             # Build file entries for this CU
@@ -350,58 +351,66 @@ class ELFAnalyzer:
                         filename = self._extract_string_value(file_entry.name)
                         if filename:
                             file_entries[i + 1] = filename
-                            
+
             # OPTIMIZATION: Process DIEs with early filtering
             top_die = cu.get_top_DIE()
-            self._process_die_tree_optimized(top_die, file_entries, cu_source_file, symbol_addresses, 0)
-                        
+            self._process_die_tree_optimized(
+                top_die, file_entries, cu_source_file, symbol_addresses, 0)
+
         except Exception:  # pylint: disable=broad-exception-caught
             pass
-    
-    def _process_die_tree_optimized(self, die, file_entries: Dict[int, str], cu_source_file: Optional[str], symbol_addresses: set, depth: int) -> None:
+
+    def _process_die_tree_optimized(
+            self, die, file_entries: Dict[int, str],
+            cu_source_file: Optional[str], symbol_addresses: set, depth: int) -> None:
         """Process DIE tree with optimization and depth limiting."""
         if depth > 10:  # Prevent excessive recursion
             return
-            
+
         try:
             # OPTIMIZATION: Early filtering - only process relevant DIE tags
             if hasattr(die, 'tag') and die.tag:
                 if die.tag not in self.RELEVANT_DIE_TAGS:
                     # Still need to recurse for nested relevant DIEs
                     for child_die in die.iter_children():
-                        self._process_die_tree_optimized(child_die, file_entries, cu_source_file, symbol_addresses, depth + 1)
+                        self._process_die_tree_optimized(
+                            child_die, file_entries, cu_source_file, symbol_addresses, depth + 1)
                     return
-                    
+
             # Process this DIE if it's relevant
-            self._process_die_for_dictionaries_optimized(die, file_entries, cu_source_file, symbol_addresses)
-            
+            self._process_die_for_dictionaries_optimized(
+                die, file_entries, cu_source_file, symbol_addresses)
+
             # Recurse to children
             for child_die in die.iter_children():
-                self._process_die_tree_optimized(child_die, file_entries, cu_source_file, symbol_addresses, depth + 1)
-                
+                self._process_die_tree_optimized(
+                    child_die, file_entries, cu_source_file, symbol_addresses, depth + 1)
+
         except Exception:  # pylint: disable=broad-exception-caught
             pass
-            
-    def _process_die_for_dictionaries_optimized(self, die, file_entries: Dict[int, str], cu_source_file: Optional[str], symbol_addresses: set) -> None:
+
+    def _process_die_for_dictionaries_optimized(
+            self, die, file_entries: Dict[int, str],
+            cu_source_file: Optional[str], symbol_addresses: set) -> None:
         """Process a DIE optimized to only handle symbols we need."""
         try:
             if not die.attributes:
                 return
-                
+
             attrs = die.attributes
-            
+
             # Cache DIE information for abstract_origin/specification resolution
             self._cache_die_info(die, attrs, file_entries, cu_source_file)
-            
+
             # Get symbol name
             die_name = None
             name_attr = attrs.get('DW_AT_name')
             if name_attr and hasattr(name_attr, 'value'):
                 die_name = self._extract_string_value(name_attr.value)
-                
+
             if not die_name:
                 return
-                
+
             # Get address
             die_address = None
             low_pc_attr = attrs.get('DW_AT_low_pc')
@@ -410,7 +419,7 @@ class ELFAnalyzer:
                     die_address = int(low_pc_attr.value)
                 except (ValueError, TypeError):
                     pass
-                    
+
             if not die_address:
                 location_attr = attrs.get('DW_AT_location')
                 if location_attr and hasattr(location_attr, 'value'):
@@ -418,92 +427,94 @@ class ELFAnalyzer:
                         die_address = int(location_attr.value)
                     except (ValueError, TypeError):
                         pass
-            
+
             # Only process if this address is in our symbol table OR if no address (variables)
-            if die_address and die_address not in symbol_addresses:
+            # Allow small address differences (ARM thumb mode, compiler optimizations)
+            if die_address and not any(
+                    abs(die_address - addr) <= 2 for addr in symbol_addresses):
                 return
-                        
+
             # Get declaration file and line
             decl_file = None
             decl_line = None
             decl_file_attr = attrs.get('DW_AT_decl_file')
             decl_line_attr = attrs.get('DW_AT_decl_line')
-            
+
             if decl_file_attr and hasattr(decl_file_attr, 'value'):
                 file_idx = decl_file_attr.value
                 if file_idx in file_entries:
                     decl_file = file_entries[file_idx]
-                    
+
             if decl_line_attr and hasattr(decl_line_attr, 'value'):
                 decl_line = decl_line_attr.value
-                    
-            
+
+
             # Determine best source file
             is_declaration = 'DW_AT_declaration' in attrs
             best_source_file = self._determine_best_source_file_dict(
                 is_declaration, cu_source_file, decl_file, die_name, die_address,
                 decl_line, file_entries, attrs)
-                
-                
+
+
             if best_source_file:
                 # Store symbol mappings
                 symbol_key = (die_name, die_address or 0)
                 self._dwarf_data['symbol_to_file'][symbol_key] = best_source_file
-                
+
                 if die_address:
                     self._dwarf_data['address_to_cu_file'][die_address] = best_source_file
-                
+
         except Exception:  # pylint: disable=broad-exception-caught
             pass
-            
-    def _determine_best_source_file_dict(self, is_declaration: bool, cu_source_file: Optional[str],
-                                        decl_file: Optional[str], die_name: Optional[str], 
-                                        die_address: Optional[int] = None,
-                                        decl_line: Optional[int] = None,
-                                        file_entries: Optional[Dict[int, str]] = None,
-                                        die_attrs: Optional[Dict] = None) -> Optional[str]:
+
+    def _determine_best_source_file_dict(
+            self, is_declaration: bool, cu_source_file: Optional[str],
+            decl_file: Optional[str], die_name: Optional[str],  # pylint: disable=unused-argument
+            die_address: Optional[int] = None,  # pylint: disable=unused-argument
+            decl_line: Optional[int] = None,  # pylint: disable=unused-argument
+            file_entries: Optional[Dict[int, str]] = None,
+            die_attrs: Optional[Dict] = None) -> Optional[str]:
         """Determine best source file using DWARF-native approach."""
-        
+
         # Phase 1: Check for abstract origin or specification references
         if die_attrs:
             resolved_file = self._resolve_abstract_origin_or_specification(
                 die_attrs, file_entries, cu_source_file)
             if resolved_file:
                 return resolved_file
-        
-        # Phase 2: Non-declarations (definitions) 
+
+        # Phase 2: Non-declarations (definitions)
         if not is_declaration:
-            
             if decl_file:
                 # Trust DWARF's decl_file for definitions
                 return decl_file
-            elif cu_source_file:
+            if cu_source_file:
                 # No decl_file info, use CU source
                 return cu_source_file
-            
+
         # For declarations, check if pointing to system header
         if is_declaration and cu_source_file and decl_file:
             if decl_file in self._dwarf_data['system_headers'] or self._is_likely_system_header(decl_file):
                 self._dwarf_data['system_headers'].add(decl_file)  # Cache result
                 return cu_source_file
-                
+
             # If the CU is a .c file and we have a declaration from a .h file,
             # the definition is likely in the .c file
             if cu_source_file.endswith('.c') and decl_file.endswith('.h'):
                 return cu_source_file
-                
+
         # Use declaration file if available
         if decl_file:
             return decl_file
-            
+
         # Fall back to CU source file
         return cu_source_file
-        
-    def _resolve_abstract_origin_or_specification(self, die_attrs: Dict, 
-                                                 file_entries: Optional[Dict[int, str]], 
-                                                 cu_source_file: Optional[str]) -> Optional[str]:
+
+    def _resolve_abstract_origin_or_specification(
+            self, die_attrs: Dict, file_entries: Optional[Dict[int, str]],
+            cu_source_file: Optional[str]) -> Optional[str]:  # pylint: disable=unused-argument
         """Resolve source file using DW_AT_abstract_origin or DW_AT_specification attributes.
-        
+
         This implements the DWARF-native approach for finding the correct source file
         for inline functions and symbol specifications.
         """
@@ -518,22 +529,23 @@ class ELFAnalyzer:
                     return resolved_file
                 # Otherwise use the resolved file as-is
                 return resolved_file
-        
-        # Phase 2: Check for DW_AT_specification (variable/function specifications)  
+
+        # Phase 2: Check for DW_AT_specification (variable/function specifications)
         specification_attr = die_attrs.get('DW_AT_specification')
         if specification_attr and hasattr(specification_attr, 'value'):
             resolved_file = self._resolve_die_reference(
                 specification_attr.value, file_entries)
             if resolved_file:
                 return resolved_file
-        
+
         return None
-        
-        
-    def _resolve_die_reference(self, die_offset: int, 
-                              file_entries: Optional[Dict[int, str]]) -> Optional[str]:
+
+
+    def _resolve_die_reference(
+            self, die_offset: int,
+            file_entries: Optional[Dict[int, str]]) -> Optional[str]:  # pylint: disable=unused-argument
         """Resolve a DIE reference to get the source file information.
-        
+
         This follows DWARF DIE references (abstract_origin, specification) to find
         the original declaration and extract its source file information.
         """
@@ -542,30 +554,31 @@ class ELFAnalyzer:
             cached_die = self._dwarf_data['die_offset_cache'].get(die_offset)
             if not cached_die:
                 return None
-                
+
             # Get the declaration file from the referenced DIE
             decl_file = cached_die.get('decl_file')
             if decl_file:
                 return decl_file
-                
+
             # If no declaration file, check if the CU source file is better
             cu_source_file = cached_die.get('cu_source_file')
             if cu_source_file:
                 return cu_source_file
-                
+
             return None
-            
+
         except Exception:  # pylint: disable=broad-exception-caught
             return None
-        
-        
-    def _cache_die_info(self, die, attrs: Dict, file_entries: Optional[Dict[int, str]], 
-                       cu_source_file: Optional[str]) -> None:
+
+
+    def _cache_die_info(
+            self, die, attrs: Dict, file_entries: Optional[Dict[int, str]],
+            cu_source_file: Optional[str]) -> None:
         """Cache DIE information for later abstract_origin/specification resolution."""
         try:
             if not hasattr(die, 'offset') or not attrs:
                 return
-                
+
             # Get declaration file for this DIE
             decl_file = None
             decl_file_attr = attrs.get('DW_AT_decl_file')
@@ -573,17 +586,17 @@ class ELFAnalyzer:
                 file_idx = decl_file_attr.value
                 if file_idx in file_entries:
                     decl_file = file_entries[file_idx]
-            
+
             # Cache the information we need for resolution
             self._dwarf_data['die_offset_cache'][die.offset] = {
                 'decl_file': decl_file,
                 'cu_source_file': cu_source_file
             }
-            
+
         except Exception:  # pylint: disable=broad-exception-caught
             pass
-            
-        
+
+
     def _resolve_line_program_path(self, filename: str, line_header) -> str:
         """Resolve full file path from line program."""
         try:
@@ -595,9 +608,9 @@ class ELFAnalyzer:
                             if include_path:
                                 return os.path.join(include_path, filename)
             return filename
-        except:
+        except Exception:  # pylint: disable=broad-exception-caught
             return filename
-            
+
     def _determine_best_source_file(  # pylint: disable=too-many-arguments,too-many-positional-arguments
             self,
             is_declaration: bool,
@@ -644,7 +657,7 @@ class ELFAnalyzer:
         """Check if a filename appears to be a system header rather than user code - cached version."""
         if not filename:
             return False
-            
+
         # Check cache first
         if filename in self._system_header_cache:
             return self._system_header_cache[filename]
@@ -658,7 +671,7 @@ class ELFAnalyzer:
 
         filename_lower = filename.lower()
         result = any(pattern in filename_lower for pattern in system_patterns)
-        
+
         # Cache the result
         self._system_header_cache[filename] = result
         return result
@@ -677,7 +690,7 @@ class ELFAnalyzer:
     def get_performance_stats(self) -> Dict[str, Any]:
         """Get performance statistics for analysis"""
         return self._perf_stats.copy()
-    
+
     def get_metadata(self) -> ELFMetadata:
         """Extract ELF metadata"""
         try:
@@ -715,7 +728,7 @@ class ELFAnalyzer:
             for section in elffile.iter_sections():
                     if not section.name:
                         continue
-                        
+
                     # Only include sections with SHF_ALLOC flag (0x2) - sections loaded into memory
                     if not (section['sh_flags'] & 0x2):
                         continue
@@ -922,102 +935,120 @@ class ELFAnalyzer:
             symbol_type: str,
             symbol_address: int = None) -> str:
         """Extract source file using pre-built DWARF dictionaries.
-        
+
         This method now uses fast dictionary lookups instead of parsing DWARF data.
         The dictionaries are populated once during initialization for maximum performance.
         """
         # Use dictionary-based lookups for maximum performance
         if not hasattr(self, '_dwarf_data'):
             return ""  # No DWARF data available
-            
-        # Priority 1: Address-based lookup for FUNC symbols (highest priority)
+
+        # Priority 1: Direct symbol lookup from DWARF dictionaries (DIE-based, most reliable)
+        symbol_key = (symbol_name, symbol_address or 0)
+        if symbol_key in self._dwarf_data['symbol_to_file']:
+            source_file = self._dwarf_data['symbol_to_file'][symbol_key]
+            source_file_basename = os.path.basename(source_file)
+
+            # For FUNC symbols, if DIE points to .c file, trust it over line program
+            # This handles cases with inlined functions from headers
+            if symbol_type == 'FUNC' and source_file_basename.endswith('.c'):
+                return source_file_basename
+
+            # For .h files, check if we should prefer the CU source file
+            if (source_file_basename.endswith('.h') and symbol_address is not None
+                    and symbol_address > 0):
+                if symbol_address in self._dwarf_data['address_to_cu_file']:
+                    cu_source_file = self._dwarf_data['address_to_cu_file'][symbol_address]
+                    if cu_source_file and cu_source_file.endswith('.c'):
+                        return os.path.basename(cu_source_file)
+
+            return source_file_basename
+
+        # Priority 2: Address-based lookup for FUNC symbols (fallback)
         if symbol_address is not None and symbol_address > 0 and symbol_type == 'FUNC':
             # Exact address lookup
             if symbol_address in self._dwarf_data['address_to_file']:
                 source_file = self._dwarf_data['address_to_file'][symbol_address]
                 source_file_basename = os.path.basename(source_file)
-                
+
                 # Prefer .c files over .h files when available
-                if source_file_basename.endswith('.h') and symbol_address in self._dwarf_data['address_to_cu_file']:
+                if (source_file_basename.endswith('.h')
+                        and symbol_address in self._dwarf_data['address_to_cu_file']):
                     cu_source_file = self._dwarf_data['address_to_cu_file'][symbol_address]
                     if cu_source_file and cu_source_file.endswith('.c'):
                         return os.path.basename(cu_source_file)
-                        
+
                 return source_file_basename
-                
+
             # Proximity search using optimized algorithm
             self._perf_stats['proximity_searches'] += 1
             nearby_addr = self._find_nearby_address_in_dict(symbol_address, max_distance=100)
             if nearby_addr is not None:
                 source_file = self._dwarf_data['address_to_file'][nearby_addr]
                 source_file_basename = os.path.basename(source_file)
-                
+
                 # Apply .h/.c preference logic
-                if source_file_basename.endswith('.h') and nearby_addr in self._dwarf_data['address_to_cu_file']:
+                if (source_file_basename.endswith('.h')
+                        and nearby_addr in self._dwarf_data['address_to_cu_file']):
                     cu_source_file = self._dwarf_data['address_to_cu_file'][nearby_addr]
                     if cu_source_file and cu_source_file.endswith('.c'):
                         return os.path.basename(cu_source_file)
-                        
+
                 return source_file_basename
 
-        # Priority 2: Direct symbol lookup from DWARF dictionaries
-        symbol_key = (symbol_name, symbol_address or 0)
-        if symbol_key in self._dwarf_data['symbol_to_file']:
-            source_file = self._dwarf_data['symbol_to_file'][symbol_key]
-            return os.path.basename(source_file)
-        
         # Priority 3: Fallback lookups for OBJECT symbols and edge cases
-        
+
         # Try address-based CU mapping
         if symbol_address is not None and symbol_address > 0:
             if symbol_address in self._dwarf_data['address_to_cu_file']:
                 source_file = self._dwarf_data['address_to_cu_file'][symbol_address]
                 return os.path.basename(source_file)
-                
+
         # Try symbol with address=0 fallback
         fallback_key = (symbol_name, 0)
         if fallback_key in self._dwarf_data['symbol_to_file']:
             source_file = self._dwarf_data['symbol_to_file'][fallback_key]
             return os.path.basename(source_file)
 
-        
+
         # No source file information found
         return ""
-        
-    def _find_nearby_address_in_dict(self, target_address: int, max_distance: int = 100) -> Optional[int]:
+
+    def _find_nearby_address_in_dict(
+            self, target_address: int, max_distance: int = 100) -> Optional[int]:
         """Find nearby address using dictionary-based search."""
         if not hasattr(self, '_dwarf_data') or not self._dwarf_data['address_to_file']:
             return None
-            
+
         # Create sorted list from dictionary keys for efficient search
         if not hasattr(self, '_sorted_dict_addresses'):
-            self._sorted_dict_addresses = sorted(self._dwarf_data['address_to_file'].keys())
-            
+            addresses = self._dwarf_data['address_to_file'].keys()
+            self._sorted_dict_addresses = sorted(addresses)
+
         # Binary search to find closest address
-        import bisect
         idx = bisect.bisect_left(self._sorted_dict_addresses, target_address)
-        
+
         candidates = []
-        
+
         # Check address at or after target
         if idx < len(self._sorted_dict_addresses):
             addr = self._sorted_dict_addresses[idx]
             distance = abs(addr - target_address)
             if distance <= max_distance:
                 candidates.append((distance, addr))
-                
+
         # Check address before target
         if idx > 0:
             addr = self._sorted_dict_addresses[idx - 1]
             distance = abs(addr - target_address)
             if distance <= max_distance:
                 candidates.append((distance, addr))
-                
+
         # Return closest address
         if candidates:
             candidates.sort()  # Sort by distance
             return candidates[0][1]  # Return address with minimum distance
-            
+
         return None
 
 
@@ -1114,7 +1145,7 @@ class MemoryReportGenerator:  # pylint: disable=too-few-public-methods
             # Extract ELF data
             metadata = self.elf_analyzer.get_metadata()
             symbols = self.elf_analyzer.get_symbols()
-            totals, sections = self.elf_analyzer.get_sections()
+            _, sections = self.elf_analyzer.get_sections()
             program_headers = self.elf_analyzer.get_program_headers()
 
             # Convert memory regions data to MemoryRegion objects
@@ -1133,8 +1164,9 @@ class MemoryReportGenerator:  # pylint: disable=too-few-public-methods
             perf_stats['symbols_processed'] = len(symbols)
             perf_stats['avg_time_per_symbol'] = total_time / len(symbols) if symbols else 0
             symbols_with_source = sum(1 for s in symbols if s.source_file)
-            perf_stats['source_mapping_success_rate'] = (symbols_with_source / len(symbols) * 100) if symbols else 0
-            
+            perf_stats['source_mapping_success_rate'] = (
+                symbols_with_source / len(symbols) * 100) if symbols else 0
+
             # Build final report
             report = {
                 'file_path': str(
@@ -1150,10 +1182,10 @@ class MemoryReportGenerator:  # pylint: disable=too-few-public-methods
                     name: region.to_dict() for name,
                     region in memory_regions.items()}
             }
-            
-            # # Print performance summary
+
+            # Print performance summary
             if verbose:
-                print(f"\nPerformance Summary:")
+                print("\nPerformance Summary:")
                 print(f"  Total time: {total_time:.2f}s")
                 print(f"  Symbols processed: {len(symbols)}")
                 print(f"  Avg time per symbol: {perf_stats['avg_time_per_symbol']*1000:.2f}ms")
@@ -1162,7 +1194,7 @@ class MemoryReportGenerator:  # pylint: disable=too-few-public-methods
                 print(f"  Source mapping time: {perf_stats['source_mapping_time']:.2f}s")
                 print(f"  Binary searches: {perf_stats['binary_searches']}")
                 print(f"  Proximity searches: {perf_stats['proximity_searches']}")
-            
+
             return report
 
         except Exception as e:

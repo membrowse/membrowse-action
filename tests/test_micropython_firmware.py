@@ -77,7 +77,7 @@ class TestMicroPythonFirmware(unittest.TestCase):
                 str(self.firmware_path), memory_regions_data)
 
             # Generate the report
-            report = generator.generate_report()
+            report = generator.generate_report(verbose=False)
 
             # Write report to file
             with open(report_file_path, 'w') as f:
@@ -102,9 +102,10 @@ class TestMicroPythonFirmware(unittest.TestCase):
             self.assertIn('architecture', report)
             self.assertIn('entry_point', report)
 
-            # Find uart_init and I2CHandle1 symbols
+            # Find uart_init, I2CHandle1 and micropython_ringio_any symbols
             uart_init_symbol = None
             i2c_handle1_symbol = None
+            ringio_any_symbol = None
             uart_symbols = []
             i2c_symbols = []
 
@@ -118,6 +119,9 @@ class TestMicroPythonFirmware(unittest.TestCase):
                     i2c_symbols.append(symbol)
                 if symbol['name'] == 'I2CHandle1':
                     i2c_handle1_symbol = symbol
+
+                if symbol['name'] == 'micropython_ringio_any':
+                    ringio_any_symbol = symbol
 
             print(f"\nFound {len(uart_symbols)} UART-related symbols:")
             for uart_sym in uart_symbols[:10]:  # Show first 10
@@ -233,6 +237,24 @@ class TestMicroPythonFirmware(unittest.TestCase):
                 for sym in i2c_symbols[:10]:
                     print(
                         f"  - {sym['name']}: {sym.get('source_file', 'no source')}")
+
+            # Check micropython_ringio_any symbol mapping (this is our fix validation)
+            if ringio_any_symbol:
+                print(f"\nFound micropython_ringio_any symbol:")
+                print(f"  Address: 0x{ringio_any_symbol['address']:08x}")
+                print(f"  Size: {ringio_any_symbol['size']}")
+                print(f"  Type: {ringio_any_symbol['type']}")
+                print(f"  Source file: {ringio_any_symbol['source_file']}")
+
+                # This is the critical test for our bug fix
+                self.assertEqual(
+                    ringio_any_symbol['source_file'], 'objringio.c',
+                    f"micropython_ringio_any should map to objringio.c, not {ringio_any_symbol['source_file']}")
+
+                print(f"  ✅ micropython_ringio_any correctly maps to: {ringio_any_symbol['source_file']}")
+                print(f"     (Fixed: was incorrectly mapping to ringbuf.h due to inlined function)")
+            else:
+                print(f"\n⚠️  micropython_ringio_any not found in symbols")
 
             # Print summary statistics
             total_symbols = len(report['symbols'])
@@ -492,7 +514,7 @@ class TestMicroPythonESP32Firmware(unittest.TestCase):
                 str(self.firmware_path), memory_regions_data)
 
             # Generate the report
-            report = generator.generate_report()
+            report = generator.generate_report(verbose=False)
 
             # Write report to file
             with open(report_file_path, 'w') as f:
