@@ -85,7 +85,6 @@ while IFS= read -r commit; do
         exit 1
     fi
     echo "$commit: Memory report generated and uploaded successfully"
-    sleep 5
 
 done <<< "$COMMITS"
 
