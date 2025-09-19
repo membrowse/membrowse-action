@@ -37,7 +37,8 @@ class CLIHandler:
 Examples:
   %(prog)s --elf-path firmware.elf --memory-regions regions.json --output report.json
   %(prog)s --elf-path app.elf --memory-regions memory_layout.json --output memory.json
-  %(prog)s --elf-path test.elf --memory-regions system_regions.json --output analysis.json
+  %(prog)s --elf-path test.elf --output analysis.json
+  %(prog)s --elf-path firmware.elf --output symbols_only.json
             """
         )
 
@@ -48,8 +49,8 @@ Examples:
         )
         parser.add_argument(
             '--memory-regions',
-            required=True,
-            help='Path to JSON file containing memory regions data'
+            required=False,
+            help='Path to JSON file containing memory regions data (optional)'
         )
         parser.add_argument(
             '--output',
@@ -74,9 +75,11 @@ Examples:
             args: Parsed command-line arguments
         """
         try:
-            # Load memory regions from JSON file
-            with open(args.memory_regions, 'r', encoding='utf-8') as f:
-                memory_regions_data = json.load(f)
+            # Load memory regions from JSON file (if provided)
+            memory_regions_data = None
+            if args.memory_regions:
+                with open(args.memory_regions, 'r', encoding='utf-8') as f:
+                    memory_regions_data = json.load(f)
 
             generator = MemoryReportGenerator(args.elf_path, memory_regions_data)
             report = generator.generate_report(args.verbose)

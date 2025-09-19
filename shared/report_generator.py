@@ -17,12 +17,12 @@ from .exceptions import ELFAnalysisError
 class MemoryReportGenerator:
     """Main class for generating comprehensive memory reports"""
 
-    def __init__(self, elf_path: str, memory_regions_data: Dict[str, Dict[str, Any]]):
+    def __init__(self, elf_path: str, memory_regions_data: Dict[str, Dict[str, Any]] = None):
         """Initialize the report generator.
 
         Args:
             elf_path: Path to the ELF file to analyze
-            memory_regions_data: Dictionary of memory region definitions
+            memory_regions_data: Dictionary of memory region definitions (optional)
         """
         self.elf_analyzer = ELFAnalyzer(elf_path)
         self.memory_regions_data = memory_regions_data
@@ -45,12 +45,14 @@ class MemoryReportGenerator:
             _, sections = self.elf_analyzer.get_sections()
             program_headers = self.elf_analyzer.get_program_headers()
 
-            # Convert memory regions data to MemoryRegion objects
-            memory_regions = self._convert_to_memory_regions(self.memory_regions_data)
+            # Convert memory regions data to MemoryRegion objects (if provided)
+            memory_regions = {}
+            if self.memory_regions_data:
+                memory_regions = self._convert_to_memory_regions(self.memory_regions_data)
 
-            # Map sections to regions based on addresses and calculate utilization
-            MemoryMapper.map_sections_to_regions(sections, memory_regions)
-            MemoryMapper.calculate_utilization(memory_regions)
+                # Map sections to regions based on addresses and calculate utilization
+                MemoryMapper.map_sections_to_regions(sections, memory_regions)
+                MemoryMapper.calculate_utilization(memory_regions)
 
             # Calculate performance statistics
             total_time = time.time() - report_start_time

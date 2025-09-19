@@ -18,6 +18,7 @@ class SourceFileResolver:
         """Initialize with DWARF data dictionaries and system header cache."""
         self.dwarf_data = dwarf_data
         self.system_header_cache = system_header_cache
+        self.used_static_mappings = {}  # Track which static mappings have been used
 
     def extract_source_file(self, symbol_name: str, symbol_type: str, symbol_address: int = None) -> str:
         """Extract source file using pre-built DWARF dictionaries.
@@ -57,6 +58,25 @@ class SourceFileResolver:
                         return os.path.basename(cu_source_file)
 
             return source_file_basename
+
+
+        # Priority 1c: For static variables, use ordered matching from DWARF processing
+        if symbol_type == 'OBJECT' and 'static_symbol_mappings' in self.dwarf_data:
+            static_mappings = [mapping for mapping in self.dwarf_data['static_symbol_mappings'] if mapping[0] == symbol_name]
+            if static_mappings:
+                # Track which mappings we've used for this symbol name
+                if symbol_name not in self.used_static_mappings:
+                    self.used_static_mappings[symbol_name] = 0
+
+                # Get the next unused mapping
+                index = self.used_static_mappings[symbol_name]
+                if index < len(static_mappings):
+                    mapping = static_mappings[index]
+                    self.used_static_mappings[symbol_name] += 1
+                    return os.path.basename(mapping[2])  # Return source file
+                else:
+                    # Fallback to first mapping if we've run out
+                    return os.path.basename(static_mappings[0][2])
 
         # Priority 2: Address-based lookup for FUNC symbols (fallback)
         if symbol_address is not None and symbol_address > 0 and symbol_type == 'FUNC':

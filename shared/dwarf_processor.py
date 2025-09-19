@@ -28,6 +28,7 @@ class DWARFProcessor:
             'system_headers': set(),        # Cache of known system headers
             'processed_cus': set(),         # Cache of processed CUs to avoid duplicates
             'die_offset_cache': {},         # DIE offset -> (decl_file, cu_source_file)
+            'static_symbol_mappings': [],   # List of (symbol_name, cu_source_file, decl_file) for static vars
         }
 
     def process_dwarf_info(self) -> Dict[str, Any]:
@@ -114,12 +115,29 @@ class DWARFProcessor:
             return
         self.dwarf_data['processed_cus'].add(cu_offset)
 
+        # Get CU address range for mapping symbols
+        cu_low_pc = None
+        cu_high_pc = None
+        top_die = cu.get_top_DIE()
+        if top_die.attributes:
+            low_pc_attr = top_die.attributes.get('DW_AT_low_pc')
+            high_pc_attr = top_die.attributes.get('DW_AT_high_pc')
+            if low_pc_attr and high_pc_attr:
+                try:
+                    cu_low_pc = int(low_pc_attr.value)
+                    high_pc_val = high_pc_attr.value
+                    if isinstance(high_pc_val, int) and high_pc_val < cu_low_pc:
+                        cu_high_pc = cu_low_pc + high_pc_val
+                    else:
+                        cu_high_pc = int(high_pc_val)
+                except (ValueError, TypeError):
+                    pass
+
         # Get CU basic info
         cu_name = None
         cu_source_file = None
         comp_dir = None
 
-        top_die = cu.get_top_DIE()
         if top_die.attributes:
             name_attr = top_die.attributes.get('DW_AT_name')
             if name_attr:
@@ -141,7 +159,7 @@ class DWARFProcessor:
         self._extract_line_program_data(cu, dwarfinfo, cu_source_file)
 
         # Process DIEs (symbol -> file mapping)
-        self._extract_die_symbol_data_optimized(cu, dwarfinfo, cu_source_file, cu_name)
+        self._extract_die_symbol_data_optimized(cu, dwarfinfo, cu_source_file, cu_name, cu_low_pc, cu_high_pc)
 
     def _extract_string_value(self, value) -> Optional[str]:
         """Extract string value from DWARF attribute"""
@@ -193,27 +211,33 @@ class DWARFProcessor:
         except Exception:  # pylint: disable=broad-exception-caught
             pass
 
-    def _extract_die_symbol_data_optimized(self, cu, dwarfinfo, cu_source_file: Optional[str], cu_name: Optional[str]) -> None:
+    def _extract_die_symbol_data_optimized(self, cu, dwarfinfo, cu_source_file: Optional[str], cu_name: Optional[str], cu_low_pc: Optional[int], cu_high_pc: Optional[int]) -> None:
         """Extract DIE symbol data optimized for only relevant symbols."""
         try:
             # Build file entries for this CU
             file_entries = {}
             line_program = dwarfinfo.line_program_for_CU(cu)
+
             if line_program and hasattr(line_program.header, 'file_entry'):
+                # Deduplicate file entries to handle compiler-generated duplicates
+                seen_files = {}
+                unique_index = 1
                 for i, file_entry in enumerate(line_program.header.file_entry):
                     if file_entry and hasattr(file_entry, 'name'):
                         filename = self._extract_string_value(file_entry.name)
-                        if filename:
-                            file_entries[i + 1] = filename
+                        if filename and filename not in seen_files:
+                            file_entries[unique_index] = filename
+                            seen_files[filename] = unique_index
+                            unique_index += 1
 
             # Process DIEs with early filtering
             top_die = cu.get_top_DIE()
-            self._process_die_tree_optimized(top_die, file_entries, cu_source_file, 0)
+            self._process_die_tree_optimized(top_die, file_entries, cu_source_file, 0, cu_low_pc, cu_high_pc)
 
         except Exception:  # pylint: disable=broad-exception-caught
             pass
 
-    def _process_die_tree_optimized(self, die, file_entries: Dict[int, str], cu_source_file: Optional[str], depth: int) -> None:
+    def _process_die_tree_optimized(self, die, file_entries: Dict[int, str], cu_source_file: Optional[str], depth: int, cu_low_pc: Optional[int], cu_high_pc: Optional[int]) -> None:
         """Process DIE tree with optimization and depth limiting."""
         if depth > 10:  # Prevent excessive recursion
             return
@@ -225,20 +249,20 @@ class DWARFProcessor:
                 if die.tag not in relevant_tags:
                     # Still need to recurse for nested relevant DIEs
                     for child_die in die.iter_children():
-                        self._process_die_tree_optimized(child_die, file_entries, cu_source_file, depth + 1)
+                        self._process_die_tree_optimized(child_die, file_entries, cu_source_file, depth + 1, cu_low_pc, cu_high_pc)
                     return
 
             # Process this DIE if it's relevant
-            self._process_die_for_dictionaries_optimized(die, file_entries, cu_source_file)
+            self._process_die_for_dictionaries_optimized(die, file_entries, cu_source_file, cu_low_pc, cu_high_pc)
 
             # Recurse to children
             for child_die in die.iter_children():
-                self._process_die_tree_optimized(child_die, file_entries, cu_source_file, depth + 1)
+                self._process_die_tree_optimized(child_die, file_entries, cu_source_file, depth + 1, cu_low_pc, cu_high_pc)
 
         except Exception:  # pylint: disable=broad-exception-caught
             pass
 
-    def _process_die_for_dictionaries_optimized(self, die, file_entries: Dict[int, str], cu_source_file: Optional[str]) -> None:
+    def _process_die_for_dictionaries_optimized(self, die, file_entries: Dict[int, str], cu_source_file: Optional[str], cu_low_pc: Optional[int], cu_high_pc: Optional[int]) -> None:
         """Process a DIE optimized to only handle symbols we need."""
         try:
             if not die.attributes:
@@ -254,6 +278,7 @@ class DWARFProcessor:
 
             if not die_name:
                 return
+
 
             # Get address
             die_address = None
@@ -288,15 +313,32 @@ class DWARFProcessor:
 
             # Determine best source file
             is_declaration = 'DW_AT_declaration' in attrs
-            best_source_file = decl_file if decl_file else cu_source_file
+
+            # For declarations in headers, prefer the CU source file over the header
+            # This handles cases where extern declarations in headers should be attributed
+            # to the compilation unit that actually defines them
+            if is_declaration and decl_file and decl_file.endswith('.h'):
+                best_source_file = cu_source_file  # Prefer CU over header for declarations
+            else:
+                best_source_file = decl_file if decl_file else cu_source_file
+
 
             if best_source_file:
                 # Store symbol mappings
-                symbol_key = (die_name, die_address or 0)
-                self.dwarf_data['symbol_to_file'][symbol_key] = best_source_file
-
                 if die_address:
+                    # For symbols with addresses, use the address as key
+                    symbol_key = (die_name, die_address)
+                    self.dwarf_data['symbol_to_file'][symbol_key] = best_source_file
                     self.dwarf_data['address_to_cu_file'][die_address] = best_source_file
+                else:
+                    # For symbols without DIE addresses (like static variables)
+                    # Store in our static symbol mappings list for special handling
+                    self.dwarf_data['static_symbol_mappings'].append((die_name, cu_source_file, best_source_file))
+
+                    # Also store with address 0 as fallback
+                    symbol_key = (die_name, 0)
+                    if symbol_key not in self.dwarf_data['symbol_to_file']:
+                        self.dwarf_data['symbol_to_file'][symbol_key] = best_source_file
 
         except Exception:  # pylint: disable=broad-exception-caught
             pass
