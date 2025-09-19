@@ -3,7 +3,7 @@
 Test the hybrid source file mapping implementation
 """
 
-from memory_report import ELFAnalyzer
+from shared.elf_analyzer import ELFAnalyzer
 from test_memory_analysis import TestMemoryAnalysis
 import sys
 from pathlib import Path

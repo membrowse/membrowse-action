@@ -18,7 +18,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from memory_report import MemoryReportGenerator
+from shared.report_generator import MemoryReportGenerator
 from memory_regions import parse_linker_scripts, validate_memory_regions
 
 try:
@@ -498,7 +498,7 @@ def run_full_integration_test():
             # Test just the memory_report.py directly with mock data
             sys.path.insert(0, str(shared_dir))
             # pylint: disable=import-outside-toplevel,reimported,redefined-outer-name
-            from memory_report import MemoryReportGenerator
+            from shared.report_generator import MemoryReportGenerator
 
             # Create mock bloaty files
             mock_dir = temp_dir / 'mock'

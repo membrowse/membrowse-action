@@ -6,7 +6,7 @@ Debug script to understand why uart_tx_count maps to stdint-uintn.h
 import sys
 from pathlib import Path
 
-from memory_report import ELFAnalyzer
+from shared.elf_analyzer import ELFAnalyzer
 from test_memory_analysis import TestMemoryAnalysis
 
 # Add shared directory to path

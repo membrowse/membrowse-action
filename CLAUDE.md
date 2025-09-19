@@ -55,7 +55,16 @@ The codebase is structured with a shared module approach:
 ```
 shared/
 ├── collect_report.sh       # Main orchestrator script
-├── memory_report.py        # ELF analysis and JSON report generation
+├── cli.py                  # Command-line interface for memory report generation
+├── elf_analyzer.py         # Main ELF analysis coordination
+├── report_generator.py     # Memory report generation
+├── models.py               # Data classes (MemoryRegion, Symbol, etc.)
+├── exceptions.py           # Exception hierarchy
+├── dwarf_processor.py      # DWARF debug information processing
+├── source_resolver.py      # Source file resolution using DWARF
+├── symbol_extractor.py     # ELF symbol extraction
+├── section_analyzer.py     # ELF section analysis
+├── memory_mapper.py        # Section-to-region mapping
 ├── memory_regions.py       # Linker script parser with architecture detection
 ├── elf_parser.py          # ELF file architecture detection
 └── upload.py              # Report upload to MemBrowse platform
@@ -70,7 +79,7 @@ Each action (`pr-action/`, `onboard-action/`) contains:
 ### Key Processing Flow
 1. **Architecture Detection**: `elf_parser.py` analyzes ELF files to determine target architecture (ARM, Xtensa, RISC-V, etc.)
 2. **Linker Script Parsing**: `memory_regions.py` parses GNU LD linker scripts using architecture-specific strategies
-3. **Memory Analysis**: `memory_report.py` combines ELF analysis with memory regions to generate comprehensive reports
+3. **Memory Analysis**: The modular analysis system combines ELF analysis with memory regions to generate comprehensive reports
 4. **Report Upload**: `upload.py` sends reports to MemBrowse platform (optional)
 
 ### Advanced Features
@@ -115,8 +124,8 @@ PYTHONPATH=shared:. pylint shared/*.py tests/*.py --score=yes
 # Test linker script parsing
 python shared/memory_regions.py path/to/linker.ld
 
-# Test ELF analysis  
-python shared/memory_report.py --elf-path firmware.elf --memory-regions regions.json --output report.json
+# Test ELF analysis
+python shared/cli.py --elf-path firmware.elf --memory-regions regions.json --output report.json
 
 # Test complete workflow
 bash shared/collect_report.sh firmware.elf "linker1.ld linker2.ld" target_name api_key commit_sha base_sha branch repo

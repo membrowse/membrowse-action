@@ -391,7 +391,7 @@ PYTHONPATH=shared:. pylint shared/*.py tests/*.py --score=yes
 python shared/memory_regions.py path/to/linker.ld
 
 # Test complete ELF analysis
-python shared/memory_report.py --elf-path firmware.elf --memory-regions regions.json
+python shared/cli.py --elf-path firmware.elf --memory-regions regions.json --output report.json
 
 # Test full workflow
 bash shared/collect_report.sh firmware.elf "linker.ld" target_name api_key

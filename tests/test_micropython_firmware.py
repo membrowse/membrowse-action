@@ -3,7 +3,7 @@
 Test real MicroPython firmware analysis for source file mapping verification.
 """
 
-from memory_report import MemoryReportGenerator
+from shared.report_generator import MemoryReportGenerator
 import unittest
 import json
 import os
@@ -350,7 +350,7 @@ class TestMicroPythonFirmware(unittest.TestCase):
             # to
             print(
                 f"\nChecking compilation unit membership for symbols without source files...")
-            from memory_report import ELFAnalyzer
+            from shared.elf_analyzer import ELFAnalyzer
             analyzer = ELFAnalyzer(str(self.firmware_path))
 
             # Check if CU data was built
