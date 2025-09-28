@@ -15,6 +15,14 @@ class DWARFParsingError(ELFAnalysisError):
     """Exception raised when DWARF debug info parsing fails"""
 
 
+class DWARFCUProcessingError(DWARFParsingError):
+    """Exception raised when processing a compilation unit fails"""
+
+
+class DWARFAttributeError(DWARFParsingError):
+    """Exception raised when extracting DWARF attribute value fails"""
+
+
 class SymbolExtractionError(ELFAnalysisError):
     """Exception raised when symbol extraction fails"""
 

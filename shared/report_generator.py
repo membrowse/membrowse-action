@@ -42,7 +42,7 @@ class MemoryReportGenerator:
             # Extract ELF data
             metadata = self.elf_analyzer.get_metadata()
             symbols = self.elf_analyzer.get_symbols()
-            _, sections = self.elf_analyzer.get_sections()
+            sections = self.elf_analyzer.get_sections()
             program_headers = self.elf_analyzer.get_program_headers()
 
             # Convert memory regions data to MemoryRegion objects (if provided)
