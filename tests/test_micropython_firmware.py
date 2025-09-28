@@ -350,17 +350,13 @@ class TestMicroPythonFirmware(unittest.TestCase):
             # to
             print(
                 f"\nChecking compilation unit membership for symbols without source files...")
-            from shared.elf_analyzer import ELFAnalyzer
-            analyzer = ELFAnalyzer(str(self.firmware_path))
+            # Use the existing analyzer from the generator to avoid redundant processing
+            analyzer = generator.elf_analyzer
 
-            # Check if CU data was built
-            if analyzer._dwarf_data['cu_file_list']:
-                print(f"  Total CUs in binary: {len(analyzer._dwarf_data['cu_file_list'])}")
-                # Show some example CUs
-                print(f"  Sample CUs:")
-                for cu in analyzer._dwarf_data['cu_file_list'][:10]:
-                    if cu and ('micropython' in cu or 'ports' in cu or not cu.startswith('../')):
-                        print(f"    - {cu}")
+            # Check if CU data was built (cu_file_list was removed in refactoring)
+            if analyzer._dwarf_data['processed_cus']:
+                print(f"  Total CUs processed: {len(analyzer._dwarf_data['processed_cus'])}")
+                print(f"  CU processing completed successfully")
 
             if analyzer._dwarf_data['address_to_file']:
                 print(f"  Address mappings available: {len(analyzer._dwarf_data['address_to_file'])}")

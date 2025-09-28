@@ -8,9 +8,11 @@ to map symbols to their source files with intelligent optimizations.
 
 import os
 import logging
+import bisect
 from typing import Dict, List, Optional, Any, Tuple
+from collections import deque
 from elftools.common.exceptions import ELFError
-from .exceptions import DWARFParsingError
+from .exceptions import DWARFParsingError, DWARFCUProcessingError, DWARFAttributeError
 
 # Configure logger
 logger = logging.getLogger(__name__)
@@ -18,7 +20,6 @@ logger = logging.getLogger(__name__)
 # Constants for magic values
 MAX_ADDRESS = 0xFFFFFFFF  # Default max address when CU has no range
 THUMB_MODE_TOLERANCE = 2   # ARM thumb mode address difference tolerance
-MAX_DIE_RECURSION = 10     # Maximum recursion depth for DIE tree traversal
 
 class DWARFProcessor:
     """Handles DWARF debug information processing for source file mapping.
@@ -41,6 +42,11 @@ class DWARFProcessor:
         """
         self.elffile = elffile
         self.symbol_addresses = symbol_addresses
+        # Track which symbols we've already found to enable early termination
+        self.found_symbols = set()
+        self.target_symbol_count = len(symbol_addresses)
+        # Precompute sorted symbol addresses for fast tolerance checking
+        self.sorted_symbol_addresses = sorted(symbol_addresses)
         # Only keep actively used data structures
         self.dwarf_data = {
             'address_to_file': {},          # address -> filename (from line programs)
@@ -78,9 +84,13 @@ class DWARFProcessor:
             for cu in relevant_cus:
                 try:
                     self._process_cu(cu, dwarfinfo)
+                    # Early termination disabled for correctness - other optimizations provide sufficient speedup
+                    # if len(self.found_symbols) >= min(self.target_symbol_count * 2, 1000):
+                    #     logger.debug(f"Early termination: found {len(self.found_symbols)} symbols (target: {self.target_symbol_count})")
+                    #     break
                 except Exception as e:
-                    logger.warning(f"Failed to process CU at offset {cu.cu_offset}: {e}")
-                    continue
+                    logger.error(f"Failed to process CU at offset {cu.cu_offset}: {e}")
+                    raise DWARFCUProcessingError(f"Failed to process CU at offset {cu.cu_offset}: {e}") from e
 
         except (IOError, OSError) as e:
             logger.error(f"Failed to read ELF file for DWARF parsing: {e}")
@@ -93,6 +103,32 @@ class DWARFProcessor:
             raise DWARFParsingError(f"Unexpected error during DWARF parsing: {e}") from e
 
         return self.dwarf_data
+
+    def _is_address_in_symbol_set_with_tolerance(self, die_address: int) -> bool:
+        """Check if die_address is in symbol set or within tolerance using binary search.
+
+        Args:
+            die_address: Address to check
+
+        Returns:
+            True if address is in symbol set or within THUMB_MODE_TOLERANCE
+        """
+        # Fast exact match first
+        if die_address in self.symbol_addresses:
+            return True
+
+        # Use binary search to find addresses within tolerance range
+        # Find insertion point for die_address - tolerance
+        start_idx = bisect.bisect_left(self.sorted_symbol_addresses, die_address - THUMB_MODE_TOLERANCE)
+        # Find insertion point for die_address + tolerance
+        end_idx = bisect.bisect_right(self.sorted_symbol_addresses, die_address + THUMB_MODE_TOLERANCE)
+
+        # Check if any address in the range is within tolerance
+        for i in range(start_idx, end_idx):
+            if abs(die_address - self.sorted_symbol_addresses[i]) <= THUMB_MODE_TOLERANCE:
+                return True
+
+        return False
 
     def _extract_cu_address_range(self, cu) -> Tuple[int, int]:
         """Extract address range from a compilation unit.
@@ -136,8 +172,8 @@ class DWARFProcessor:
             return (low_pc, high_pc)
 
         except (ValueError, TypeError) as e:
-            logger.debug(f"Failed to extract address range from CU: {e}")
-            return (0, MAX_ADDRESS)
+            logger.error(f"Failed to extract address range from CU: {e}")
+            raise DWARFAttributeError(f"Failed to extract address range from CU: {e}") from e
 
     def _build_cu_address_index(self, dwarfinfo) -> List[Tuple[int, int, Any]]:
         """Build an index of compilation unit address ranges for fast lookup.
@@ -164,23 +200,46 @@ class DWARFProcessor:
         contain symbols we actually need to map, avoiding unnecessary processing
         of unrelated compilation units.
 
+        Uses binary search for O(log n) lookups when CUs have specific ranges,
+        falls back to processing all CUs when most have full ranges.
+
         Args:
             cu_index: Sorted list of CU address ranges
 
         Returns:
             List of CUs that contain at least one target symbol address
         """
+        import bisect
+
+        # Check if most CUs have the full address range (no specific ranges)
+        full_range_count = sum(1 for start, end, _ in cu_index if start == 0 and end == MAX_ADDRESS)
+        total_cus = len(cu_index)
+
+        # If more than 80% of CUs have full range, process all (optimization doesn't help)
+        if full_range_count > 0.8 * total_cus:
+            logger.debug(f"Most CUs ({full_range_count}/{total_cus}) have full range, processing all CUs")
+            return [cu for _, _, cu in cu_index]
+
+        # Use binary search optimization when CUs have meaningful ranges
+        logger.debug(f"Using binary search optimization: {full_range_count}/{total_cus} CUs have full range")
+
         relevant_cus = []
+        relevant_cu_set = set()  # Track CUs we've already added for O(1) lookup
         symbol_addr_list = sorted(self.symbol_addresses)
 
+        # Pre-extract start addresses for binary search
+        start_addresses = [start_addr for start_addr, _, _ in cu_index]
+
         for symbol_addr in symbol_addr_list:
-            for start_addr, end_addr, cu in cu_index:
+            # Use binary search to find the rightmost CU start address <= symbol_addr
+            pos = bisect.bisect_right(start_addresses, symbol_addr) - 1
+
+            if pos >= 0:
+                start_addr, end_addr, cu = cu_index[pos]
                 if start_addr <= symbol_addr <= end_addr:
-                    if cu not in relevant_cus:
+                    if cu not in relevant_cu_set:
                         relevant_cus.append(cu)
-                elif start_addr > symbol_addr:
-                    # Since cu_index is sorted, no need to check further
-                    break
+                        relevant_cu_set.add(cu)
 
         return relevant_cus
 
@@ -242,8 +301,8 @@ class DWARFProcessor:
                 return value
             return str(value)
         except (UnicodeDecodeError, AttributeError) as e:
-            logger.debug(f"Failed to extract string value: {e}")
-            return None
+            logger.error(f"Failed to extract string value: {e}")
+            raise DWARFAttributeError(f"Failed to extract string value: {e}") from e
 
     def _extract_line_program_data(self, cu, dwarfinfo) -> None:
         """Extract line program data to map addresses to source files.
@@ -288,11 +347,12 @@ class DWARFProcessor:
                                     self.dwarf_data['address_to_file'][address] = filename
 
                     except (IndexError, AttributeError) as e:
-                        logger.debug(f"Failed to process line program entry: {e}")
-                        continue
+                        logger.error(f"Failed to process line program entry: {e}")
+                        raise DWARFAttributeError(f"Failed to process line program entry: {e}") from e
 
         except Exception as e:
-            logger.warning(f"Failed to extract line program data for CU at offset {cu.cu_offset}: {e}")
+            logger.error(f"Failed to extract line program data for CU at offset {cu.cu_offset}: {e}")
+            raise DWARFCUProcessingError(f"Failed to extract line program data for CU at offset {cu.cu_offset}: {e}") from e
 
     def _extract_die_symbol_data_optimized(self, cu, dwarfinfo, cu_source_file: Optional[str], cu_low_pc: Optional[int], cu_high_pc: Optional[int]) -> None:
         """Extract DIE symbol data optimized for only relevant symbols.
@@ -327,45 +387,37 @@ class DWARFProcessor:
 
             # Process DIEs with early filtering
             top_die = cu.get_top_DIE()
-            self._process_die_tree_optimized(top_die, file_entries, cu_source_file, 0, cu_low_pc, cu_high_pc)
+            self._process_die_tree(top_die, file_entries, cu_source_file, 0, cu_low_pc, cu_high_pc)
 
         except Exception as e:
-            logger.warning(f"Failed to extract DIE symbol data for CU at offset {cu.cu_offset}: {e}")
+            logger.error(f"Failed to extract DIE symbol data for CU at offset {cu.cu_offset}: {e}")
+            raise DWARFCUProcessingError(f"Failed to extract DIE symbol data for CU at offset {cu.cu_offset}: {e}") from e
 
-    def _process_die_tree_optimized(self, die, file_entries: Dict[int, str], cu_source_file: Optional[str], depth: int, cu_low_pc: Optional[int], cu_high_pc: Optional[int]) -> None:
-        """Process DIE tree with optimization and depth limiting.
+    def _process_die_tree(self, die, file_entries: Dict[int, str], cu_source_file: Optional[str], depth: int, cu_low_pc: Optional[int], cu_high_pc: Optional[int]) -> None:
+        """Process DIE tree.
 
         Args:
             die: Debug Information Entry to process
             file_entries: Mapping of file indices to file paths
             cu_source_file: Source file for the compilation unit
-            depth: Current recursion depth
+            depth: Initial depth (maintained for API compatibility)
             cu_low_pc: CU starting address
             cu_high_pc: CU ending address
         """
-        if depth > MAX_DIE_RECURSION:  # Prevent excessive recursion
-            logger.debug(f"Reached maximum DIE recursion depth of {MAX_DIE_RECURSION}")
-            return
+        stack = deque([die])
 
-        try:
-            # Early filtering - only process relevant DIE tags
+        while stack:
+            current_die = stack.pop()
+
             relevant_tags = {'DW_TAG_subprogram', 'DW_TAG_variable', 'DW_TAG_formal_parameter', 'DW_TAG_inlined_subroutine'}
-            if hasattr(die, 'tag') and die.tag:
-                if die.tag not in relevant_tags:
-                    # Still need to recurse for nested relevant DIEs
-                    for child_die in die.iter_children():
-                        self._process_die_tree_optimized(child_die, file_entries, cu_source_file, depth + 1, cu_low_pc, cu_high_pc)
-                    return
 
-            # Process this DIE if it's relevant
-            self._process_die_for_dictionaries_optimized(die, file_entries, cu_source_file, cu_low_pc, cu_high_pc)
+            for child_die in current_die.iter_children():
+                stack.append(child_die)
 
-            # Recurse to children
-            for child_die in die.iter_children():
-                self._process_die_tree_optimized(child_die, file_entries, cu_source_file, depth + 1, cu_low_pc, cu_high_pc)
-
-        except Exception as e:
-            logger.debug(f"Error processing DIE at depth {depth}: {e}")
+            if hasattr(current_die, 'tag') and current_die.tag:
+                if current_die.tag not in relevant_tags:
+                    continue
+                self._process_die_for_dictionaries_optimized(current_die, file_entries, cu_source_file, cu_low_pc, cu_high_pc)
 
     def _process_die_for_dictionaries_optimized(self, die, file_entries: Dict[int, str], cu_source_file: Optional[str], cu_low_pc: Optional[int], cu_high_pc: Optional[int]) -> None:
         """Process a DIE optimized to only handle symbols we need.
@@ -399,22 +451,23 @@ class DWARFProcessor:
             if low_pc_attr and hasattr(low_pc_attr, 'value'):
                 try:
                     die_address = int(low_pc_attr.value)
-                except (ValueError, TypeError):
-                    pass
+                except (ValueError, TypeError) as e:
+                    logger.debug(f"Could not parse DW_AT_low_pc value '{low_pc_attr.value}' for symbol '{die_name}': {e}")
 
             if not die_address:
                 location_attr = attrs.get('DW_AT_location')
                 if location_attr and hasattr(location_attr, 'value'):
                     try:
                         die_address = int(location_attr.value)
-                    except (ValueError, TypeError):
-                        pass
+                    except (ValueError, TypeError) as e:
+                        logger.debug(f"Could not parse DW_AT_location value '{location_attr.value}' for symbol '{die_name}': {e}")
 
             # Only process if this address is in our symbol table
-            if die_address and die_address not in self.symbol_addresses:
-                # Allow small address differences for ARM thumb mode and compiler optimizations
-                if not any(abs(die_address - addr) <= THUMB_MODE_TOLERANCE for addr in self.symbol_addresses):
-                    return
+            if die_address and not self._is_address_in_symbol_set_with_tolerance(die_address):
+                return
+
+            # Track found symbols for early termination (only count after full processing)
+            # We'll add to found_symbols at the end of processing to ensure mapping is complete
 
             # Get declaration file
             decl_file = None
@@ -444,6 +497,10 @@ class DWARFProcessor:
                     symbol_key = (die_name, die_address)
                     self.dwarf_data['symbol_to_file'][symbol_key] = best_source_file
                     self.dwarf_data['address_to_cu_file'][die_address] = best_source_file
+
+                    # Track found symbols for early termination after successful mapping
+                    if die_address in self.symbol_addresses:
+                        self.found_symbols.add(die_address)
                 else:
                     # For symbols without DIE addresses (like static variables)
                     # Store in our static symbol mappings list for special handling
@@ -455,4 +512,5 @@ class DWARFProcessor:
                         self.dwarf_data['symbol_to_file'][symbol_key] = best_source_file
 
         except Exception as e:
-            logger.debug(f"Error processing DIE for symbol '{die_name}': {e}")
+            logger.error(f"Error processing DIE for symbol '{die_name if 'die_name' in locals() else 'unknown'}': {e}")
+            raise DWARFAttributeError(f"Error processing DIE for symbol: {e}") from e

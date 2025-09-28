@@ -20,6 +20,26 @@ class SourceFileResolver:
         self.system_header_cache = system_header_cache
         self.used_static_mappings = {}  # Track which static mappings have been used
 
+        # Pre-build static symbol mappings lookup for O(1) access
+        self._static_symbol_lookup = {}
+        self._basename_cache = {}  # Cache basename computations
+        if 'static_symbol_mappings' in dwarf_data:
+            for mapping in dwarf_data['static_symbol_mappings']:
+                symbol_name = mapping[0]
+                if symbol_name not in self._static_symbol_lookup:
+                    self._static_symbol_lookup[symbol_name] = []
+                # Pre-compute basename to avoid repeated os.path.basename calls
+                source_file = mapping[2]
+                if source_file not in self._basename_cache:
+                    self._basename_cache[source_file] = os.path.basename(source_file)
+                self._static_symbol_lookup[symbol_name].append(mapping)
+
+    def _get_basename(self, source_file: str) -> str:
+        """Get basename with caching to avoid repeated os.path.basename calls."""
+        if source_file not in self._basename_cache:
+            self._basename_cache[source_file] = os.path.basename(source_file)
+        return self._basename_cache[source_file]
+
     def extract_source_file(self, symbol_name: str, symbol_type: str, symbol_address: int = None) -> str:
         """Extract source file using pre-built DWARF dictionaries.
 
@@ -42,7 +62,7 @@ class SourceFileResolver:
         symbol_key = (symbol_name, symbol_address or 0)
         if symbol_key in self.dwarf_data['symbol_to_file']:
             source_file = self.dwarf_data['symbol_to_file'][symbol_key]
-            source_file_basename = os.path.basename(source_file)
+            source_file_basename = self._get_basename(source_file)
 
             # For FUNC symbols, if DIE points to .c file, trust it over line program
             # This handles cases with inlined functions from headers
@@ -55,14 +75,14 @@ class SourceFileResolver:
                 if symbol_address in self.dwarf_data['address_to_cu_file']:
                     cu_source_file = self.dwarf_data['address_to_cu_file'][symbol_address]
                     if cu_source_file and cu_source_file.endswith('.c'):
-                        return os.path.basename(cu_source_file)
+                        return self._get_basename(cu_source_file)
 
             return source_file_basename
 
 
         # Priority 1c: For static variables, use ordered matching from DWARF processing
-        if symbol_type == 'OBJECT' and 'static_symbol_mappings' in self.dwarf_data:
-            static_mappings = [mapping for mapping in self.dwarf_data['static_symbol_mappings'] if mapping[0] == symbol_name]
+        if symbol_type == 'OBJECT' and symbol_name in self._static_symbol_lookup:
+            static_mappings = self._static_symbol_lookup[symbol_name]
             if static_mappings:
                 # Track which mappings we've used for this symbol name
                 if symbol_name not in self.used_static_mappings:
@@ -73,10 +93,12 @@ class SourceFileResolver:
                 if index < len(static_mappings):
                     mapping = static_mappings[index]
                     self.used_static_mappings[symbol_name] += 1
-                    return os.path.basename(mapping[2])  # Return source file
+                    source_file = mapping[2]
+                    return self._get_basename(source_file)
                 else:
                     # Fallback to first mapping if we've run out
-                    return os.path.basename(static_mappings[0][2])
+                    source_file = static_mappings[0][2]
+                    return self._get_basename(source_file)
 
         # Priority 2: Address-based lookup for FUNC symbols (fallback)
         if symbol_address is not None and symbol_address > 0 and symbol_type == 'FUNC':
@@ -90,14 +112,14 @@ class SourceFileResolver:
         # Exact address lookup
         if symbol_address in self.dwarf_data['address_to_file']:
             source_file = self.dwarf_data['address_to_file'][symbol_address]
-            source_file_basename = os.path.basename(source_file)
+            source_file_basename = self._get_basename(source_file)
 
             # Prefer .c files over .h files when available
             if (source_file_basename.endswith('.h')
                     and symbol_address in self.dwarf_data['address_to_cu_file']):
                 cu_source_file = self.dwarf_data['address_to_cu_file'][symbol_address]
                 if cu_source_file and cu_source_file.endswith('.c'):
-                    return os.path.basename(cu_source_file)
+                    return self._get_basename(cu_source_file)
 
             return source_file_basename
 
@@ -105,14 +127,14 @@ class SourceFileResolver:
         nearby_addr = self._find_nearby_address(symbol_address)
         if nearby_addr is not None:
             source_file = self.dwarf_data['address_to_file'][nearby_addr]
-            source_file_basename = os.path.basename(source_file)
+            source_file_basename = self._get_basename(source_file)
 
             # Apply .h/.c preference logic
             if (source_file_basename.endswith('.h')
                     and nearby_addr in self.dwarf_data['address_to_cu_file']):
                 cu_source_file = self.dwarf_data['address_to_cu_file'][nearby_addr]
                 if cu_source_file and cu_source_file.endswith('.c'):
-                    return os.path.basename(cu_source_file)
+                    return self._get_basename(cu_source_file)
 
             return source_file_basename
 
@@ -124,13 +146,13 @@ class SourceFileResolver:
         if symbol_address is not None and symbol_address > 0:
             if symbol_address in self.dwarf_data['address_to_cu_file']:
                 source_file = self.dwarf_data['address_to_cu_file'][symbol_address]
-                return os.path.basename(source_file)
+                return self._get_basename(source_file)
 
         # Try symbol with address=0 fallback
         fallback_key = (symbol_name, 0)
         if fallback_key in self.dwarf_data['symbol_to_file']:
             source_file = self.dwarf_data['symbol_to_file'][fallback_key]
-            return os.path.basename(source_file)
+            return self._get_basename(source_file)
 
         # No source file information found
         return ""
