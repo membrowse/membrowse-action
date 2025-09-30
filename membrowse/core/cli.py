@@ -63,7 +63,10 @@ Examples:
             required=False,
             default=False,
             action='store_true',
-            help='Skip DWARF line program processing for faster analysis (may reduce source file coverage by 0.3-7%%)'
+            help=(
+                'Skip DWARF line program processing for faster analysis '
+                '(may reduce source file coverage by 0.3-7%%)'
+            )
         )
 
         return parser

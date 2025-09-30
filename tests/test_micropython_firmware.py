@@ -146,9 +146,10 @@ class TestMicroPythonFirmware(unittest.TestCase):
                     print(
                         f"📍 uart_init maps to: {uart_init_symbol['source_file']}")
 
-                    # This is what we discovered: in real firmware, functions may legitimately map to headers
-                    # if that's where the line information points (e.g., inline
-                    # functions or static functions in headers)
+                    # This is what we discovered: in real firmware, functions may
+                    # legitimately map to headers if that's where the line
+                    # information points (e.g., inline functions or static
+                    # functions in headers)
 
                     # Should not be a system header though
                     self.assertNotIn(
@@ -162,15 +163,19 @@ class TestMicroPythonFirmware(unittest.TestCase):
                     # legitimate header mappings
                     if uart_init_symbol['source_file'].endswith('.c'):
                         print(
-                            f"✅ uart_init maps to .c source file: {uart_init_symbol['source_file']}")
+                            f"✅ uart_init maps to .c source file: "
+                            f"{uart_init_symbol['source_file']}")
                     elif uart_init_symbol['source_file'].endswith('.h'):
                         print(
-                            f"ℹ️  uart_init maps to .h header file: {uart_init_symbol['source_file']}")
+                            f"ℹ️  uart_init maps to .h header file: "
+                            f"{uart_init_symbol['source_file']}")
                         print(
-                            "    This may be legitimate for inline/static functions in headers")
+                            "    This may be legitimate for inline/static "
+                            "functions in headers")
                     else:
                         print(
-                            f"⚠️  uart_init maps to unexpected file type: {uart_init_symbol['source_file']}")
+                            f"⚠️  uart_init maps to unexpected file type: "
+                            f"{uart_init_symbol['source_file']}")
 
                     # The key test: it should not be a system/standard library
                     # header
@@ -183,13 +188,16 @@ class TestMicroPythonFirmware(unittest.TestCase):
 
                     self.assertTrue(
                         is_project_file,
-                        f"uart_init should map to project file, not system header: {uart_init_symbol['source_file']}")
+                        f"uart_init should map to project file, not system header: "
+                        f"{uart_init_symbol['source_file']}")
 
                     print(
-                        f"✅ uart_init correctly maps to project file: {uart_init_symbol['source_file']}")
+                        f"✅ uart_init correctly maps to project file: "
+                        f"{uart_init_symbol['source_file']}")
                 else:
                     print(
-                        "⚠️  uart_init has empty source_file - this might be expected for optimized builds")
+                        "⚠️  uart_init has empty source_file - this might be "
+                        "expected for optimized builds")
 
             else:
                 # If uart_init not found, look for similar UART functions
@@ -225,12 +233,14 @@ class TestMicroPythonFirmware(unittest.TestCase):
                 if i2c_handle1_symbol['source_file']:
                     if i2c_handle1_symbol['source_file'].endswith('.h'):
                         print(
-                            f"  ⚠️  I2CHandle1 maps to header file: {i2c_handle1_symbol['source_file']}")
+                            f"  ⚠️  I2CHandle1 maps to header file: "
+                            f"{i2c_handle1_symbol['source_file']}")
                         print(
-                            f"      Should be defined in pyb_i2c.c or similar .c file")
+                            "      Should be defined in pyb_i2c.c or similar .c file")
                     else:
                         print(
-                            f"  ✅ I2CHandle1 correctly maps to: {i2c_handle1_symbol['source_file']}")
+                            f"  ✅ I2CHandle1 correctly maps to: "
+                            f"{i2c_handle1_symbol['source_file']}")
             else:
                 print(f"\n⚠️  I2CHandle1 not found")
                 print(f"Found {len(i2c_symbols)} I2C-related symbols:")
@@ -238,7 +248,8 @@ class TestMicroPythonFirmware(unittest.TestCase):
                     print(
                         f"  - {sym['name']}: {sym.get('source_file', 'no source')}")
 
-            # Check micropython_ringio_any symbol mapping (this is our fix validation)
+            # Check micropython_ringio_any symbol mapping (this is our fix
+            # validation)
             if ringio_any_symbol:
                 print(f"\nFound micropython_ringio_any symbol:")
                 print(f"  Address: 0x{ringio_any_symbol['address']:08x}")
@@ -248,11 +259,15 @@ class TestMicroPythonFirmware(unittest.TestCase):
 
                 # This is the critical test for our bug fix
                 self.assertEqual(
-                    ringio_any_symbol['source_file'], 'objringio.c',
-                    f"micropython_ringio_any should map to objringio.c, not {ringio_any_symbol['source_file']}")
+                    ringio_any_symbol['source_file'],
+                    'objringio.c',
+                    f"micropython_ringio_any should map to objringio.c, not "
+                    f"{ringio_any_symbol['source_file']}")
 
-                print(f"  ✅ micropython_ringio_any correctly maps to: {ringio_any_symbol['source_file']}")
-                print(f"     (Fixed: was incorrectly mapping to ringbuf.h due to inlined function)")
+                print(
+                    f"  ✅ micropython_ringio_any correctly maps to: {ringio_any_symbol['source_file']}")
+                print(
+                    f"     (Fixed: was incorrectly mapping to ringbuf.h due to inlined function)")
             else:
                 print(f"\n⚠️  micropython_ringio_any not found in symbols")
 
@@ -350,20 +365,27 @@ class TestMicroPythonFirmware(unittest.TestCase):
             # to
             print(
                 f"\nChecking compilation unit membership for symbols without source files...")
-            # Use the existing analyzer from the generator to avoid redundant processing
+            # Use the existing analyzer from the generator to avoid redundant
+            # processing
             analyzer = generator.elf_analyzer
 
-            # Check if CU data was built (cu_file_list was removed in refactoring)
+            # Check if CU data was built (cu_file_list was removed in
+            # refactoring)
             if analyzer._dwarf_data['processed_cus']:
-                print(f"  Total CUs processed: {len(analyzer._dwarf_data['processed_cus'])}")
+                print(
+                    f"  Total CUs processed: {len(analyzer._dwarf_data['processed_cus'])}")
                 print(f"  CU processing completed successfully")
 
             if analyzer._dwarf_data['address_to_file']:
-                print(f"  Address mappings available: {len(analyzer._dwarf_data['address_to_file'])}")
+                print(
+                    f"  Address mappings available: {len(analyzer._dwarf_data['address_to_file'])}")
                 # Show first few address ranges
-                addresses = sorted(analyzer._dwarf_data['address_to_file'].keys())[:5]
+                addresses = sorted(
+                    analyzer._dwarf_data['address_to_file'].keys())[
+                    :5]
                 for addr in addresses:
-                    print(f"    Address: 0x{addr:08x} -> {analyzer._dwarf_data['address_to_file'][addr]}")
+                    print(
+                        f"    Address: 0x{addr:08x} -> {analyzer._dwarf_data['address_to_file'][addr]}")
             else:
                 print(f"  No CU ranges found - debug info may be missing")
 
@@ -376,18 +398,22 @@ class TestMicroPythonFirmware(unittest.TestCase):
                 metrics = analyzer._dwarf_data['coverage_metrics']
                 print(f"  CUs processed: {metrics['cus_processed']}")
                 print(f"  DIE symbol mappings: {metrics['die_symbols']}")
-                print(f"  Line program address mappings: {metrics['line_program_addresses']}")
+                print(
+                    f"  Line program address mappings: {metrics['line_program_addresses']}")
 
                 # Calculate what line program adds beyond DIEs
-                # Note: This is approximate since line program maps addresses, not symbols
+                # Note: This is approximate since line program maps addresses,
+                # not symbols
                 print(f"\n  Analysis:")
                 print(f"  - DIE provides symbol->file mappings (name+address)")
                 print(f"  - Line program provides address->file mappings (any address)")
-                print(f"  - Line program has ~{metrics['line_program_addresses'] - metrics['die_symbols']} more address mappings than DIE symbols")
+                print(
+                    f"  - Line program has ~{metrics['line_program_addresses'] - metrics['die_symbols']} more address mappings than DIE symbols")
 
                 # Calculate actual symbol coverage
                 total_elf_symbols = len(report['symbols'])
-                symbols_with_source = len([s for s in report['symbols'] if s['source_file']])
+                symbols_with_source = len(
+                    [s for s in report['symbols'] if s['source_file']])
                 symbols_from_die_only = 0
                 symbols_from_line_program = 0
                 symbols_no_source = 0
@@ -396,13 +422,18 @@ class TestMicroPythonFirmware(unittest.TestCase):
                 # This requires examining the resolver's lookup order
                 print(f"\n  Symbol Coverage:")
                 print(f"  - Total ELF symbols: {total_elf_symbols}")
-                print(f"  - Symbols with source files: {symbols_with_source} ({100*symbols_with_source/total_elf_symbols:.1f}%)")
-                print(f"  - Symbols without source files: {total_elf_symbols - symbols_with_source} ({100*(total_elf_symbols - symbols_with_source)/total_elf_symbols:.1f}%)")
+                print(
+                    f"  - Symbols with source files: {symbols_with_source} ({100*symbols_with_source/total_elf_symbols:.1f}%)")
+                print(
+                    f"  - Symbols without source files: {total_elf_symbols - symbols_with_source} ({100*(total_elf_symbols - symbols_with_source)/total_elf_symbols:.1f}%)")
 
                 print(f"\n  Estimated line program contribution:")
-                print(f"  - If we removed line program, we'd lose address-based fallback")
-                print(f"  - This affects ~5-15% of symbols (functions without DIE entries)")
-                print(f"  - Estimated impact: {int((total_elf_symbols - symbols_with_source) * 0.1)} - {int((total_elf_symbols - symbols_with_source) * 0.3)} additional symbols might lose source mapping")
+                print(
+                    f"  - If we removed line program, we'd lose address-based fallback")
+                print(
+                    f"  - This affects ~5-15% of symbols (functions without DIE entries)")
+                print(
+                    f"  - Estimated impact: {int((total_elf_symbols - symbols_with_source) * 0.1)} - {int((total_elf_symbols - symbols_with_source) * 0.3)} additional symbols might lose source mapping")
             else:
                 print(f"  ⚠️  Coverage metrics not available")
             print(f"{'='*60}\n")
@@ -577,7 +608,8 @@ class TestMicroPythonESP32Firmware(unittest.TestCase):
 
             # Verify ESP32 architecture
             self.assertIn('xtensa', report['machine'].lower())
-            print(f"✅ Detected ESP32 architecture: {report['architecture']} / Machine: {report['machine']}")
+            print(
+                f"✅ Detected ESP32 architecture: {report['architecture']} / Machine: {report['machine']}")
 
             # Find ESP32-specific symbols
             esp_timer_init_symbol = None
@@ -617,7 +649,8 @@ class TestMicroPythonESP32Firmware(unittest.TestCase):
                 print(f"  Source file: {esp_timer_init_symbol['source_file']}")
 
                 # Verify source file mapping
-                self.assertIsInstance(esp_timer_init_symbol['source_file'], str)
+                self.assertIsInstance(
+                    esp_timer_init_symbol['source_file'], str)
 
                 # Check source file mapping behavior
                 if esp_timer_init_symbol['source_file']:
@@ -722,8 +755,14 @@ class TestMicroPythonESP32Firmware(unittest.TestCase):
             print(f"  Machine: {report.get('machine', 'Unknown')}")
 
             # Test that we got a reasonable number of symbols
-            self.assertGreater(total_symbols, 1000, "Should have found many symbols in ESP32 firmware")
-            self.assertGreater(symbols_with_source, 100, "Should have source file mappings for many symbols")
+            self.assertGreater(
+                total_symbols,
+                1000,
+                "Should have found many symbols in ESP32 firmware")
+            self.assertGreater(
+                symbols_with_source,
+                100,
+                "Should have source file mappings for many symbols")
 
             # EXPERIMENT: Line Program Coverage Analysis
             print(f"\n{'='*60}")
@@ -736,26 +775,33 @@ class TestMicroPythonESP32Firmware(unittest.TestCase):
                 metrics = analyzer._dwarf_data['coverage_metrics']
                 print(f"  CUs processed: {metrics['cus_processed']}")
                 print(f"  DIE symbol mappings: {metrics['die_symbols']}")
-                print(f"  Line program address mappings: {metrics['line_program_addresses']}")
+                print(
+                    f"  Line program address mappings: {metrics['line_program_addresses']}")
 
                 # Calculate what line program adds beyond DIEs
                 print(f"\n  Analysis:")
                 print(f"  - DIE provides symbol->file mappings (name+address)")
                 print(f"  - Line program provides address->file mappings (any address)")
-                print(f"  - Line program has ~{metrics['line_program_addresses'] - metrics['die_symbols']} more address mappings than DIE symbols")
+                print(
+                    f"  - Line program has ~{metrics['line_program_addresses'] - metrics['die_symbols']} more address mappings than DIE symbols")
 
                 # Calculate actual symbol coverage
                 symbols_without_source = total_symbols - symbols_with_source
 
                 print(f"\n  Symbol Coverage:")
                 print(f"  - Total ELF symbols: {total_symbols}")
-                print(f"  - Symbols with source files: {symbols_with_source} ({100*symbols_with_source/total_symbols:.1f}%)")
-                print(f"  - Symbols without source files: {symbols_without_source} ({100*symbols_without_source/total_symbols:.1f}%)")
+                print(
+                    f"  - Symbols with source files: {symbols_with_source} ({100*symbols_with_source/total_symbols:.1f}%)")
+                print(
+                    f"  - Symbols without source files: {symbols_without_source} ({100*symbols_without_source/total_symbols:.1f}%)")
 
                 print(f"\n  Estimated line program contribution:")
-                print(f"  - If we removed line program, we'd lose address-based fallback")
-                print(f"  - This affects ~5-15% of symbols (functions without DIE entries)")
-                print(f"  - Estimated impact: {int(symbols_without_source * 0.1)} - {int(symbols_without_source * 0.3)} additional symbols might lose source mapping")
+                print(
+                    f"  - If we removed line program, we'd lose address-based fallback")
+                print(
+                    f"  - This affects ~5-15% of symbols (functions without DIE entries)")
+                print(
+                    f"  - Estimated impact: {int(symbols_without_source * 0.1)} - {int(symbols_without_source * 0.3)} additional symbols might lose source mapping")
 
                 # ESP32 specific note
                 print(f"\n  ESP32 Note:")

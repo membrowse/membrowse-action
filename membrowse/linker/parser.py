@@ -1093,5 +1093,3 @@ def _is_hierarchical_overlap(  # pylint: disable=too-many-locals,too-many-return
             return True
 
     return False
-
-

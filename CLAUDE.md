@@ -164,26 +164,26 @@ The parser includes intelligent validation that:
 
 ### Code Quality
 ```bash
-# Run pylint on shared modules
-PYTHONPATH=shared:. pylint shared/*.py
+# Run pylint on membrowse package
+pylint membrowse/
 
 # Run pylint on tests
-PYTHONPATH=shared:. pylint tests/*.py
+pylint tests/
 
-# Check all Python code
-PYTHONPATH=shared:. pylint shared/*.py tests/*.py --score=yes
+# Check all Python code with scores
+pylint membrowse/ tests/ --score=yes
 ```
 
 ### Manual Testing
 ```bash
 # Test linker script parsing
-python shared/memory_regions.py path/to/linker.ld
+python -m membrowse.linker.cli path/to/linker.ld
 
 # Test ELF analysis
-python shared/cli.py --elf-path firmware.elf --memory-regions regions.json --output report.json
+python -m membrowse.core.cli --elf-path firmware.elf --memory-regions regions.json --output report.json
 
 # Test complete workflow
-bash shared/collect_report.sh firmware.elf "linker1.ld linker2.ld" target_name api_key commit_sha base_sha branch repo
+bash scripts/collect_report.sh firmware.elf "linker1.ld linker2.ld" target_name api_key commit_sha base_sha branch repo
 ```
 
 ### Local Action Testing
@@ -191,7 +191,7 @@ bash shared/collect_report.sh firmware.elf "linker1.ld linker2.ld" target_name a
 # Test pr-action locally
 bash pr-action/entrypoint.sh firmware.elf "linker.ld" esp32 api_key
 
-# Test onboard-action locally  
+# Test onboard-action locally
 bash onboard-action/entrypoint.sh 10 "make build" build/firmware.elf "src/linker.ld" stm32 api_key
 ```
 

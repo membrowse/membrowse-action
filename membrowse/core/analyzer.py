@@ -7,7 +7,6 @@ of ELF files using specialized component classes for symbols, sections, and DWAR
 """
 
 import os
-import time
 from pathlib import Path
 from typing import Dict, List, Any, Tuple
 from elftools.elf.elffile import ELFFile
@@ -21,9 +20,8 @@ from ..analysis.symbols import SymbolExtractor
 from ..analysis.sections import SectionAnalyzer
 
 
-class ELFAnalyzer:
+class ELFAnalyzer:  # pylint: disable=too-many-instance-attributes
     """Handles ELF file analysis and data extraction with performance optimizations"""
-
 
     def __init__(self, elf_path: str, skip_line_program: bool = False):
         """Initialize ELF analyzer with file path and component setup.
@@ -37,12 +35,11 @@ class ELFAnalyzer:
         self._validate_elf_file()
 
         # Open ELF file once and reuse throughout
-        self._elf_file_handle = open(self.elf_path, 'rb')
+        self._elf_file_handle = open(self.elf_path, 'rb')  # pylint: disable=consider-using-with
         self.elffile = ELFFile(self._elf_file_handle)
 
         # Cache for expensive string operations and file paths
         self._system_header_cache = {}
-
 
         # Get symbol addresses we need to map
         symbol_addresses = self._get_symbol_addresses_to_map(self.elffile)
@@ -60,7 +57,8 @@ class ELFAnalyzer:
         self._dwarf_data = dwarf_processor.process_dwarf_info()
 
         # Initialize specialized analyzers
-        self._source_resolver = SourceFileResolver(self._dwarf_data, self._system_header_cache)
+        self._source_resolver = SourceFileResolver(
+            self._dwarf_data, self._system_header_cache)
         self._symbol_extractor = SymbolExtractor(self.elffile)
         self._section_analyzer = SectionAnalyzer(self.elffile)
 
@@ -71,7 +69,6 @@ class ELFAnalyzer:
 
         if not os.access(self.elf_path, os.R_OK):
             raise ELFAnalysisError(f"Cannot read ELF file: {self.elf_path}")
-
 
     def __del__(self):
         """Clean up file handle."""
@@ -107,7 +104,6 @@ class ELFAnalyzer:
             return False
 
         return True
-
 
     def get_metadata(self) -> ELFMetadata:
         """Extract ELF metadata."""
@@ -167,4 +163,3 @@ class ELFAnalyzer:
         if flags & 0x1:  # PF_X
             flag_str += "X"
         return flag_str or "---"
-

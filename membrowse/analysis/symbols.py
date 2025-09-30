@@ -37,10 +37,12 @@ class SymbolExtractor:
 
                 symbol_name = symbol.name
                 symbol_type = self._get_symbol_type(symbol['st_info']['type'])
-                symbol_binding = self._get_symbol_binding(symbol['st_info']['bind'])
+                symbol_binding = self._get_symbol_binding(
+                    symbol['st_info']['bind'])
                 symbol_address = symbol['st_value']
                 symbol_size = symbol['st_size']
-                section_name = self._get_symbol_section_name(symbol, section_names)
+                section_name = self._get_symbol_section_name(
+                    symbol, section_names)
 
                 # Get source file using the source resolver
                 source_file = source_resolver.extract_source_file(
@@ -50,8 +52,13 @@ class SymbolExtractor:
                 # Get symbol visibility
                 visibility = 'DEFAULT'  # Default value
                 try:
-                    if hasattr(symbol, 'st_other') and hasattr(symbol['st_other'], 'visibility'):
-                        visibility = symbol['st_other']['visibility'].replace('STV_', '')
+                    if hasattr(
+                            symbol,
+                            'st_other') and hasattr(
+                            symbol['st_other'],
+                            'visibility'):
+                        visibility = symbol['st_other']['visibility'].replace(
+                            'STV_', '')
                 except (KeyError, AttributeError):
                     pass
 
@@ -67,9 +74,11 @@ class SymbolExtractor:
                 ))
 
         except (IOError, OSError) as e:
-            raise SymbolExtractionError(f"Failed to read ELF file for symbol extraction: {e}") from e
+            raise SymbolExtractionError(
+                f"Failed to read ELF file for symbol extraction: {e}") from e
         except ELFError as e:
-            raise SymbolExtractionError(f"Invalid ELF file format during symbol extraction: {e}") from e
+            raise SymbolExtractionError(
+                f"Invalid ELF file format during symbol extraction: {e}") from e
 
         return symbols
 
@@ -99,14 +108,17 @@ class SymbolExtractor:
 
         return True
 
-    def _get_symbol_section_name(self, symbol, section_names: Dict[int, str]) -> str:
+    def _get_symbol_section_name(
+            self, symbol, section_names: Dict[int, str]) -> str:
         """Get section name for a symbol."""
         if symbol['st_shndx'] in ['SHN_UNDEF', 'SHN_ABS']:
             return ''
 
         try:
             section_idx = symbol['st_shndx']
-            if isinstance(section_idx, int) and section_idx < len(section_names):
+            if isinstance(
+                    section_idx,
+                    int) and section_idx < len(section_names):
                 return section_names[section_idx]
         except (KeyError, TypeError):
             pass
@@ -140,8 +152,8 @@ class SymbolExtractor:
         visibility = st_other & 0x3  # Lower 2 bits contain visibility
         visibility_map = {
             0: 'DEFAULT',  # STV_DEFAULT
-            1: 'INTERNAL', # STV_INTERNAL
+            1: 'INTERNAL',  # STV_INTERNAL
             2: 'HIDDEN',   # STV_HIDDEN
-            3: 'PROTECTED' # STV_PROTECTED
+            3: 'PROTECTED'  # STV_PROTECTED
         }
         return visibility_map.get(visibility, 'DEFAULT')

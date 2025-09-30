@@ -17,7 +17,11 @@ from .exceptions import ELFAnalysisError
 class ReportGenerator:
     """Main class for generating comprehensive memory reports"""
 
-    def __init__(self, elf_path: str, memory_regions_data: Dict[str, Dict[str, Any]] = None,
+    def __init__(self,
+                 elf_path: str,
+                 memory_regions_data: Dict[str,
+                                           Dict[str,
+                                                Any]] = None,
                  skip_line_program: bool = False):
         """Initialize the report generator.
 
@@ -26,7 +30,8 @@ class ReportGenerator:
             memory_regions_data: Dictionary of memory region definitions (optional)
             skip_line_program: Skip DWARF line program processing for faster analysis (optional)
         """
-        self.elf_analyzer = ELFAnalyzer(elf_path, skip_line_program=skip_line_program)
+        self.elf_analyzer = ELFAnalyzer(
+            elf_path, skip_line_program=skip_line_program)
         self.memory_regions_data = memory_regions_data
         self.elf_path = elf_path
         self.skip_line_program = skip_line_program
@@ -51,9 +56,11 @@ class ReportGenerator:
             # Convert memory regions data to MemoryRegion objects (if provided)
             memory_regions = {}
             if self.memory_regions_data:
-                memory_regions = self._convert_to_memory_regions(self.memory_regions_data)
+                memory_regions = self._convert_to_memory_regions(
+                    self.memory_regions_data)
 
-                # Map sections to regions based on addresses and calculate utilization
+                # Map sections to regions based on addresses and calculate
+                # utilization
                 MemoryMapper.map_sections_to_regions(sections, memory_regions)
                 MemoryMapper.calculate_utilization(memory_regions)
 
@@ -62,31 +69,40 @@ class ReportGenerator:
             symbols_with_source = sum(1 for s in symbols if s.source_file)
 
             if verbose:
-                print(f"\nPerformance Summary:")
+                print("\nPerformance Summary:")
                 print(f"  Total time: {total_time:.2f}s")
                 print(f"  Symbols processed: {len(symbols)}")
-                print(f"  Avg time per symbol: {total_time / len(symbols) * 1000:.2f}ms" if symbols else "  Avg time per symbol: 0ms")
-                print(f"  Source mapping success: {symbols_with_source / len(symbols) * 100:.1f}%" if symbols else "  Source mapping success: 0%")
+                avg_time_msg = (
+                    f"  Avg time per symbol: {total_time / len(symbols) * 1000:.2f}ms"
+                    if symbols else "  Avg time per symbol: 0ms"
+                )
+                print(avg_time_msg)
+                success_rate_msg = (
+                    f"  Source mapping success: {symbols_with_source / len(symbols) * 100:.1f}%"
+                    if symbols else "  Source mapping success: 0%"
+                )
+                print(success_rate_msg)
 
             # Build final report
             report = {
-                'file_path': str(self.elf_path),
+                'file_path': str(
+                    self.elf_path),
                 'architecture': metadata.architecture,
                 'entry_point': metadata.entry_point,
                 'file_type': metadata.file_type,
                 'machine': metadata.machine,
-                'symbols': [symbol.__dict__ for symbol in symbols],
+                'symbols': [
+                    symbol.__dict__ for symbol in symbols],
                 'program_headers': program_headers,
                 'memory_layout': {
-                    name: region.to_dict() for name, region in memory_regions.items()
-                }
-            }
-
+                    name: region.to_dict() for name,
+                    region in memory_regions.items()}}
 
             return report
 
         except Exception as e:
-            raise ELFAnalysisError(f"Failed to generate memory report: {e}") from e
+            raise ELFAnalysisError(
+                f"Failed to generate memory report: {e}") from e
 
     def _convert_to_memory_regions(
         self, regions_data: Dict[str, Dict[str, Any]]
@@ -107,4 +123,3 @@ class ReportGenerator:
                 type=data['type']
             )
         return regions
-

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# pylint: disable=import-error,too-many-nested-blocks
 """
 Debug why .debug_line parsing isn't working
 """
@@ -37,7 +38,8 @@ def debug_line_parsing():  # pylint: disable=too-many-locals,too-many-statements
             dwarfinfo = elffile.get_dwarf_info()
 
             cu_count = 0
-            for cu in dwarfinfo.iter_CUs():  # pylint: disable=too-many-nested-blocks
+            for cu in dwarfinfo.iter_CUs(
+            ):  # pylint: disable=too-many-nested-blocks
                 cu_count += 1
                 top_die = cu.get_top_DIE()
 
@@ -58,11 +60,11 @@ def debug_line_parsing():  # pylint: disable=too-many-locals,too-many-statements
                 # Debug file and directory access
                 try:
                     file_entries = (lineprog['file_entry']
-                                   if 'file_entry' in lineprog
-                                   else lineprog.header.file_entry)
+                                    if 'file_entry' in lineprog
+                                    else lineprog.header.file_entry)
                     include_dirs = (lineprog['include_directory']
-                                   if 'include_directory' in lineprog
-                                   else lineprog.header.include_directory)
+                                    if 'include_directory' in lineprog
+                                    else lineprog.header.include_directory)
 
                     print(f"    Files: {len(file_entries)}")
                     print(f"    Include dirs: {len(include_dirs)}")
@@ -74,7 +76,8 @@ def debug_line_parsing():  # pylint: disable=too-many-locals,too-many-statements
                             filename = filename.decode(
                                 'utf-8', errors='ignore')
                         dir_index = getattr(file_entry, 'dir_index', 'N/A')
-                        print(f"      File {i+1}: {filename} (dir_index: {dir_index})")
+                        print(
+                            f"      File {i+1}: {filename} (dir_index: {dir_index})")
 
                     # Process line program entries
                     entry_count = 0

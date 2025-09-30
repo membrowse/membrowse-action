@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# pylint: disable=import-error,no-member,protected-access,wrong-import-order
 """
 Debug script to understand why uart_tx_count maps to stdint-uintn.h
 """
@@ -29,12 +30,14 @@ def debug_source_mapping():
 
     # Look at the source file mapping that was built
     print("\nBy-address mapping:")
-    for addr, source in analyzer._source_file_mapping['by_address'].items():  # pylint: disable=protected-access
+    for addr, source in analyzer._source_file_mapping['by_address'].items(
+    ):  # pylint: disable=protected-access
         print(f"  0x{addr:08x} -> {source}")
 
     print("\nBy-compound-key mapping:")
     # pylint: disable=protected-access
-    for key, source in analyzer._source_file_mapping['by_compound_key'].items():
+    for key, source in analyzer._source_file_mapping['by_compound_key'].items(
+    ):
         symbol_name, addr = key
         if 'uart' in symbol_name.lower():
             print(f"  ({symbol_name}, 0x{addr:08x}) -> {source}")

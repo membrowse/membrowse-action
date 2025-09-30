@@ -8,13 +8,14 @@ using DWARF debug information, with optimizations for performance and accuracy.
 
 import os
 import bisect
-from typing import Dict, List, Optional, Any
+from typing import Any, Dict, Optional
 
 
 class SourceFileResolver:
     """Handles source file resolution logic for symbols using DWARF debug information"""
 
-    def __init__(self, dwarf_data: Dict[str, Any], system_header_cache: Dict[str, bool]):
+    def __init__(self, dwarf_data: Dict[str, Any],
+                 system_header_cache: Dict[str, bool]):
         """Initialize with DWARF data dictionaries and system header cache."""
         self.dwarf_data = dwarf_data
         self.system_header_cache = system_header_cache
@@ -23,6 +24,7 @@ class SourceFileResolver:
         # Pre-build static symbol mappings lookup for O(1) access
         self._static_symbol_lookup = {}
         self._basename_cache = {}  # Cache basename computations
+        self._sorted_addresses = None  # Lazy initialization for address lookup
         if 'static_symbol_mappings' in dwarf_data:
             for mapping in dwarf_data['static_symbol_mappings']:
                 symbol_name = mapping[0]
@@ -31,7 +33,8 @@ class SourceFileResolver:
                 # Pre-compute basename to avoid repeated os.path.basename calls
                 source_file = mapping[2]
                 if source_file not in self._basename_cache:
-                    self._basename_cache[source_file] = os.path.basename(source_file)
+                    self._basename_cache[source_file] = os.path.basename(
+                        source_file)
                 self._static_symbol_lookup[symbol_name].append(mapping)
 
     def _get_basename(self, source_file: str) -> str:
@@ -40,7 +43,11 @@ class SourceFileResolver:
             self._basename_cache[source_file] = os.path.basename(source_file)
         return self._basename_cache[source_file]
 
-    def extract_source_file(self, symbol_name: str, symbol_type: str, symbol_address: int = None) -> str:
+    def extract_source_file(  # pylint: disable=too-many-return-statements
+            self,
+            symbol_name: str,
+            symbol_type: str,
+            symbol_address: int = None) -> str:
         """Extract source file using pre-built DWARF dictionaries.
 
         This method uses fast dictionary lookups instead of parsing DWARF data.
@@ -58,7 +65,8 @@ class SourceFileResolver:
         if not self.dwarf_data:
             return ""  # No DWARF data available
 
-        # Priority 1: Direct symbol lookup from DWARF dictionaries (DIE-based, most reliable)
+        # Priority 1: Direct symbol lookup from DWARF dictionaries (DIE-based,
+        # most reliable)
         symbol_key = (symbol_name, symbol_address or 0)
         if symbol_key in self.dwarf_data['symbol_to_file']:
             source_file = self.dwarf_data['symbol_to_file'][symbol_key]
@@ -70,8 +78,8 @@ class SourceFileResolver:
                 return source_file_basename
 
             # For .h files, check if we should prefer the CU source file
-            if (source_file_basename.endswith('.h') and symbol_address is not None
-                    and symbol_address > 0):
+            if (source_file_basename.endswith('.h')
+                    and symbol_address is not None and symbol_address > 0):
                 if symbol_address in self.dwarf_data['address_to_cu_file']:
                     cu_source_file = self.dwarf_data['address_to_cu_file'][symbol_address]
                     if cu_source_file and cu_source_file.endswith('.c'):
@@ -79,8 +87,8 @@ class SourceFileResolver:
 
             return source_file_basename
 
-
-        # Priority 1c: For static variables, use ordered matching from DWARF processing
+        # Priority 1c: For static variables, use ordered matching from DWARF
+        # processing
         if symbol_type == 'OBJECT' and symbol_name in self._static_symbol_lookup:
             static_mappings = self._static_symbol_lookup[symbol_name]
             if static_mappings:
@@ -95,10 +103,9 @@ class SourceFileResolver:
                     self.used_static_mappings[symbol_name] += 1
                     source_file = mapping[2]
                     return self._get_basename(source_file)
-                else:
-                    # Fallback to first mapping if we've run out
-                    source_file = static_mappings[0][2]
-                    return self._get_basename(source_file)
+                # Fallback to first mapping if we've run out
+                source_file = static_mappings[0][2]
+                return self._get_basename(source_file)
 
         # Priority 2: Address-based lookup for FUNC symbols (fallback)
         if symbol_address is not None and symbol_address > 0 and symbol_type == 'FUNC':
@@ -157,13 +164,16 @@ class SourceFileResolver:
         # No source file information found
         return ""
 
-    def _find_nearby_address(self, target_address: int, max_distance: int = 100) -> Optional[int]:
+    def _find_nearby_address(
+            self,
+            target_address: int,
+            max_distance: int = 100) -> Optional[int]:
         """Find nearby address using dictionary-based search."""
         if not self.dwarf_data['address_to_file']:
             return None
 
         # Create sorted list from dictionary keys for efficient search
-        if not hasattr(self, '_sorted_addresses'):
+        if self._sorted_addresses is None:
             addresses = self.dwarf_data['address_to_file'].keys()
             self._sorted_addresses = sorted(addresses)
 

@@ -14,7 +14,8 @@ from .parser import parse_linker_scripts
 def main():
     """Main CLI entry point for linker script parsing."""
     if len(sys.argv) < 2:
-        print("Usage: python -m membrowse.linker.cli <linker_script1> [linker_script2] ...")
+        print(
+            "Usage: python -m membrowse.linker.cli <linker_script1> [linker_script2] ...")
         sys.exit(1)
 
     try:

@@ -1,20 +1,19 @@
 #!/usr/bin/env python3
+# pylint: disable=protected-access
 """
 Unit tests for source file mapping functionality
 Tests the new address-priority mapping structure for handling duplicate symbol names
 """
 
-import os
-import unittest
-from unittest.mock import MagicMock, patch, mock_open
 import sys
+import unittest
 from pathlib import Path
+from unittest.mock import patch, mock_open
+
+from membrowse.core import ELFAnalyzer
 
 # Add shared directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent / 'shared'))
-
-from membrowse.core import ELFAnalyzer
-from membrowse.analysis import SourceFileResolver
 
 
 class TestSourceFileMapping(unittest.TestCase):
@@ -44,8 +43,6 @@ class TestSourceFileMapping(unittest.TestCase):
         self.assertIsInstance(
             analyzer._dwarf_data['symbol_to_file'], dict)
 
-
-
     @patch('membrowse.core.analyzer.Path.exists')
     @patch('membrowse.core.analyzer.os.access')
     def test_source_file_extraction_address_priority(
@@ -67,16 +64,19 @@ class TestSourceFileMapping(unittest.TestCase):
             'cu_file_list': [],
             'system_headers': set(),
         }
-        
+
         # Manually populate mappings to test priority
         analyzer._dwarf_data['address_to_file'][0x1000] = 'address_file.c'
-        analyzer._dwarf_data['symbol_to_file'][('test_func', 0x1000)] = 'symbol_file.c'
+        analyzer._dwarf_data['symbol_to_file'][(
+            'test_func', 0x1000)] = 'symbol_file.c'
 
         # Update the source resolver with the test data
         analyzer._source_resolver.dwarf_data = analyzer._dwarf_data
 
-        # Should return from symbol mapping (priority 1) - DIE-based is more reliable
-        result = analyzer._source_resolver.extract_source_file('test_func', 'FUNC', 0x1000)
+        # Should return from symbol mapping (priority 1) - DIE-based is more
+        # reliable
+        result = analyzer._source_resolver.extract_source_file(
+            'test_func', 'FUNC', 0x1000)
         self.assertEqual(result, 'symbol_file.c')
 
     @patch('membrowse.core.analyzer.Path.exists')
@@ -100,15 +100,17 @@ class TestSourceFileMapping(unittest.TestCase):
             'cu_file_list': [],
             'system_headers': set(),
         }
-        
+
         # Only compound key mapping exists
-        analyzer._dwarf_data['symbol_to_file'][('test_func', 0x1000)] = 'fallback_file.c'
+        analyzer._dwarf_data['symbol_to_file'][(
+            'test_func', 0x1000)] = 'fallback_file.c'
 
         # Update the source resolver with the test data
         analyzer._source_resolver.dwarf_data = analyzer._dwarf_data
 
         # Should return from compound key mapping (priority 2)
-        result = analyzer._source_resolver.extract_source_file('test_func', 'FUNC', 0x1000)
+        result = analyzer._source_resolver.extract_source_file(
+            'test_func', 'FUNC', 0x1000)
         self.assertEqual(result, 'fallback_file.c')
 
     @patch('membrowse.core.analyzer.Path.exists')
@@ -132,15 +134,17 @@ class TestSourceFileMapping(unittest.TestCase):
             'cu_file_list': [],
             'system_headers': set(),
         }
-        
+
         # Only placeholder compound key exists
-        analyzer._dwarf_data['symbol_to_file'][('test_func', 0)] = 'placeholder_file.c'
+        analyzer._dwarf_data['symbol_to_file'][(
+            'test_func', 0)] = 'placeholder_file.c'
 
         # Update the source resolver with the test data
         analyzer._source_resolver.dwarf_data = analyzer._dwarf_data
 
         # Should return from placeholder compound key mapping (priority 3)
-        result = analyzer._source_resolver.extract_source_file('test_func', 'FUNC', None)
+        result = analyzer._source_resolver.extract_source_file(
+            'test_func', 'FUNC', None)
         self.assertEqual(result, 'placeholder_file.c')
 
     @patch('membrowse.core.analyzer.Path.exists')
@@ -164,20 +168,23 @@ class TestSourceFileMapping(unittest.TestCase):
             'cu_file_list': [],
             'system_headers': set(),
         }
-        
+
         # Set up mappings
         analyzer._dwarf_data['address_to_file'][0] = 'should_not_match.c'
-        analyzer._dwarf_data['symbol_to_file'][('test_func', 0)] = 'correct_file.c'
+        analyzer._dwarf_data['symbol_to_file'][(
+            'test_func', 0)] = 'correct_file.c'
 
         # Update the source resolver with the test data
         analyzer._source_resolver.dwarf_data = analyzer._dwarf_data
 
         # Test with address 0 - should skip address lookup and use compound key
-        result = analyzer._source_resolver.extract_source_file('test_func', 'FUNC', 0)
+        result = analyzer._source_resolver.extract_source_file(
+            'test_func', 'FUNC', 0)
         self.assertEqual(result, 'correct_file.c')
 
         # Test with None address - should use placeholder compound key
-        result = analyzer._source_resolver.extract_source_file('test_func', 'FUNC', None)
+        result = analyzer._source_resolver.extract_source_file(
+            'test_func', 'FUNC', None)
         self.assertEqual(result, 'correct_file.c')
 
     @patch('membrowse.core.analyzer.Path.exists')
@@ -192,7 +199,8 @@ class TestSourceFileMapping(unittest.TestCase):
                 analyzer = ELFAnalyzer(self.test_elf_path)
 
         # No mappings exist
-        result = analyzer._source_resolver.extract_source_file('unknown_func', 'FUNC', 0x1000)
+        result = analyzer._source_resolver.extract_source_file(
+            'unknown_func', 'FUNC', 0x1000)
         self.assertEqual(result, '')
 
     @patch('membrowse.core.analyzer.Path.exists')
@@ -215,14 +223,15 @@ class TestSourceFileMapping(unittest.TestCase):
             'cu_file_list': [],
             'system_headers': set(),
         }
-        
+
         # Set up mapping with full path
         analyzer._dwarf_data['address_to_file'][0x1000] = '/full/path/to/source.c'
 
         # Update the source resolver with the test data
         analyzer._source_resolver.dwarf_data = analyzer._dwarf_data
 
-        result = analyzer._source_resolver.extract_source_file('test_func', 'FUNC', 0x1000)
+        result = analyzer._source_resolver.extract_source_file(
+            'test_func', 'FUNC', 0x1000)
         self.assertEqual(result, 'source.c')
 
 

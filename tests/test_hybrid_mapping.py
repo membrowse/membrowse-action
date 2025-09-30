@@ -3,10 +3,11 @@
 Test the hybrid source file mapping implementation
 """
 
-from membrowse.core import ELFAnalyzer
-from test_memory_analysis import TestMemoryAnalysis
 import sys
 from pathlib import Path
+
+from membrowse.core import ELFAnalyzer
+from tests.test_memory_analysis import TestMemoryAnalysis
 
 # Add shared directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent / 'shared'))
@@ -26,7 +27,8 @@ def test_hybrid_mapping():
     # Create analyzer
     analyzer = ELFAnalyzer(str(elf_file))
 
-    print(f"\n.debug_line mappings loaded: {len(analyzer._dwarf_data['address_to_file'])}")
+    print(
+        f"\n.debug_line mappings loaded: {len(analyzer._dwarf_data['address_to_file'])}")
     print(
         f"DIE mappings loaded: {len(analyzer._dwarf_data.get('symbol_to_file', {}))}")
 
@@ -57,7 +59,8 @@ def test_hybrid_mapping():
 
                 if not found_nearby:
                     # Must have used DIE fallback
-                    if symbol.address in analyzer._dwarf_data.get('address_to_cu_file', {}):
+                    if symbol.address in analyzer._dwarf_data.get(
+                            'address_to_cu_file', {}):
                         method_used = "DIE fallback (by_address)"
                     elif (symbol.name, symbol.address) in analyzer._dwarf_data.get('symbol_to_file', {}):
                         method_used = "DIE fallback (compound_key)"
@@ -76,7 +79,8 @@ def test_hybrid_mapping():
 
             # Determine DIE method used
             die_method = "UNKNOWN"
-            if symbol.address in analyzer._dwarf_data.get('address_to_cu_file', {}):
+            if symbol.address in analyzer._dwarf_data.get(
+                    'address_to_cu_file', {}):
                 die_method = "DIE (by_address)"
             elif (symbol.name, symbol.address) in analyzer._dwarf_data.get('symbol_to_file', {}):
                 die_method = "DIE (compound_key exact)"

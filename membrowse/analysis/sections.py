@@ -16,6 +16,7 @@ SHF_ALLOC = elftools.elf.constants.SH_FLAGS.SHF_ALLOC
 SHF_WRITE = elftools.elf.constants.SH_FLAGS.SHF_WRITE
 SHF_EXECINSTR = elftools.elf.constants.SH_FLAGS.SHF_EXECINSTR
 
+
 class SectionAnalyzer:
     """Handles ELF section analysis and categorization"""
 
@@ -38,7 +39,7 @@ class SectionAnalyzer:
                     continue
 
                 # Only include sections that are loaded into memory
-                if not (section['sh_flags'] & SHF_ALLOC):
+                if not section['sh_flags'] & SHF_ALLOC:
                     continue
 
                 section_type = self._categorize_section(section)
@@ -52,9 +53,11 @@ class SectionAnalyzer:
                 ))
 
         except (IOError, OSError) as e:
-            raise SectionAnalysisError(f"Failed to read ELF file for sections: {e}") from e
+            raise SectionAnalysisError(
+                f"Failed to read ELF file for sections: {e}") from e
         except ELFError as e:
-            raise SectionAnalysisError(f"Invalid ELF file format during section analysis: {e}") from e
+            raise SectionAnalysisError(
+                f"Invalid ELF file format during section analysis: {e}") from e
 
         return sections
 
@@ -68,11 +71,10 @@ class SectionAnalyzer:
             type: 'code', 'data', 'rodata', or 'unknown'
         """
         flags = section['sh_flags']
-        if flags & SHF_ALLOC: 
+        if flags & SHF_ALLOC:
             if flags & SHF_WRITE:
                 return 'data'
-            elif flags & SHF_EXECINSTR:
+            if flags & SHF_EXECINSTR:
                 return 'code'
-            else:
-                return 'rodata'
+            return 'rodata'
         return 'unknown'

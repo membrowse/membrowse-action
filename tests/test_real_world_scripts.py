@@ -268,8 +268,7 @@ class TestRealWorldLinkerScripts(unittest.TestCase):
             # systems)
             if parsed_regions:
                 # Capture validation output to check for serious issues
-                # pylint:
-                # disable=import-outside-toplevel,reimported,redefined-outer-name
+                # pylint: disable=import-outside-toplevel,reimported,redefined-outer-name
                 import io
                 import sys
                 old_stdout = sys.stdout

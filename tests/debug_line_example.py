@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# pylint: disable=import-error,too-many-nested-blocks
 """
 Example of how to use .debug_line section for more accurate source file mapping
 """
@@ -27,7 +28,8 @@ def extract_line_mapping(elf_path):
             dwarfinfo = elffile.get_dwarf_info()
 
             # Iterate through line programs
-            for cu in dwarfinfo.iter_CUs():  # pylint: disable=too-many-nested-blocks
+            for cu in dwarfinfo.iter_CUs(
+            ):  # pylint: disable=too-many-nested-blocks
                 line_program = dwarfinfo.line_program_for_CU(cu)
                 if line_program is None:
                     continue

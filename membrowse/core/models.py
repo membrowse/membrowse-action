@@ -6,7 +6,7 @@ This module contains all the data classes used throughout the memory analysis sy
 """
 
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Any
+from typing import Any, Dict, List
 
 
 @dataclass

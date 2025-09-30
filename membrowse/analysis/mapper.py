@@ -19,7 +19,8 @@ class MemoryMapper:
         # Create sorted list of regions by start address for binary search
         self._sorted_regions = []
         for region in memory_regions.values():
-            self._sorted_regions.append((region.address, region.address + region.limit_size, region))
+            self._sorted_regions.append(
+                (region.address, region.address + region.limit_size, region))
         self._sorted_regions.sort(key=lambda x: x[0])  # Sort by start address
 
     @staticmethod
@@ -39,11 +40,14 @@ class MemoryMapper:
                 region.sections.append(section.__dict__)
             else:
                 # If no address-based match, fall back to type-based mapping
-                region = MemoryMapper._find_region_by_type(section, memory_regions)
+                region = MemoryMapper._find_region_by_type(
+                    section, memory_regions)
                 if region:
                     region.sections.append(section.__dict__)
 
-    def find_region_by_address(self, section: MemorySection) -> Optional[MemoryRegion]:
+    def find_region_by_address(
+            self,
+            section: MemorySection) -> Optional[MemoryRegion]:
         """Find memory region using binary search for efficiency.
 
         Args:
@@ -74,7 +78,8 @@ class MemoryMapper:
 
     @staticmethod
     def _find_region_by_type(section: MemorySection,
-                             memory_regions: Dict[str, MemoryRegion]) -> Optional[MemoryRegion]:
+                             memory_regions: Dict[str,
+                                                  MemoryRegion]) -> Optional[MemoryRegion]:
         """Find memory region based on section type compatibility.
 
         Args:
@@ -123,7 +128,8 @@ class MemoryMapper:
             memory_regions: Dictionary of memory regions to calculate utilization for
         """
         for region in memory_regions.values():
-            region.used_size = sum(section['size'] for section in region.sections)
+            region.used_size = sum(section['size']
+                                   for section in region.sections)
             region.free_size = region.limit_size - region.used_size
             region.utilization_percent = (
                 (region.used_size / region.limit_size * 100)
