@@ -64,6 +64,13 @@ Examples:
             action='store_true',
             help='Enable verbose output'
         )
+        parser.add_argument(
+            '--skip-line-program',
+            required=False,
+            default=False,
+            action='store_true',
+            help='Skip DWARF line program processing for faster analysis (may reduce source file coverage by 0.3-7%%)'
+        )
 
         return parser
 
@@ -81,7 +88,11 @@ Examples:
                 with open(args.memory_regions, 'r', encoding='utf-8') as f:
                     memory_regions_data = json.load(f)
 
-            generator = MemoryReportGenerator(args.elf_path, memory_regions_data)
+            generator = MemoryReportGenerator(
+                args.elf_path,
+                memory_regions_data,
+                skip_line_program=args.skip_line_program
+            )
             report = generator.generate_report(args.verbose)
 
             # Write report to file

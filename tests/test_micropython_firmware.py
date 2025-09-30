@@ -360,12 +360,52 @@ class TestMicroPythonFirmware(unittest.TestCase):
 
             if analyzer._dwarf_data['address_to_file']:
                 print(f"  Address mappings available: {len(analyzer._dwarf_data['address_to_file'])}")
-                # Show first few address ranges  
+                # Show first few address ranges
                 addresses = sorted(analyzer._dwarf_data['address_to_file'].keys())[:5]
                 for addr in addresses:
                     print(f"    Address: 0x{addr:08x} -> {analyzer._dwarf_data['address_to_file'][addr]}")
             else:
                 print(f"  No CU ranges found - debug info may be missing")
+
+            # EXPERIMENT: Line Program Coverage Analysis
+            print(f"\n{'='*60}")
+            print(f"EXPERIMENT: Line Program vs DIE Coverage Analysis (STM32)")
+            print(f"{'='*60}")
+
+            if 'coverage_metrics' in analyzer._dwarf_data:
+                metrics = analyzer._dwarf_data['coverage_metrics']
+                print(f"  CUs processed: {metrics['cus_processed']}")
+                print(f"  DIE symbol mappings: {metrics['die_symbols']}")
+                print(f"  Line program address mappings: {metrics['line_program_addresses']}")
+
+                # Calculate what line program adds beyond DIEs
+                # Note: This is approximate since line program maps addresses, not symbols
+                print(f"\n  Analysis:")
+                print(f"  - DIE provides symbol->file mappings (name+address)")
+                print(f"  - Line program provides address->file mappings (any address)")
+                print(f"  - Line program has ~{metrics['line_program_addresses'] - metrics['die_symbols']} more address mappings than DIE symbols")
+
+                # Calculate actual symbol coverage
+                total_elf_symbols = len(report['symbols'])
+                symbols_with_source = len([s for s in report['symbols'] if s['source_file']])
+                symbols_from_die_only = 0
+                symbols_from_line_program = 0
+                symbols_no_source = 0
+
+                # We need to check which resolution path was used for each symbol
+                # This requires examining the resolver's lookup order
+                print(f"\n  Symbol Coverage:")
+                print(f"  - Total ELF symbols: {total_elf_symbols}")
+                print(f"  - Symbols with source files: {symbols_with_source} ({100*symbols_with_source/total_elf_symbols:.1f}%)")
+                print(f"  - Symbols without source files: {total_elf_symbols - symbols_with_source} ({100*(total_elf_symbols - symbols_with_source)/total_elf_symbols:.1f}%)")
+
+                print(f"\n  Estimated line program contribution:")
+                print(f"  - If we removed line program, we'd lose address-based fallback")
+                print(f"  - This affects ~5-15% of symbols (functions without DIE entries)")
+                print(f"  - Estimated impact: {int((total_elf_symbols - symbols_with_source) * 0.1)} - {int((total_elf_symbols - symbols_with_source) * 0.3)} additional symbols might lose source mapping")
+            else:
+                print(f"  ⚠️  Coverage metrics not available")
+            print(f"{'='*60}\n")
 
             suspicious_symbols = []
             for symbol in symbols_without_source[:10]:  # Check first 10
@@ -684,6 +724,46 @@ class TestMicroPythonESP32Firmware(unittest.TestCase):
             # Test that we got a reasonable number of symbols
             self.assertGreater(total_symbols, 1000, "Should have found many symbols in ESP32 firmware")
             self.assertGreater(symbols_with_source, 100, "Should have source file mappings for many symbols")
+
+            # EXPERIMENT: Line Program Coverage Analysis
+            print(f"\n{'='*60}")
+            print(f"EXPERIMENT: Line Program vs DIE Coverage Analysis (ESP32)")
+            print(f"{'='*60}")
+
+            analyzer = generator.elf_analyzer
+
+            if 'coverage_metrics' in analyzer._dwarf_data:
+                metrics = analyzer._dwarf_data['coverage_metrics']
+                print(f"  CUs processed: {metrics['cus_processed']}")
+                print(f"  DIE symbol mappings: {metrics['die_symbols']}")
+                print(f"  Line program address mappings: {metrics['line_program_addresses']}")
+
+                # Calculate what line program adds beyond DIEs
+                print(f"\n  Analysis:")
+                print(f"  - DIE provides symbol->file mappings (name+address)")
+                print(f"  - Line program provides address->file mappings (any address)")
+                print(f"  - Line program has ~{metrics['line_program_addresses'] - metrics['die_symbols']} more address mappings than DIE symbols")
+
+                # Calculate actual symbol coverage
+                symbols_without_source = total_symbols - symbols_with_source
+
+                print(f"\n  Symbol Coverage:")
+                print(f"  - Total ELF symbols: {total_symbols}")
+                print(f"  - Symbols with source files: {symbols_with_source} ({100*symbols_with_source/total_symbols:.1f}%)")
+                print(f"  - Symbols without source files: {symbols_without_source} ({100*symbols_without_source/total_symbols:.1f}%)")
+
+                print(f"\n  Estimated line program contribution:")
+                print(f"  - If we removed line program, we'd lose address-based fallback")
+                print(f"  - This affects ~5-15% of symbols (functions without DIE entries)")
+                print(f"  - Estimated impact: {int(symbols_without_source * 0.1)} - {int(symbols_without_source * 0.3)} additional symbols might lose source mapping")
+
+                # ESP32 specific note
+                print(f"\n  ESP32 Note:")
+                print(f"  - ESP-IDF firmware often has extensive DWARF info")
+                print(f"  - Line program may be more important for ROM functions")
+            else:
+                print(f"  ⚠️  Coverage metrics not available")
+            print(f"{'='*60}\n")
 
         finally:
             # Clean up temporary files

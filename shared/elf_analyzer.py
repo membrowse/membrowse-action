@@ -25,13 +25,15 @@ class ELFAnalyzer:
     """Handles ELF file analysis and data extraction with performance optimizations"""
 
 
-    def __init__(self, elf_path: str):
+    def __init__(self, elf_path: str, skip_line_program: bool = False):
         """Initialize ELF analyzer with file path and component setup.
 
         Args:
             elf_path: Path to the ELF file to analyze
+            skip_line_program: Skip DWARF line program processing for faster analysis
         """
         self.elf_path = Path(elf_path)
+        self.skip_line_program = skip_line_program
         self._validate_elf_file()
 
         # Open ELF file once and reuse throughout
@@ -45,8 +47,16 @@ class ELFAnalyzer:
         # Get symbol addresses we need to map
         symbol_addresses = self._get_symbol_addresses_to_map(self.elffile)
 
+        # Detect architecture for address tolerance
+        machine = self.elffile.header['e_machine']
+
         # Process DWARF information
-        dwarf_processor = DWARFProcessor(self.elffile, symbol_addresses)
+        dwarf_processor = DWARFProcessor(
+            self.elffile,
+            symbol_addresses,
+            skip_line_program=skip_line_program,
+            machine=machine
+        )
         self._dwarf_data = dwarf_processor.process_dwarf_info()
 
         # Initialize specialized analyzers

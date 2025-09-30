@@ -17,16 +17,19 @@ from .exceptions import ELFAnalysisError
 class MemoryReportGenerator:
     """Main class for generating comprehensive memory reports"""
 
-    def __init__(self, elf_path: str, memory_regions_data: Dict[str, Dict[str, Any]] = None):
+    def __init__(self, elf_path: str, memory_regions_data: Dict[str, Dict[str, Any]] = None,
+                 skip_line_program: bool = False):
         """Initialize the report generator.
 
         Args:
             elf_path: Path to the ELF file to analyze
             memory_regions_data: Dictionary of memory region definitions (optional)
+            skip_line_program: Skip DWARF line program processing for faster analysis (optional)
         """
-        self.elf_analyzer = ELFAnalyzer(elf_path)
+        self.elf_analyzer = ELFAnalyzer(elf_path, skip_line_program=skip_line_program)
         self.memory_regions_data = memory_regions_data
         self.elf_path = elf_path
+        self.skip_line_program = skip_line_program
 
     def generate_report(self, verbose: bool = False) -> Dict[str, Any]:
         """Generate comprehensive memory report with performance tracking.

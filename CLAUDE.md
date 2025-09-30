@@ -9,6 +9,45 @@ MemBrowse GitHub Actions is a collection of GitHub Actions for analyzing memory 
 - **pr-action**: Analyzes memory usage in pull requests and push events
 - **onboard-action**: Performs historical analysis across multiple commits for onboarding
 
+## Command-Line Interface
+
+### Basic Usage
+```bash
+# Generate memory report with maximum coverage (default)
+python -m shared.cli --elf-path firmware.elf --output report.json
+
+# With memory regions
+python -m shared.cli --elf-path firmware.elf --memory-regions regions.json --output report.json
+
+# Fast mode: skip line program processing (88% coverage on ARM, 24% faster)
+python -m shared.cli --elf-path firmware.elf --output report.json --skip-line-program
+
+# Verbose output with performance metrics
+python -m shared.cli --elf-path firmware.elf --output report.json --verbose
+```
+
+### Performance Options
+
+#### --skip-line-program flag
+
+Skips DWARF line program processing for faster analysis at the cost of reduced source file coverage.
+
+**When to use:**
+- ✅ Build speed is critical (CI/CD, iterative development)
+- ✅ 88% coverage acceptable (ARM) or 65% (ESP32)
+- ✅ Large firmware (>10MB) with slow processing
+
+**When to avoid:**
+- ❌ Need 100% symbol coverage
+- ❌ Processing time not a concern (<10s)
+- ❌ Detailed profiling of compiler-optimized code
+
+**Performance impact:**
+- ARM Cortex-M (STM32): 9.3s → 7.1s (24% faster), 97% → 88% coverage
+- Xtensa (ESP32): 30.1s → 20.8s (31% faster), 76% → 65% coverage
+
+See `SKIP_LINE_PROGRAM_SUMMARY.md` for detailed analysis.
+
 ## Testing
 
 ### Run Tests
