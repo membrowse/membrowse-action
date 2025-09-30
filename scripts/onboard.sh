@@ -141,6 +141,14 @@ while IFS= read -r commit; do
     echo "$commit: Checking out commit..."
     git checkout "$commit" --quiet
 
+    # Log the actual commit we're on for verification
+    ACTUAL_COMMIT=$(git rev-parse HEAD)
+    echo "=== COMMIT INFO ==="
+    echo "Requested commit: $commit"
+    echo "Actual HEAD: $ACTUAL_COMMIT"
+    git log -1 --oneline
+    echo "==================="
+
     # Clean any previous build artifacts
     echo "Cleaning previous build artifacts..."
     git clean -fd || true

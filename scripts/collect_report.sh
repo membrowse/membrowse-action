@@ -63,6 +63,12 @@ echo "Linker scripts: $LD_SCRIPTS"
 
 echo "($COMMIT_SHA): ELF analysis."
 
+# Log membrowse version for debugging
+echo "=== MEMBROWSE VERSION INFO ==="
+python3 -c "import membrowse; print(f'Package location: {membrowse.__file__}'); import sys; sys.path.insert(0, '.'); from setup import setup; print('Version from setup.py check')" 2>/dev/null || true
+pip show membrowse 2>/dev/null || echo "pip show failed"
+echo "=============================="
+
 # Parse memory regions from linker scripts
 echo "($COMMIT_SHA): Parsing memory regions from linker scripts."
 MEMORY_REGIONS_JSON=$(mktemp)
@@ -85,6 +91,11 @@ python3 -m membrowse.core.cli \
 }
 
 echo "($COMMIT_SHA): JSON report generated successfully"
+
+# Debug: Check usb_device mapping
+echo "=== DEBUG: usb_device SYMBOL MAPPING ==="
+grep -A5 '"name": "usb_device"' "$REPORT_JSON" | grep "source_file" || echo "usb_device not found in report"
+echo "========================================="
 
 if [[ -z "$COMMIT_SHA" ]]; then
     COMMIT_SHA=$(git rev-parse HEAD)

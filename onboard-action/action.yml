@@ -33,6 +33,13 @@ runs:
     - name: Install membrowse package
       shell: bash
       run: |
+        echo "=== MEMBROWSE-ACTION VERSION ==="
+        cd ${{ github.action_path }}/..
+        echo "Action path: ${{ github.action_path }}"
+        git log -1 --oneline 2>/dev/null || echo "Not a git repo"
+        git rev-parse HEAD 2>/dev/null || echo "No git HEAD"
+        cat setup.py | grep version || echo "No version in setup.py"
+        echo "================================"
         pip install --force-reinstall --no-cache-dir ${{ github.action_path }}/..
     
     - name: Fetch full git history
