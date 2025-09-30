@@ -33,7 +33,7 @@ runs:
     - name: Install membrowse package
       shell: bash
       run: |
-        pip install ${{ github.action_path }}/..
+        pip install --force-reinstall --no-cache-dir ${{ github.action_path }}/..
     
     - name: Fetch full git history
       shell: bash
