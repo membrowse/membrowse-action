@@ -14,7 +14,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from membrowse.linker.parser import LinkerScriptParser, parse_linker_scripts
+from membrowse.linker.parser import RegionParsingError, LinkerScriptParser, parse_linker_scripts
 from tests.test_utils import validate_memory_regions
 
 # Add shared directory to path so we can import our modules
@@ -651,11 +651,10 @@ class TestLinkerScriptParser(unittest.TestCase):
         script_path = self.create_temp_linker_script(invalid_script)
         parser = LinkerScriptParser([script_path])
 
-        # Should not crash, but may have empty regions or skip invalid ones
-        regions = parser.parse_memory_regions()
-        # This test verifies that the parser doesn't crash on invalid input
-        # The behavior may be to skip invalid regions or return empty dict
-        self.assertIsInstance(regions, dict)
+        # Should raise RegionParsingError for invalid syntax
+        from membrowse.linker.parser import RegionParsingError
+        with self.assertRaises(RegionParsingError):
+            parser.parse_memory_regions()
 
 
 class TestRealWorldScriptPatterns(unittest.TestCase):

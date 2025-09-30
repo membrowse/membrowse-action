@@ -597,9 +597,15 @@ class MemoryRegionBuilder:  # pylint: disable=too-few-public-methods
         self.evaluator = evaluator
 
     def parse_memory_block(
-            self, memory_content: str) -> Dict[str, MemoryRegion]:
-        """Parse individual memory regions from MEMORY block content"""
+            self, memory_content: str, deferred_matches: Optional[List[tuple]] = None
+    ) -> tuple:
+        """Parse individual memory regions from MEMORY block content
+
+        Returns:
+            Tuple of (successfully_parsed_regions, failed_matches_for_retry)
+        """
         memory_regions = {}
+        failed_matches = []
 
         # Try standard format first (with attributes in parentheses)
         standard_pattern = (
@@ -613,9 +619,10 @@ class MemoryRegionBuilder:  # pylint: disable=too-few-public-methods
         )
 
         # Try no-comma format (whitespace separator, used in some Intel/embedded scripts)
+        # Pattern must handle expressions with spaces (e.g., "ADDR(x) - ADDR(y)")
         no_comma_pattern = (
-            r"(\w+)\s*:\s*(?:ORIGIN|origin|org)\s*=\s*([^\s]+)\s+"
-            r"(?:LENGTH|length|len)\s*=\s*([^\s//]+)"
+            r"(\w+)\s*:\s*(?:ORIGIN|origin|org)\s*=\s*([^\s]+(?:\s*[-+*/]\s*[^\s]+)*)\s+"
+            r"(?:LENGTH|length|len)\s*=\s*([^/\n]+?)(?=\s*(?://|$|\n|(?:\w+\s*:)))"
         )
 
         # First try standard pattern
@@ -623,29 +630,68 @@ class MemoryRegionBuilder:  # pylint: disable=too-few-public-methods
             region = self._build_region_from_match(match, has_attributes=True)
             if region:
                 memory_regions[region.name] = region
+                # Update evaluator immediately so subsequent regions can reference this one
+                self.evaluator.set_memory_regions({
+                    **self.evaluator._memory_regions,
+                    region.name: region
+                })
+            else:
+                failed_matches.append((match, True))
 
         # If no regions found with standard pattern, try alternative (ESP8266)
-        if not memory_regions:
+        if not memory_regions and not failed_matches:
             for match in re.finditer(alt_pattern, memory_content):
                 region = self._build_region_from_match(
                     match, has_attributes=False)
                 if region:
                     memory_regions[region.name] = region
+                    # Update evaluator immediately
+                    self.evaluator.set_memory_regions({
+                        **self.evaluator._memory_regions,
+                        region.name: region
+                    })
+                else:
+                    failed_matches.append((match, False))
 
         # If still no regions found, try no-comma format
-        if not memory_regions:
+        if not memory_regions and not failed_matches:
             for match in re.finditer(no_comma_pattern, memory_content):
                 region = self._build_region_from_match(
                     match, has_attributes=False)
                 if region:
                     memory_regions[region.name] = region
+                    # Update evaluator immediately
+                    self.evaluator.set_memory_regions({
+                        **self.evaluator._memory_regions,
+                        region.name: region
+                    })
+                else:
+                    failed_matches.append((match, False))
 
-        return memory_regions
+        # Process deferred matches from previous iteration (after parsing new ones)
+        if deferred_matches:
+            for match, has_attributes in deferred_matches:
+                region = self._build_region_from_match(match, has_attributes)
+                if region:
+                    memory_regions[region.name] = region
+                    # Update evaluator
+                    self.evaluator.set_memory_regions({
+                        **self.evaluator._memory_regions,
+                        region.name: region
+                    })
+                else:
+                    # Still can't parse, defer again
+                    failed_matches.append((match, has_attributes))
+
+        return memory_regions, failed_matches
 
     def _build_region_from_match(
         self, match: re.Match, has_attributes: bool
     ) -> Optional[MemoryRegion]:
         """Build a memory region from a regex match"""
+        # Save current state in case we need to restore
+        saved_regions = self.evaluator._memory_regions.copy()
+
         try:
             if has_attributes:
                 name = match.group(1).strip()
@@ -659,6 +705,20 @@ class MemoryRegionBuilder:  # pylint: disable=too-few-public-methods
                 length_str = match.group(3).strip()
 
             origin = self._parse_address(origin_str)
+
+            # For self-referential LENGTH expressions (e.g., ADDR(dccm) when parsing dccm),
+            # temporarily add the region with a placeholder size so ADDR() can resolve
+            temp_region = MemoryRegion(
+                name=name,
+                attributes=attributes,
+                address=origin,
+                limit_size=0,  # Placeholder
+            )
+            self.evaluator.set_memory_regions({
+                **self.evaluator._memory_regions,
+                name: temp_region
+            })
+
             length = self._parse_size(length_str)
 
             return MemoryRegion(
@@ -668,12 +728,10 @@ class MemoryRegionBuilder:  # pylint: disable=too-few-public-methods
                 limit_size=length,
             )
 
-        except Exception as e:  # pylint: disable=broad-exception-caught
-            region_name = match.group(1) if match.groups() else 'unknown'
-            logger.warning(
-                "Failed to parse memory region %s: %s",
-                region_name,
-                e)
+        except Exception:  # pylint: disable=broad-exception-caught
+            # Restore previous state on failure
+            self.evaluator.set_memory_regions(saved_regions)
+            # Don't log here - region will be retried in subsequent iterations
             return None
 
     def _parse_address(self, addr_str: str) -> int:
@@ -827,28 +885,53 @@ class LinkerScriptParser:  # pylint: disable=too-few-public-methods
     def _parse_all_memory_regions(self) -> Dict[str, MemoryRegion]:
         """Parse memory regions from all scripts with iterative dependency resolution"""
         memory_regions = {}
+        deferred_matches = []
 
         # Parse regions iteratively to handle ORIGIN/LENGTH dependencies
         max_iterations = 3
-        for _ in range(max_iterations):
+        for iteration in range(max_iterations):
             old_count = len(memory_regions)
+            new_deferred = []
 
             for script_path in self.ld_scripts:
-                script_regions = self._parse_single_script(script_path)
+                script_regions, script_deferred = self._parse_single_script(
+                    script_path, deferred_matches if iteration > 0 else None
+                )
                 memory_regions.update(script_regions)
+                new_deferred.extend(script_deferred)
                 # Update evaluator with current regions for ORIGIN/LENGTH
                 # resolution
                 self.evaluator.set_memory_regions(memory_regions)
 
-            # If no new regions were added, we're done
-            if len(memory_regions) == old_count:
+            # Update deferred list for next iteration
+            deferred_matches = new_deferred
+
+            # If no new regions were added and no deferred matches remain, we're done
+            if len(memory_regions) == old_count and not deferred_matches:
                 break
+
+        # Fail if any regions remain unresolved
+        if deferred_matches:
+            failed_regions = set()
+            for match, _ in deferred_matches:
+                region_name = match.group(1) if match.groups() else 'unknown'
+                failed_regions.add(region_name)
+
+            raise RegionParsingError(
+                f"Could not resolve memory regions after {max_iterations} iterations: "
+                f"{', '.join(sorted(failed_regions))}"
+            )
 
         return memory_regions
 
     def _parse_single_script(
-            self, script_path: str) -> Dict[str, MemoryRegion]:
-        """Parse memory regions from a single linker script file"""
+            self, script_path: str, deferred_matches: Optional[List[tuple]] = None
+    ) -> tuple:
+        """Parse memory regions from a single linker script file
+
+        Returns:
+            Tuple of (parsed_regions, failed_matches)
+        """
         with open(script_path, "r", encoding="utf-8") as f:
             content = f.read()
 
@@ -861,10 +944,10 @@ class LinkerScriptParser:  # pylint: disable=too-few-public-methods
             content,
             re.IGNORECASE)
         if not memory_match:
-            return {}
+            return {}, []
 
         memory_content = memory_match.group(1)
-        return self.region_builder.parse_memory_block(memory_content)
+        return self.region_builder.parse_memory_block(memory_content, deferred_matches)
 
 
 # Convenience functions for backward compatibility

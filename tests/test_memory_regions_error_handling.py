@@ -23,7 +23,8 @@ from membrowse.linker.parser import (
     LinkerScriptParser,
     parse_linker_scripts,
     LinkerScriptError,
-    ExpressionEvaluationError
+    ExpressionEvaluationError,
+    RegionParsingError
 )
 
 # Add shared directory to path so we can import our modules
@@ -123,13 +124,10 @@ class TestSyntaxErrors(TestMalformedLinkerScripts):
         '''
 
         file_path = self.create_test_file(content)
-        regions = parse_linker_scripts([str(file_path)])
 
-        # Should either be empty or contain only validly parsed regions
-        self.assertIsInstance(regions, dict)
-        # Most likely all regions will fail to parse due to syntax errors
-        # At most 1 might accidentally parse
-        self.assertLessEqual(len(regions), 1)
+        # Should raise RegionParsingError for malformed syntax
+        with self.assertRaises(RegionParsingError):
+            parse_linker_scripts([str(file_path)])
 
     def test_invalid_parentheses_nesting(self):
         """Test invalid parentheses and nesting"""
@@ -195,18 +193,10 @@ class TestInvalidAddressFormats(TestMalformedLinkerScripts):
         '''
 
         file_path = self.create_test_file(content)
-        regions = parse_linker_scripts([str(file_path)])
 
-        # Most regions should fail to parse due to invalid addresses
-        # The parser might parse some regions with partial valid syntax
-        self.assertLessEqual(len(regions), 1)
-
-        # If any region was parsed, it should be the one with space (treated as
-        # expression)
-        if regions:
-            self.assertIn("FLASH3", regions)
-            # The spaces cause it to parse only the first part: 0x0800
-            self.assertEqual(regions["FLASH3"]["address"], 20480)  # 0x5000
+        # Should raise RegionParsingError for invalid hex addresses
+        with self.assertRaises(RegionParsingError):
+            parse_linker_scripts([str(file_path)])
 
     def test_invalid_size_formats(self):
         """Test invalid size formats"""
@@ -231,17 +221,10 @@ class TestInvalidAddressFormats(TestMalformedLinkerScripts):
         '''
 
         file_path = self.create_test_file(content)
-        regions = parse_linker_scripts([str(file_path)])
 
-        # Most regions should fail to parse, but negative sizes might be
-        # accepted
-        self.assertLessEqual(len(regions), 1)
-
-        # If any region was parsed, it should be the one with negative size
-        if regions:
-            self.assertIn("FLASH3", regions)
-            # The negative size gets parsed as -512 * 1024
-            self.assertEqual(regions["FLASH3"]["limit_size"], -524288)
+        # Should raise RegionParsingError for invalid size formats
+        with self.assertRaises(RegionParsingError):
+            parse_linker_scripts([str(file_path)])
 
     def test_extreme_address_values(self):
         """Test extreme address values that might cause overflow"""
@@ -292,11 +275,10 @@ class TestInvalidAddressFormats(TestMalformedLinkerScripts):
         '''
 
         file_path = self.create_test_file(content)
-        regions = parse_linker_scripts([str(file_path)])
 
-        # Should handle gracefully - most regions will fail to parse
-        self.assertIsInstance(regions, dict)
-        self.assertLessEqual(len(regions), 1)
+        # Should raise RegionParsingError for invalid expressions
+        with self.assertRaises(RegionParsingError):
+            parse_linker_scripts([str(file_path)])
 
 
 class TestCorruptedMemoryBlocks(TestMalformedLinkerScripts):
@@ -342,10 +324,10 @@ class TestCorruptedMemoryBlocks(TestMalformedLinkerScripts):
         '''
 
         file_path = self.create_test_file(content)
-        regions = parse_linker_scripts([str(file_path)])
 
-        # Should handle gracefully
-        self.assertIsInstance(regions, dict)
+        # Should raise RegionParsingError for nested MEMORY blocks
+        with self.assertRaises(RegionParsingError):
+            parse_linker_scripts([str(file_path)])
 
     def test_memory_block_with_invalid_content(self):
         """Test MEMORY block containing non-memory definitions"""
@@ -368,12 +350,10 @@ class TestCorruptedMemoryBlocks(TestMalformedLinkerScripts):
         '''
 
         file_path = self.create_test_file(content)
-        regions = parse_linker_scripts([str(file_path)])
 
-        # Should parse valid regions and ignore invalid content
-        self.assertIsInstance(regions, dict)
-        # Might get FLASH and RAM, but not the invalid content
-        self.assertLessEqual(len(regions), 2)
+        # Should raise RegionParsingError for invalid content in MEMORY block
+        with self.assertRaises(RegionParsingError):
+            parse_linker_scripts([str(file_path)])
 
     def test_empty_memory_block(self):
         """Test completely empty MEMORY block"""
@@ -580,10 +560,10 @@ class TestEdgeCasesAndBoundaryConditions(TestMalformedLinkerScripts):
         '''
 
         file_path = self.create_test_file(content)
-        regions = parse_linker_scripts([str(file_path)])
 
-        # Should handle comment parsing gracefully
-        self.assertIsInstance(regions, dict)
+        # Should raise RegionParsingError for malformed comments
+        with self.assertRaises(RegionParsingError):
+            parse_linker_scripts([str(file_path)])
 
 
 class TestSpecificExceptionTypes(TestMalformedLinkerScripts):
@@ -627,18 +607,10 @@ class TestSpecificExceptionTypes(TestMalformedLinkerScripts):
         '''
 
         file_path = self.create_test_file(content)
-        regions = parse_linker_scripts([str(file_path)])
 
-        # Should recover and parse what it can
-        self.assertIsInstance(regions, dict)
-        # Due to regex limitations, FLASH might fail but RAM should succeed
-        # The parser handles errors gracefully and continues
-
-        # At minimum, we should get some regions or empty dict (both are acceptable)
-        # The key is that it doesn't crash
-        if 'RAM' in regions:
-            self.assertEqual(regions['RAM']['address'], 0x20000000)
-            self.assertEqual(regions['RAM']['limit_size'], 128 * 1024)
+        # Should raise RegionParsingError for invalid syntax
+        with self.assertRaises(RegionParsingError):
+            parse_linker_scripts([str(file_path)])
 
 
 if __name__ == '__main__':

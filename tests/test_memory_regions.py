@@ -266,6 +266,9 @@ class TestMemoryRegions(unittest.TestCase):
 
     def test_invalid_syntax(self):
         """Test handling of invalid syntax"""
+        # pylint: disable=import-outside-toplevel
+        from membrowse.linker.parser import RegionParsingError
+
         content = '''
         MEMORY
         {
@@ -277,14 +280,12 @@ class TestMemoryRegions(unittest.TestCase):
 
         file_path = self.create_test_file(content)
 
-        # Should not crash, but may skip invalid entries
-        try:
-            regions = parse_linker_scripts([str(file_path)])
-            # Some regions might be parsed, others skipped
-            self.assertIsInstance(regions, dict)
-        except Exception as e:  # pylint: disable=broad-exception-caught
-            # Should handle gracefully
-            self.fail(f"Parser should handle invalid syntax gracefully: {e}")
+        # Should raise RegionParsingError for unresolvable regions
+        with self.assertRaises(RegionParsingError) as context:
+            parse_linker_scripts([str(file_path)])
+
+        # Verify the error message mentions the failed regions
+        self.assertIn("Could not resolve memory regions", str(context.exception))
 
     def test_case_insensitive_memory_keyword(self):
         """Test case-insensitive MEMORY keyword"""
