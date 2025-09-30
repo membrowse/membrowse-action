@@ -14,9 +14,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from membrowse.linker.parser import (
-    LinkerScriptParser, parse_linker_scripts, validate_memory_regions
-)
+from membrowse.linker.parser import LinkerScriptParser, parse_linker_scripts
+from tests.test_utils import validate_memory_regions
 
 # Add shared directory to path so we can import our modules
 sys.path.insert(0, str(Path(__file__).parent.parent / 'shared'))
@@ -77,7 +76,6 @@ class TestLinkerScriptParser(unittest.TestCase):
         flash = regions['FLASH']
         self.assertEqual(flash['address'], 0x08000000)
         self.assertEqual(flash['limit_size'], 1048576)  # 1 MiB
-        self.assertEqual(flash['type'], 'FLASH')
         self.assertEqual(flash['attributes'], 'rx')
 
         # Check RAM region
@@ -85,7 +83,6 @@ class TestLinkerScriptParser(unittest.TestCase):
         ram = regions['RAM']
         self.assertEqual(ram['address'], 0x20000000)
         self.assertEqual(ram['limit_size'], 131072)  # 128 KiB
-        self.assertEqual(ram['type'], 'RAM')
         self.assertEqual(ram['attributes'], 'xrw')
 
     def test_qemu_risc_v_origin_length_functions(self):
@@ -212,7 +209,6 @@ class TestLinkerScriptParser(unittest.TestCase):
         flash = regions['FLASH']
         self.assertEqual(flash['address'], 0x08000000)
         self.assertEqual(flash['limit_size'], 1024 * 1024)
-        self.assertEqual(flash['type'], 'FLASH')
 
         # Check FLASH_START sub-region
         self.assertIn('FLASH_START', regions)
@@ -237,14 +233,12 @@ class TestLinkerScriptParser(unittest.TestCase):
         ccmram = regions['CCMRAM']
         self.assertEqual(ccmram['address'], 0x10000000)
         self.assertEqual(ccmram['limit_size'], 64 * 1024)
-        self.assertEqual(ccmram['type'], 'CCM')
 
         # Check RAM region
         self.assertIn('RAM', regions)
         ram = regions['RAM']
         self.assertEqual(ram['address'], 0x20000000)
         self.assertEqual(ram['limit_size'], 128 * 1024)
-        self.assertEqual(ram['type'], 'RAM')
 
     def test_mimxrt_complex_expressions(self):
         """Test MIMXRT-style complex memory layout with expressions"""
@@ -328,14 +322,12 @@ class TestLinkerScriptParser(unittest.TestCase):
         dtcm = regions['m_dtcm']
         self.assertEqual(dtcm['address'], 0x20000000)
         self.assertEqual(dtcm['limit_size'], 0x20000)
-        self.assertEqual(dtcm['type'], 'RAM')
 
         # Check OCRM region
         self.assertIn('m_ocrm', regions)
         ocrm = regions['m_ocrm']
         self.assertEqual(ocrm['address'], 0x20200000)
         self.assertEqual(ocrm['limit_size'], 0xC0000)
-        self.assertEqual(ocrm['type'], 'RAM')
 
     def test_esp8266_alternative_syntax(self):
         """Test ESP8266-style alternative syntax without attributes in parentheses"""
@@ -537,29 +529,21 @@ class TestLinkerScriptParser(unittest.TestCase):
         self.assertEqual(len(regions), 8)
 
         # Test FLASH type detection
-        self.assertEqual(regions['FLASH']['type'], 'FLASH')
 
         # Test BOOTROM type detection (gets categorized as FLASH due to 'rom'
         # pattern)
-        self.assertEqual(regions['BOOTROM']['type'], 'FLASH')
 
         # Test EEPROM type detection
-        self.assertEqual(regions['EEPROM']['type'], 'EEPROM')
 
         # Test RAM type detection
-        self.assertEqual(regions['RAM']['type'], 'RAM')
 
         # Test SRAM type detection (should be categorized as RAM)
-        self.assertEqual(regions['SRAM']['type'], 'RAM')
 
         # Test CCMRAM type detection (Core Coupled Memory)
-        self.assertEqual(regions['CCMRAM']['type'], 'CCM')
 
         # Test BACKUP type detection
-        self.assertEqual(regions['BACKUP']['type'], 'BACKUP')
 
         # Test unknown type detection
-        self.assertEqual(regions['UNKNOWN']['type'], 'UNKNOWN')
 
     def test_parse_linker_scripts_convenience_function(self):
         """Test the parse_linker_scripts convenience function"""

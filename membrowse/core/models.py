@@ -14,7 +14,7 @@ class MemoryRegion:
     """Represents a memory region from linker scripts"""
     address: int
     limit_size: int
-    type: str
+    type: str = "UNKNOWN"  # Type detection removed from parser, defaulting to UNKNOWN
     used_size: int = 0
     free_size: int = 0
     utilization_percent: float = 0.0

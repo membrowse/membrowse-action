@@ -16,7 +16,6 @@ The module is split into focused classes with clear responsibilities:
 - ScriptContentCleaner: Handles preprocessing and cleanup
 - ExpressionEvaluator: Evaluates linker script expressions
 - MemoryRegionBuilder: Constructs memory region objects
-- RegionTypeDetector: Determines region types based on names/attributes
 """
 
 import os
@@ -24,7 +23,6 @@ import re
 import logging
 from typing import Dict, List, Any, Optional, Set
 from dataclasses import dataclass
-from enum import Enum
 from pathlib import Path
 
 # Import ELF parser for architecture detection
@@ -35,24 +33,11 @@ from .elf_info import get_architecture_info, get_linker_parsing_strategy
 logger = logging.getLogger(__name__)
 
 
-class RegionType(Enum):
-    """Memory region types"""
-
-    FLASH = "FLASH"
-    ROM = "ROM"
-    RAM = "RAM"
-    CCM = "CCM"
-    EEPROM = "EEPROM"
-    BACKUP = "BACKUP"
-    UNKNOWN = "UNKNOWN"
-
-
 @dataclass
 class MemoryRegion:  # pylint: disable=too-few-public-methods
     """Memory region data structure"""
 
     name: str
-    region_type: RegionType
     attributes: str
     address: int
     limit_size: int
@@ -63,17 +48,12 @@ class MemoryRegion:  # pylint: disable=too-few-public-methods
         return self.address + self.limit_size - 1
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary format for backward compatibility"""
+        """Convert to dictionary format"""
         return {
-            "type": self.region_type.value,
             "attributes": self.attributes,
             "address": self.address,
             "end_address": self.end_address,
             "limit_size": self.limit_size,
-            "used_size": 0,  # Will be filled by section analysis
-            "free_size": self.limit_size,  # Will be updated after section analysis
-            "utilization_percent": 0.0,
-            "sections": [],
         }
 
 
@@ -159,42 +139,6 @@ class ScriptContentCleaner:  # pylint: disable=too-few-public-methods
         return "\n".join(filtered_lines)
 
 
-class RegionTypeDetector:  # pylint: disable=too-few-public-methods
-    """Determines memory region types based on names and attributes"""
-
-    # Region type patterns (order matters - more specific first)
-    TYPE_PATTERNS = [
-        (RegionType.EEPROM, ["eeprom"]),
-        (RegionType.CCM, ["ccmram", "ccm"]),
-        (RegionType.BACKUP, ["backup"]),
-        (RegionType.FLASH, ["flash", "rom", "code"]),
-        (RegionType.RAM, ["ram", "sram", "data", "heap", "stack"]),
-    ]
-
-    @classmethod
-    def detect_type(cls, name: str, attributes: str) -> RegionType:
-        """Determine memory region type based on name and attributes"""
-        name_lower = name.lower()
-        attrs_lower = attributes.lower()
-
-        # Check name patterns first (more specific patterns first)
-        for region_type, patterns in cls.TYPE_PATTERNS:
-            if any(pattern in name_lower for pattern in patterns):
-                return region_type
-
-        # Check attributes if name is not conclusive
-        if "x" in attrs_lower and "w" not in attrs_lower:
-            # Execute but not write = ROM/FLASH
-            return RegionType.ROM
-        if "w" in attrs_lower:
-            # Writable = RAM
-            return RegionType.RAM
-        if "r" in attrs_lower and "x" not in attrs_lower and "w" not in attrs_lower:
-            # Read-only = ROM
-            return RegionType.ROM
-        return RegionType.UNKNOWN
-
-
 class ExpressionEvaluator:
     """Evaluates linker script expressions and variables"""
 
@@ -269,7 +213,7 @@ class ExpressionEvaluator:
         return expr
 
     def _handle_linker_functions(self, expr: str) -> str:
-        """Handle linker script functions like DEFINED(), ORIGIN(), LENGTH()"""
+        """Handle linker script functions like DEFINED(), ORIGIN(), LENGTH(), ADDR(), SIZEOF()"""
         # Handle DEFINED() function
         expr = re.sub(
             r"DEFINED\s*\(\s*([^)]+)\s*\)",
@@ -288,6 +232,16 @@ class ExpressionEvaluator:
         expr = re.sub(
             r"LENGTH\s*\(\s*([^)]+)\s*\)",
             self._replace_length,
+            expr)
+
+        # Handle ADDR() and SIZEOF() functions (aliases for ORIGIN/LENGTH)
+        expr = re.sub(
+            r"ADDR\s*\(\s*([^)]+)\s*\)",
+            self._replace_addr,
+            expr)
+        expr = re.sub(
+            r"SIZEOF\s*\(\s*([^)]+)\s*\)",
+            self._replace_sizeof,
             expr)
 
         # Handle parenthesized expressions
@@ -338,10 +292,9 @@ class ExpressionEvaluator:
         # Check if we have this region in our parsed data
         if region_name in self._memory_regions:
             return str(self._memory_regions[region_name].address)
-        # Check if this is a basic region we can calculate
-        if region_name.upper() == "ROM":
-            return "0x80000000"  # Default ROM start for QEMU
-        return "0"  # Fallback
+        # Cannot resolve - raise error
+        raise ExpressionEvaluationError(
+            f"ORIGIN({region_name}): region '{region_name}' not found")
 
     def _replace_length(self, match: re.Match) -> str:
         """Replace LENGTH() function with actual size"""
@@ -349,12 +302,29 @@ class ExpressionEvaluator:
         # Check if we have this region in our parsed data
         if region_name in self._memory_regions:
             return str(self._memory_regions[region_name].limit_size)
-        # Check for standard sizes
-        if region_name.upper() == "ROM":
-            return str(4 * 1024 * 1024)  # 4M for QEMU ROM
-        if region_name.upper() == "RAM":
-            return str(2 * 1024 * 1024)  # 2M for QEMU RAM
-        return "0"  # Fallback
+        # Cannot resolve - raise error
+        raise ExpressionEvaluationError(
+            f"LENGTH({region_name}): region '{region_name}' not found")
+
+    def _replace_addr(self, match: re.Match) -> str:
+        """Replace ADDR() function with actual address (alias for ORIGIN)"""
+        region_name = match.group(1).strip()
+        # Check if we have this region in our parsed data
+        if region_name in self._memory_regions:
+            return str(self._memory_regions[region_name].address)
+        # Cannot resolve - raise error
+        raise ExpressionEvaluationError(
+            f"ADDR({region_name}): region '{region_name}' not found")
+
+    def _replace_sizeof(self, match: re.Match) -> str:
+        """Replace SIZEOF() function with actual size (alias for LENGTH)"""
+        region_name = match.group(1).strip()
+        # Check if we have this region in our parsed data
+        if region_name in self._memory_regions:
+            return str(self._memory_regions[region_name].limit_size)
+        # Cannot resolve - raise error
+        raise ExpressionEvaluationError(
+            f"SIZEOF({region_name}): region '{region_name}' not found")
 
     def _resolve_parenthesized_expressions(self, expr: str) -> str:
         """Resolve parenthesized arithmetic expressions"""
@@ -538,9 +508,6 @@ class VariableExtractor:  # pylint: disable=too-few-public-methods
         # Remove comments and preprocessor directives
         content = ScriptContentCleaner.clean_content(content)
 
-        # Add platform-specific default values
-        self._add_platform_defaults(script_path)
-
         # Find variable assignments: var_name = value;
         var_pattern = r"([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([^;]+);"
 
@@ -604,39 +571,6 @@ class VariableExtractor:  # pylint: disable=too-few-public-methods
             if var_name not in self.variables:
                 self.variables[var_name] = var_value
 
-    def _add_platform_defaults(self, script_path: str) -> None:
-        """Add common default values for different platforms"""
-        script_path_lower = script_path.lower()
-
-        if "mimxrt" in script_path_lower:
-            self.variables.update(
-                {
-                    "MICROPY_HW_FLASH_SIZE": 0x800000,  # 8MB default
-                    "MICROPY_HW_FLASH_RESERVED": 0,
-                    "MICROPY_HW_SDRAM_AVAIL": 1,  # Enable SDRAM for testing
-                    "MICROPY_HW_SDRAM_SIZE": 0x2000000,  # 32MB default
-                }
-            )
-        elif "nrf" in script_path_lower:
-            self.variables.update(
-                {
-                    "_sd_size": 0,
-                    "_sd_ram": 0,
-                    "_fs_size": 65536,  # 64K default
-                    "_bootloader_head_size": 0,
-                    "_bootloader_tail_size": 0,
-                    "_bootloader_head_ram_size": 0,
-                }
-            )
-        elif "samd" in script_path_lower:
-            self.variables.update(
-                {
-                    "_etext": 0x10000,  # Default code size
-                    "_codesize": 0x10000,  # Default 64K
-                    "BootSize": 0x2000,  # Default 8K bootloader
-                }
-            )
-
     def _is_simple_expression(self, expr: str) -> bool:
         """Check if an expression is simple enough to evaluate immediately"""
         expr = expr.strip()
@@ -678,6 +612,12 @@ class MemoryRegionBuilder:  # pylint: disable=too-few-public-methods
             r"(?:LENGTH|length|len)\s*=\s*([^,}]+?)(?=\s+\w+\s*:|$|\s*})"
         )
 
+        # Try no-comma format (whitespace separator, used in some Intel/embedded scripts)
+        no_comma_pattern = (
+            r"(\w+)\s*:\s*(?:ORIGIN|origin|org)\s*=\s*([^\s]+)\s+"
+            r"(?:LENGTH|length|len)\s*=\s*([^\s//]+)"
+        )
+
         # First try standard pattern
         for match in re.finditer(standard_pattern, memory_content):
             region = self._build_region_from_match(match, has_attributes=True)
@@ -687,6 +627,14 @@ class MemoryRegionBuilder:  # pylint: disable=too-few-public-methods
         # If no regions found with standard pattern, try alternative (ESP8266)
         if not memory_regions:
             for match in re.finditer(alt_pattern, memory_content):
+                region = self._build_region_from_match(
+                    match, has_attributes=False)
+                if region:
+                    memory_regions[region.name] = region
+
+        # If still no regions found, try no-comma format
+        if not memory_regions:
+            for match in re.finditer(no_comma_pattern, memory_content):
                 region = self._build_region_from_match(
                     match, has_attributes=False)
                 if region:
@@ -712,11 +660,9 @@ class MemoryRegionBuilder:  # pylint: disable=too-few-public-methods
 
             origin = self._parse_address(origin_str)
             length = self._parse_size(length_str)
-            region_type = RegionTypeDetector.detect_type(name, attributes)
 
             return MemoryRegion(
                 name=name,
-                region_type=region_type,
                 attributes=attributes,
                 address=origin,
                 limit_size=length,
@@ -940,156 +886,3 @@ def parse_linker_scripts(
     """
     parser = LinkerScriptParser(ld_scripts, elf_file)
     return parser.parse_memory_regions()
-
-
-def validate_memory_regions(memory_regions: Dict[str, Dict[str, Any]]) -> bool:
-    """Validate that parsed memory regions are reasonable
-
-    Args:
-        memory_regions: Dictionary of memory regions
-
-    Returns:
-        True if regions appear valid, False otherwise
-    """
-    if not memory_regions:
-        logger.warning("No memory regions found in linker scripts")
-        return False
-
-    # Check for common embedded memory regions
-    region_types = {region["type"] for region in memory_regions.values()}
-
-    if "FLASH" not in region_types and "ROM" not in region_types:
-        logger.warning(
-            "No FLASH/ROM regions found - unusual for embedded systems")
-
-    if "RAM" not in region_types:
-        logger.warning("No RAM regions found - unusual for embedded systems")
-
-    # Check for overlapping regions with intelligent hierarchical detection
-    overlaps_found = False
-
-    for name1, region1 in memory_regions.items():
-        for name2, region2 in memory_regions.items():
-            if name1 >= name2:  # Avoid checking same pair twice
-                continue
-
-            # Check for overlap
-            if (
-                region1["address"] < region2["end_address"]
-                and region2["address"] < region1["end_address"]
-            ):
-
-                # Check if this is a valid hierarchical relationship
-                if _is_hierarchical_overlap(name1, region1, name2, region2):
-                    # This is a valid parent-child relationship, not an error
-                    continue
-                logger.warning(
-                    "Memory regions %s and %s overlap", name1, name2)
-                overlaps_found = True
-
-    return not overlaps_found
-
-
-def _is_hierarchical_overlap(  # pylint: disable=too-many-locals,too-many-return-statements
-    name1: str, region1: Dict[str, Any], name2: str, region2: Dict[str, Any]
-) -> bool:
-    """Check if two overlapping regions have a valid hierarchical relationship
-
-    Args:
-        name1, region1: First region
-        name2, region2: Second region
-
-    Returns:
-        True if this is a valid hierarchical overlap (parent contains child)
-    """
-    # Determine which region is larger (potential parent)
-    if region1["limit_size"] > region2["limit_size"]:
-        parent_name, parent_region = name1, region1
-        child_name, child_region = name2, region2
-    else:
-        parent_name, parent_region = name2, region2
-        child_name, child_region = name1, region1
-
-    # Check if child is fully contained within parent
-    child_fully_contained = (
-        child_region["address"] >= parent_region["address"]
-        and child_region["end_address"] <= parent_region["end_address"]
-    )
-
-    # Allow for slight overhang due to linker script calculation errors
-    # Check if child starts within parent and doesn't extend too far beyond
-    max_overhang_bytes = (
-        64 * 1024
-    )  # 64KB allowance for linker script calculation errors
-    child_mostly_contained = (
-        child_region["address"] >= parent_region["address"]
-        and child_region["address"] <= parent_region["end_address"]
-        and child_region["end_address"]
-        <= parent_region["end_address"] + max_overhang_bytes
-    )
-
-    if not child_fully_contained and not child_mostly_contained:
-        return False
-
-    # Check for common hierarchical patterns in embedded systems
-    parent_lower = parent_name.lower()
-    child_lower = child_name.lower()
-
-    # Pattern 1: FLASH parent with FLASH_* children
-    if (
-        parent_lower == "flash"
-        and child_lower.startswith("flash_")
-        and parent_region["type"] == "FLASH"
-        and child_region["type"] == "FLASH"
-    ):
-        return True
-
-    # Pattern 2: RAM parent with RAM_* children
-    if (
-        parent_lower == "ram"
-        and child_lower.startswith("ram_")
-        and parent_region["type"] == "RAM"
-        and child_region["type"] == "RAM"
-    ):
-        return True
-
-    # Pattern 3: ROM parent with ROM_* children
-    if (
-        parent_lower == "rom"
-        and child_lower.startswith("rom_")
-        and parent_region["type"] == "ROM"
-        and child_region["type"] == "ROM"
-    ):
-        return True
-
-    # Pattern 4: Same base name with different suffixes (e.g., FLASH and
-    # FLASH_APP)
-    if (
-        child_lower.startswith(parent_lower)
-        and parent_region["type"] == child_region["type"]
-    ):
-        return True
-
-    # Pattern 4b: Parent name with suffix contains child name with suffix
-    # (e.g., FLASH_APP contains FLASH_FS, FLASH_TEXT)
-    if (
-        parent_lower.startswith("flash_") and child_lower.startswith("flash_")
-        and parent_region["type"] == "FLASH"
-        and child_region["type"] == "FLASH"
-    ):
-        return True
-
-    # Pattern 5: Generic parent-child relationship based on size and containment
-    # If the child is significantly smaller and has a similar name prefix
-    size_ratio = child_region["limit_size"] / parent_region["limit_size"]
-    if size_ratio < 0.9:  # Child is less than 90% of parent size
-        # Check if names suggest hierarchical relationship
-        parent_parts = parent_lower.split("_")
-        child_parts = child_lower.split("_")
-
-        # Child name starts with parent name (e.g., FLASH -> FLASH_START)
-        if len(child_parts) > len(
-                parent_parts) and child_parts[0] == parent_parts[0]:
-            return True
-
-    return False

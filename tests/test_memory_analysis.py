@@ -19,7 +19,8 @@ import unittest
 from pathlib import Path
 
 from membrowse.core import ReportGenerator
-from membrowse.linker.parser import parse_linker_scripts, validate_memory_regions
+from membrowse.linker.parser import parse_linker_scripts
+from tests.test_utils import validate_memory_regions
 
 try:
     import jsonschema
@@ -147,21 +148,18 @@ class TestMemoryAnalysis(unittest.TestCase):
         flash_region = memory_regions['FLASH']
         self.assertEqual(flash_region['address'], 0x08000000)
         self.assertEqual(flash_region['limit_size'], 512 * 1024)  # 512K
-        self.assertEqual(flash_region['type'], 'FLASH')
         self.assertEqual(flash_region['attributes'], 'rx')
 
         # Verify RAM region properties
         ram_region = memory_regions['RAM']
         self.assertEqual(ram_region['address'], 0x20000000)
         self.assertEqual(ram_region['limit_size'], 128 * 1024)  # 128K
-        self.assertEqual(ram_region['type'], 'RAM')
         self.assertEqual(ram_region['attributes'], 'rw')
 
         # Verify SRAM2 region properties
         sram2_region = memory_regions['SRAM2']
         self.assertEqual(sram2_region['address'], 0x20020000)
         self.assertEqual(sram2_region['limit_size'], 32 * 1024)  # 32K
-        self.assertEqual(sram2_region['type'], 'RAM')
 
         # Validate the memory layout
         self.assertTrue(validate_memory_regions(memory_regions))
@@ -361,7 +359,6 @@ LOAD,256,1280
 
         # Verify FLASH region
         flash_region = memory_layout['FLASH']
-        self.assertEqual(flash_region['type'], 'FLASH')
         self.assertEqual(flash_region['address'], 0x08000000)
         self.assertEqual(flash_region['limit_size'], 512 * 1024)
         self.assertGreaterEqual(flash_region['used_size'], 0)

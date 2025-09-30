@@ -110,9 +110,8 @@ class TestELFArchitectureDetection(unittest.TestCase):
         self.assertIn('memory_block_patterns', strategy)
         self.assertIn('esp_style', strategy['memory_block_patterns'])
         self.assertIn('default_variables', strategy)
-        self.assertIn(
-            'CONFIG_ESP32_SPIRAM_SIZE',
-            strategy['default_variables'])
+        # Default variables removed - parser only uses values from linker scripts
+        self.assertEqual(strategy['default_variables'], {})
 
     def test_parsing_strategy_stm32(self):
         """Test STM32 parsing strategy generation"""
@@ -130,7 +129,8 @@ class TestELFArchitectureDetection(unittest.TestCase):
         self.assertEqual(strategy['memory_block_patterns'], ['standard'])
         self.assertTrue(strategy['hierarchical_validation'])
         self.assertIn('default_variables', strategy)
-        self.assertIn('_flash_size', strategy['default_variables'])
+        # Default variables removed - parser only uses values from linker scripts
+        self.assertEqual(strategy['default_variables'], {})
 
     def test_linker_parser_with_elf(self):
         """Test LinkerScriptParser with ELF file"""
@@ -186,8 +186,11 @@ class TestELFArchitectureDetection(unittest.TestCase):
 
     def test_parse_linker_scripts_with_elf(self):
         """Test parse_linker_scripts convenience function with ELF file"""
-        # Create a simple test linker script
+        # Create a linker script with defined values (no default variables)
         content = '''
+        _flash_size = 0x100000;
+        _ram_size = 0x20000;
+
         MEMORY
         {
             FLASH (rx) : ORIGIN = 0x08000000, LENGTH = _flash_size
@@ -201,15 +204,13 @@ class TestELFArchitectureDetection(unittest.TestCase):
                    'bare-arm/build/firmware.elf')
 
         if os.path.exists(arm_elf):
-            # Should use STM32 default variables
+            # Should parse variables from linker script
             regions = parse_linker_scripts([str(script_path)], arm_elf)
             self.assertEqual(len(regions), 2)
             self.assertIn('FLASH', regions)
             self.assertIn('RAM', regions)
 
-            # Check that default variables were applied
-            # STM32 defaults: _flash_size=0x100000 (1MB), _ram_size=0x20000
-            # (128KB)
+            # Check that variables from script were used
             self.assertEqual(regions['FLASH']['limit_size'], 0x100000)
             self.assertEqual(regions['RAM']['limit_size'], 0x20000)
         else:

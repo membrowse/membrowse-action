@@ -16,10 +16,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from membrowse.linker.parser import (
-    parse_linker_scripts,
-    validate_memory_regions
-)
+from membrowse.linker.parser import parse_linker_scripts
+from tests.test_utils import validate_memory_regions
 
 # Add shared directory to path so we can import our modules
 sys.path.insert(0, str(Path(__file__).parent.parent / 'shared'))
@@ -73,7 +71,6 @@ class TestMemoryRegions(unittest.TestCase):
         flash = regions['FLASH']
         self.assertEqual(flash['address'], 0x08000000)
         self.assertEqual(flash['limit_size'], 512 * 1024)
-        self.assertEqual(flash['type'], 'FLASH')
         self.assertEqual(flash['attributes'], 'rx')
 
         # Test RAM region
@@ -81,7 +78,6 @@ class TestMemoryRegions(unittest.TestCase):
         ram = regions['RAM']
         self.assertEqual(ram['address'], 0x20000000)
         self.assertEqual(ram['limit_size'], 128 * 1024)
-        self.assertEqual(ram['type'], 'RAM')
         self.assertEqual(ram['attributes'], 'rw')
 
     def test_different_number_formats(self):
@@ -190,7 +186,7 @@ class TestMemoryRegions(unittest.TestCase):
             self.assertEqual(regions[name]['attributes'], expected_attrs)
 
     def test_region_type_detection(self):
-        """Test memory region type detection based on names and attributes"""
+        """Test memory region parsing (type detection removed)"""
         content = '''
         MEMORY
         {
@@ -208,19 +204,16 @@ class TestMemoryRegions(unittest.TestCase):
         file_path = self.create_test_file(content)
         regions = parse_linker_scripts([str(file_path)])
 
-        # Test type detection
-        self.assertEqual(regions['FLASH']['type'], 'FLASH')
-        self.assertEqual(
-            regions['ROM']['type'],
-            'FLASH')  # ROM in name -> FLASH type
-        self.assertEqual(regions['RAM']['type'], 'RAM')
-        self.assertEqual(regions['SRAM']['type'], 'RAM')
-        self.assertEqual(regions['EEPROM']['type'], 'EEPROM')
-        self.assertEqual(regions['CCM']['type'], 'CCM')
-        self.assertEqual(regions['BACKUP']['type'], 'BACKUP')
-        self.assertEqual(
-            regions['UNKNOWN']['type'],
-            'ROM')  # x but not w -> ROM
+        # Test that all regions are parsed
+        self.assertEqual(len(regions), 8)
+        self.assertIn('FLASH', regions)
+        self.assertIn('ROM', regions)
+        self.assertIn('RAM', regions)
+        self.assertIn('SRAM', regions)
+        self.assertIn('EEPROM', regions)
+        self.assertIn('CCM', regions)
+        self.assertIn('BACKUP', regions)
+        self.assertIn('UNKNOWN', regions)
 
     def test_multiple_files(self):
         """Test parsing multiple linker script files"""
@@ -353,14 +346,12 @@ class TestMemoryRegions(unittest.TestCase):
         # Verify specific regions
         self.assertEqual(regions['FLASH']['address'], 0x08000000)
         self.assertEqual(regions['FLASH']['limit_size'], 1024 * 1024)
-        self.assertEqual(regions['FLASH']['type'], 'FLASH')
 
         self.assertEqual(regions['RAM']['address'], 0x20000000)
         self.assertEqual(regions['RAM']['limit_size'], 112 * 1024)
-        self.assertEqual(regions['RAM']['type'], 'RAM')
 
-        self.assertEqual(regions['CCMRAM']['type'], 'CCM')
-        self.assertEqual(regions['BACKUP_SRAM']['type'], 'BACKUP')
+        self.assertIn('CCMRAM', regions)
+        self.assertIn('BACKUP_SRAM', regions)
 
     def test_validation_function(self):
         """Test the validate_memory_regions function"""
@@ -427,7 +418,7 @@ class TestMemoryRegions(unittest.TestCase):
         for name, region in regions.items():
             size_kb = region["limit_size"] / 1024
             line = (
-                f"{name:12} ({region['type']:8}): "
+                f"{name:12}: "
                 f"0x{region['address']:08x} - 0x{region['end_address']:08x} "
                 f"({size_kb:8.1f} KB)")
             summary_lines.append(line)

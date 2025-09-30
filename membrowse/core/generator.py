@@ -120,6 +120,6 @@ class ReportGenerator:
             regions[name] = MemoryRegion(
                 address=data['address'],
                 limit_size=data['limit_size'],
-                type=data['type']
+                type=data.get('type', 'UNKNOWN')  # Type field no longer in linker parser output
             )
         return regions

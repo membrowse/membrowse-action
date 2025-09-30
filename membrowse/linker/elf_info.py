@@ -225,62 +225,18 @@ def get_linker_parsing_strategy(elf_info: ELFInfo) -> Dict[str, Any]:
     if elf_info.platform == Platform.ESP32:
         strategy.update({
             'memory_block_patterns': ['standard', 'esp_style'],
-            'default_variables': {
-                'CONFIG_ESP32_SPIRAM_SIZE': 0,
-                'CONFIG_PARTITION_TABLE_OFFSET': 0x8000,
-            }
         })
     elif elf_info.platform == Platform.ESP8266:
         strategy.update({
             'memory_block_patterns': ['esp_style', 'standard'],
-            'default_variables': {
-                'FLASH_SIZE': 0x100000,  # 1MB default
-            }
         })
     elif elf_info.platform == Platform.STM32:
         strategy.update({
             'memory_block_patterns': ['standard'],
             'hierarchical_validation': True,
-            'default_variables': {
-                '_flash_size': 0x100000,  # 1MB default
-                '_ram_size': 0x20000,     # 128KB default
-            }
-        })
-    elif elf_info.platform == Platform.NRF:
-        strategy.update({
-            'default_variables': {
-                '_sd_size': 0,
-                '_sd_ram': 0,
-                '_fs_size': 65536,
-                '_bootloader_head_size': 0,
-                '_bootloader_tail_size': 0,
-            }
-        })
-    elif elf_info.platform == Platform.SAMD:
-        strategy.update({
-            'default_variables': {
-                '_etext': 0x10000,
-                '_codesize': 0x10000,
-                'BootSize': 0x2000
-            }
-        })
-    elif elf_info.platform == Platform.MIMXRT:
-        strategy.update({
-            'default_variables': {
-                'MICROPY_HW_FLASH_SIZE': 0x800000,
-                'MICROPY_HW_FLASH_RESERVED': 0,
-                'MICROPY_HW_SDRAM_AVAIL': 1,
-                'MICROPY_HW_SDRAM_SIZE': 0x2000000
-            }
         })
     elif elf_info.platform == Platform.QEMU:
         strategy.update({
             'memory_block_patterns': ['standard'],
-            'default_variables': {
-                'ROM_BASE': 0x80000000,
-                'ROM_SIZE': 0x400000,  # 4MB
-                'RAM_BASE': 0x80400000,
-                'RAM_SIZE': 0x200000,  # 2MB
-            }
         })
     return strategy
