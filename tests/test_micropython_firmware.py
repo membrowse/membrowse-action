@@ -102,10 +102,11 @@ class TestMicroPythonFirmware(unittest.TestCase):
             self.assertIn('architecture', report)
             self.assertIn('entry_point', report)
 
-            # Find uart_init, I2CHandle1 and micropython_ringio_any symbols
+            # Find uart_init, I2CHandle1, micropython_ringio_any, and machine_init symbols
             uart_init_symbol = None
             i2c_handle1_symbol = None
             ringio_any_symbol = None
+            machine_init_symbol = None
             uart_symbols = []
             i2c_symbols = []
 
@@ -122,6 +123,9 @@ class TestMicroPythonFirmware(unittest.TestCase):
 
                 if symbol['name'] == 'micropython_ringio_any':
                     ringio_any_symbol = symbol
+
+                if symbol['name'] == 'machine_init':
+                    machine_init_symbol = symbol
 
             print(f"\nFound {len(uart_symbols)} UART-related symbols:")
             for uart_sym in uart_symbols[:10]:  # Show first 10
@@ -270,6 +274,28 @@ class TestMicroPythonFirmware(unittest.TestCase):
                     f"     (Fixed: was incorrectly mapping to ringbuf.h due to inlined function)")
             else:
                 print(f"\n⚠️  micropython_ringio_any not found in symbols")
+
+            # Check machine_init symbol mapping (validates file index deduplication fix)
+            if machine_init_symbol:
+                print(f"\nFound machine_init symbol:")
+                print(f"  Address: 0x{machine_init_symbol['address']:08x}")
+                print(f"  Size: {machine_init_symbol['size']}")
+                print(f"  Type: {machine_init_symbol['type']}")
+                print(f"  Source file: {machine_init_symbol['source_file']}")
+
+                # This is the critical test for file index deduplication bug fix
+                self.assertEqual(
+                    machine_init_symbol['source_file'],
+                    'modmachine.c',
+                    f"machine_init should map to modmachine.c, not "
+                    f"{machine_init_symbol['source_file']}")
+
+                print(
+                    f"  ✅ machine_init correctly maps to: {machine_init_symbol['source_file']}")
+                print(
+                    f"     (Fixed: was incorrectly mapping to misc.h due to file index bug)")
+            else:
+                print(f"\n⚠️  machine_init not found in symbols")
 
             # Print summary statistics
             total_symbols = len(report['symbols'])

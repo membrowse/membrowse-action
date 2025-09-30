@@ -501,17 +501,18 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes
             line_program = dwarfinfo.line_program_for_CU(cu)
 
             if line_program and hasattr(line_program.header, 'file_entry'):
-                # Deduplicate file entries to handle compiler-generated
-                # duplicates
-                seen_files = {}
-                unique_index = 1
-                for file_entry in line_program.header.file_entry:
+                # Build file entries preserving original DWARF file indices
+                # DWARF 4 and earlier: file indices are 1-based
+                # DWARF 5 and later: file indices are 0-based
+                # Even if there are duplicates, we must keep original indices
+                # because DW_AT_decl_file references them by their original index
+                dwarf_version = cu['version']
+                start_index = 0 if dwarf_version >= 5 else 1
+                for idx, file_entry in enumerate(line_program.header.file_entry, start=start_index):
                     if file_entry and hasattr(file_entry, 'name'):
                         filename = self._extract_string_value(file_entry.name)
-                        if filename and filename not in seen_files:
-                            file_entries[unique_index] = filename
-                            seen_files[filename] = unique_index
-                            unique_index += 1
+                        if filename:
+                            file_entries[idx] = filename
 
             # Process DIEs with early filtering
             top_die = cu.get_top_DIE()
