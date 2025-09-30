@@ -38,13 +38,17 @@ class TestStaticVariableSourceMapping(unittest.TestCase):
     def _compile_test_case(
             self,
             source_dir: Path,
-            output_name: str = "a.out") -> Path:
+            output_name: str = "a.out",
+            compiler: str = "gcc",
+            extra_flags: list = None) -> Path:
         """
-        Compile a test case using gcc with debug information.
+        Compile a test case using gcc or other compiler with debug information.
 
         Args:
             source_dir: Directory containing source files
             output_name: Name of output executable
+            compiler: Compiler to use (default: gcc)
+            extra_flags: Additional compiler flags (e.g., ["-gdwarf-2"])
 
         Returns:
             Path to compiled executable
@@ -60,7 +64,10 @@ class TestStaticVariableSourceMapping(unittest.TestCase):
 
         # Compile with debug information
         output_path = temp_source_dir / output_name
-        cmd = ["gcc", "-g", "-o", str(output_path)] + [str(f) for f in c_files]
+        cmd = [compiler, "-g"]
+        if extra_flags:
+            cmd.extend(extra_flags)
+        cmd.extend(["-o", str(output_path)] + [str(f) for f in c_files])
 
         result = subprocess.run(
             cmd,
@@ -255,9 +262,62 @@ class TestStaticVariableSourceMapping(unittest.TestCase):
             'GLOBAL',
             "global variable should have GLOBAL binding")
 
-    def test_04_comprehensive_symbol_verification(self):
+    def test_04_static_function_mapping(self):
         """
-        Test Case 4: Comprehensive verification of all test cases
+        Test Case 4: Static functions with same name in different source files
+
+        Setup:
+        - a.c: static int helper_function(int x) { return x * 2; }
+        - b.c: static int helper_function(int x) { return x * 3; }
+
+        Expected: First helper_function maps to "a.c", second maps to "b.c"
+        """
+        source_dir = self.test_dir / "c_static_functions"
+
+        # Compile test case
+        elf_path = self._compile_test_case(source_dir)
+
+        # Generate report
+        report = self._generate_memory_report(elf_path)
+
+        # Find helper_function symbols
+        symbols = report.get('symbols', [])
+        helper_symbols = [s for s in symbols if s.get('name') == 'helper_function']
+
+        # Verify results
+        self.assertEqual(
+            len(helper_symbols),
+            2,
+            "Should have 2 helper_function symbols (one per source file)")
+
+        # Sort symbols by address for consistent ordering
+        helper_symbols.sort(key=lambda s: s['address'])
+
+        # First symbol should map to a.c
+        self.assertEqual(
+            helper_symbols[0]['source_file'],
+            'a.c',
+            f"First helper_function should map to a.c, got {helper_symbols[0]['source_file']}")
+
+        # Second symbol should map to b.c
+        self.assertEqual(
+            helper_symbols[1]['source_file'],
+            'b.c',
+            f"Second helper_function should map to b.c, got {helper_symbols[1]['source_file']}")
+
+        for symbol in helper_symbols:
+            self.assertEqual(
+                symbol['type'],
+                'FUNC',
+                "helper_function should be a FUNC type symbol")
+            self.assertEqual(
+                symbol['binding'],
+                'LOCAL',
+                "static function should have LOCAL binding")
+
+    def test_05_comprehensive_symbol_verification(self):
+        """
+        Test Case 5: Comprehensive verification of all test cases
 
         Runs all test cases and verifies that the symbol extraction and mapping
         works correctly across different scenarios.
@@ -317,9 +377,9 @@ class TestStaticVariableSourceMapping(unittest.TestCase):
                         test_case['expected_binding'],
                         f"Case {test_case['name']}: Symbol {i} should have {test_case['expected_binding']} binding")
 
-    def test_05_compilation_prerequisite_check(self):
+    def test_06_compilation_prerequisite_check(self):
         """
-        Test Case 5: Verify GCC compilation prerequisites
+        Test Case 6: Verify GCC compilation prerequisites
 
         Ensures that GCC is available and can compile the test cases.
         """
@@ -351,9 +411,505 @@ class TestStaticVariableSourceMapping(unittest.TestCase):
             f"Simple compilation should succeed: {result.stderr}")
         self.assertTrue(output.exists(), "Compiled output should exist")
 
-    def test_06_report_schema_validation(self):
+    def test_07_arc_compiler_static_function_mapping(self):
         """
-        Test Case 6: Validate that generated reports have correct schema
+        Test Case 7: Static functions with ARC compiler (Synopsys ARCv2)
+
+        Verifies that source mapping works correctly with non-x86 architectures
+        using the Synopsys ARC embedded compiler.
+
+        Setup:
+        - a.c: static int helper_function(int x) { return x * 2; }
+        - b.c: static int helper_function(int x) { return x * 3; }
+
+        Expected: Both helper_function symbols correctly map to their source files
+        """
+        # Check if ARC compiler is available
+        arc_gcc = "/tmp/arc-multilib-elf32/bin/arc-elf32-gcc"
+        if not Path(arc_gcc).exists():
+            self.skipTest("ARC compiler not available")
+
+        source_dir = self.test_dir / "c_static_functions"
+
+        # Compile test case with ARC compiler
+        try:
+            elf_path = self._compile_test_case(source_dir, compiler=arc_gcc)
+        except RuntimeError as e:
+            self.skipTest(f"ARC compilation failed: {e}")
+
+        # Generate report
+        report = self._generate_memory_report(elf_path)
+
+        # Verify architecture
+        self.assertEqual(
+            report['machine'],
+            'EM_ARC_COMPACT2',
+            "Should be compiled for ARC architecture")
+
+        # Find helper_function symbols
+        symbols = report.get('symbols', [])
+        helper_symbols = [s for s in symbols if s.get('name') == 'helper_function']
+
+        # Verify results
+        self.assertEqual(
+            len(helper_symbols),
+            2,
+            "Should have 2 helper_function symbols (one per source file)")
+
+        # Sort symbols by address for consistent ordering
+        helper_symbols.sort(key=lambda s: s['address'])
+
+        # First symbol should map to a.c
+        self.assertEqual(
+            helper_symbols[0]['source_file'],
+            'a.c',
+            f"First helper_function should map to a.c, got {helper_symbols[0]['source_file']}")
+
+        # Second symbol should map to b.c
+        self.assertEqual(
+            helper_symbols[1]['source_file'],
+            'b.c',
+            f"Second helper_function should map to b.c, got {helper_symbols[1]['source_file']}")
+
+        for symbol in helper_symbols:
+            self.assertEqual(
+                symbol['type'],
+                'FUNC',
+                "helper_function should be a FUNC type symbol")
+            self.assertEqual(
+                symbol['binding'],
+                'LOCAL',
+                "static function should have LOCAL binding")
+
+    def test_08_arc_compiler_static_variable_mapping(self):
+        """
+        Test Case 8: Static variables with ARC compiler (Synopsys ARCv2)
+
+        Verifies that static variable source mapping works correctly with
+        embedded architectures.
+
+        Setup:
+        - a.c: static int foo = 0;
+        - b.c: static int foo = 0;
+
+        Expected: Both foo symbols correctly map to their source files
+        """
+        # Check if ARC compiler is available
+        arc_gcc = "/tmp/arc-multilib-elf32/bin/arc-elf32-gcc"
+        if not Path(arc_gcc).exists():
+            self.skipTest("ARC compiler not available")
+
+        source_dir = self.test_dir / "c_static"
+
+        # Compile test case with ARC compiler
+        try:
+            elf_path = self._compile_test_case(source_dir, compiler=arc_gcc)
+        except RuntimeError as e:
+            self.skipTest(f"ARC compilation failed: {e}")
+
+        # Generate report
+        report = self._generate_memory_report(elf_path)
+
+        # Find foo symbols
+        foo_symbols = self._find_foo_symbols(report)
+
+        # Verify results
+        self.assertEqual(
+            len(foo_symbols),
+            2,
+            "Should have 2 foo symbols (one per source file)")
+
+        # Sort symbols by address for consistent ordering
+        foo_symbols.sort(key=lambda s: s['address'])
+
+        # First symbol should map to a.c
+        self.assertEqual(
+            foo_symbols[0]['source_file'],
+            'a.c',
+            f"First foo symbol should map to a.c, got {foo_symbols[0]['source_file']}")
+
+        # Second symbol should map to b.c
+        self.assertEqual(
+            foo_symbols[1]['source_file'],
+            'b.c',
+            f"Second foo symbol should map to b.c, got {foo_symbols[1]['source_file']}")
+
+        for symbol in foo_symbols:
+            self.assertEqual(
+                symbol['type'],
+                'OBJECT',
+                "foo should be an OBJECT type symbol")
+            self.assertEqual(
+                symbol['binding'],
+                'LOCAL',
+                "static variable should have LOCAL binding")
+
+    def test_09_bss_section_static_variable_mapping(self):
+        """
+        Test Case 9: Static variables in .bss section (uninitialized)
+
+        Verifies that uninitialized static variables in the .bss section
+        are correctly mapped to their source files.
+
+        Setup:
+        - a.c: static int uninitialized_var; static char buffer[256];
+        - b.c: static int uninitialized_var; static char buffer[256];
+
+        Expected: All static BSS variables correctly map to their source files
+        """
+        source_dir = self.test_dir / "bss_static"
+
+        # Compile test case
+        elf_path = self._compile_test_case(source_dir)
+
+        # Generate report
+        report = self._generate_memory_report(elf_path)
+
+        # Find uninitialized_var symbols in .bss section
+        symbols = report.get('symbols', [])
+        uninit_symbols = [
+            s for s in symbols
+            if s.get('name') == 'uninitialized_var'
+            and s.get('binding') == 'LOCAL'
+            and '.bss' in s.get('section', '')
+        ]
+
+        # Verify results
+        self.assertEqual(
+            len(uninit_symbols),
+            2,
+            "Should have 2 uninitialized_var symbols in .bss section")
+
+        # Sort symbols by address for consistent ordering
+        uninit_symbols.sort(key=lambda s: s['address'])
+
+        # Verify both are mapped to correct source files
+        source_files = [s['source_file'] for s in uninit_symbols]
+        self.assertIn('a.c', source_files, "Should have uninitialized_var from a.c")
+        self.assertIn('b.c', source_files, "Should have uninitialized_var from b.c")
+
+        # Find buffer symbols in .bss section
+        buffer_symbols = [
+            s for s in symbols
+            if s.get('name') == 'buffer'
+            and s.get('binding') == 'LOCAL'
+            and '.bss' in s.get('section', '')
+        ]
+
+        # Verify buffer symbols
+        self.assertEqual(
+            len(buffer_symbols),
+            2,
+            "Should have 2 buffer symbols in .bss section")
+
+        buffer_symbols.sort(key=lambda s: s['address'])
+        buffer_source_files = [s['source_file'] for s in buffer_symbols]
+        self.assertIn('a.c', buffer_source_files, "Should have buffer from a.c")
+        self.assertIn('b.c', buffer_source_files, "Should have buffer from b.c")
+
+        # Verify all BSS symbols have correct properties
+        for symbol in uninit_symbols + buffer_symbols:
+            self.assertEqual(
+                symbol['type'],
+                'OBJECT',
+                f"{symbol['name']} should be an OBJECT type symbol")
+            self.assertEqual(
+                symbol['binding'],
+                'LOCAL',
+                f"{symbol['name']} should have LOCAL binding")
+            self.assertIn(
+                '.bss',
+                symbol['section'],
+                f"{symbol['name']} should be in .bss section")
+            self.assertIn(
+                symbol['source_file'],
+                ['a.c', 'b.c'],
+                f"{symbol['name']} should be mapped to a.c or b.c")
+
+    def test_10_dwarf2_static_function_mapping(self):
+        """
+        Test Case 10: Static functions with DWARF 2 debug info
+
+        Verifies that source mapping works correctly with older DWARF 2 format,
+        ensuring backward compatibility with legacy toolchains.
+
+        Setup:
+        - a.c: static int helper_function(int x) { return x * 2; }
+        - b.c: static int helper_function(int x) { return x * 3; }
+        - Compiled with -gdwarf-2
+
+        Expected: Both helper_function symbols correctly map to their source files
+        """
+        # Check if ARC compiler is available (we'll use it to test DWARF 2)
+        arc_gcc = "/tmp/arc-multilib-elf32/bin/arc-elf32-gcc"
+        if not Path(arc_gcc).exists():
+            self.skipTest("ARC compiler not available")
+
+        source_dir = self.test_dir / "c_static_functions"
+
+        # Compile test case with DWARF 2
+        try:
+            elf_path = self._compile_test_case(
+                source_dir,
+                compiler=arc_gcc,
+                extra_flags=["-dwarf-2"]
+            )
+        except RuntimeError as e:
+            self.skipTest(f"DWARF 2 compilation failed: {e}")
+
+        # Generate report
+        report = self._generate_memory_report(elf_path)
+
+        # Find helper_function symbols
+        symbols = report.get('symbols', [])
+        helper_symbols = [s for s in symbols if s.get('name') == 'helper_function']
+
+        # Verify results
+        self.assertEqual(
+            len(helper_symbols),
+            2,
+            "Should have 2 helper_function symbols (one per source file)")
+
+        # Sort symbols by address for consistent ordering
+        helper_symbols.sort(key=lambda s: s['address'])
+
+        # First symbol should map to a.c
+        self.assertEqual(
+            helper_symbols[0]['source_file'],
+            'a.c',
+            f"First helper_function should map to a.c, got {helper_symbols[0]['source_file']}")
+
+        # Second symbol should map to b.c
+        self.assertEqual(
+            helper_symbols[1]['source_file'],
+            'b.c',
+            f"Second helper_function should map to b.c, got {helper_symbols[1]['source_file']}")
+
+        for symbol in helper_symbols:
+            self.assertEqual(
+                symbol['type'],
+                'FUNC',
+                "helper_function should be a FUNC type symbol")
+            self.assertEqual(
+                symbol['binding'],
+                'LOCAL',
+                "static function should have LOCAL binding")
+
+    def test_11_dwarf2_bss_section_mapping(self):
+        """
+        Test Case 11: BSS section variables with DWARF 2
+
+        Verifies that uninitialized static variables in .bss section
+        are correctly mapped with DWARF 2 debug format.
+
+        Setup:
+        - a.c: static int uninitialized_var; static char buffer[256];
+        - b.c: static int uninitialized_var; static char buffer[256];
+        - Compiled with -gdwarf-2
+
+        Expected: All BSS symbols correctly map to their source files
+        """
+        # Check if ARC compiler is available
+        arc_gcc = "/tmp/arc-multilib-elf32/bin/arc-elf32-gcc"
+        if not Path(arc_gcc).exists():
+            self.skipTest("ARC compiler not available")
+
+        source_dir = self.test_dir / "bss_static"
+
+        # Compile test case with DWARF 2
+        try:
+            elf_path = self._compile_test_case(
+                source_dir,
+                compiler=arc_gcc,
+                extra_flags=["-dwarf-2"]
+            )
+        except RuntimeError as e:
+            self.skipTest(f"DWARF 2 compilation failed: {e}")
+
+        # Generate report
+        report = self._generate_memory_report(elf_path)
+
+        # Find uninitialized_var symbols in .bss section
+        symbols = report.get('symbols', [])
+        uninit_symbols = [
+            s for s in symbols
+            if s.get('name') == 'uninitialized_var'
+            and s.get('binding') == 'LOCAL'
+            and '.bss' in s.get('section', '')
+        ]
+
+        # Verify results
+        self.assertGreaterEqual(
+            len(uninit_symbols),
+            2,
+            "Should have at least 2 uninitialized_var symbols in .bss section")
+
+        # Verify both source files are represented
+        source_files = [s['source_file'] for s in uninit_symbols]
+        self.assertIn('a.c', source_files,
+                      "Should have uninitialized_var from a.c")
+        self.assertIn('b.c', source_files,
+                      "Should have uninitialized_var from b.c")
+
+        # Verify properties of LOCAL symbols from our source files
+        our_symbols = [s for s in uninit_symbols if s['source_file'] in ['a.c', 'b.c']]
+        for symbol in our_symbols:
+            self.assertEqual(
+                symbol['type'],
+                'OBJECT',
+                f"{symbol['name']} should be an OBJECT type symbol")
+            self.assertEqual(
+                symbol['binding'],
+                'LOCAL',
+                f"{symbol['name']} should have LOCAL binding")
+            self.assertIn(
+                '.bss',
+                symbol['section'],
+                f"{symbol['name']} should be in .bss section")
+
+    def test_12_dwarf4_static_function_mapping(self):
+        """
+        Test Case 12: Static functions with DWARF 4 debug info
+
+        Verifies that source mapping works correctly with DWARF 4 format.
+
+        Setup:
+        - a.c: static int helper_function(int x) { return x * 2; }
+        - b.c: static int helper_function(int x) { return x * 3; }
+        - Compiled with -gdwarf-4
+
+        Expected: Both helper_function symbols correctly map to their source files
+        """
+        # Check if ARC compiler is available
+        arc_gcc = "/tmp/arc-multilib-elf32/bin/arc-elf32-gcc"
+        if not Path(arc_gcc).exists():
+            self.skipTest("ARC compiler not available")
+
+        source_dir = self.test_dir / "c_static_functions"
+
+        # Compile test case with DWARF 4
+        try:
+            elf_path = self._compile_test_case(
+                source_dir,
+                compiler=arc_gcc,
+                extra_flags=["-dwarf-4"]
+            )
+        except RuntimeError as e:
+            self.skipTest(f"DWARF 4 compilation failed: {e}")
+
+        # Generate report
+        report = self._generate_memory_report(elf_path)
+
+        # Find helper_function symbols
+        symbols = report.get('symbols', [])
+        helper_symbols = [s for s in symbols if s.get('name') == 'helper_function']
+
+        # Verify results
+        self.assertEqual(
+            len(helper_symbols),
+            2,
+            "Should have 2 helper_function symbols (one per source file)")
+
+        # Sort symbols by address for consistent ordering
+        helper_symbols.sort(key=lambda s: s['address'])
+
+        # First symbol should map to a.c
+        self.assertEqual(
+            helper_symbols[0]['source_file'],
+            'a.c',
+            f"First helper_function should map to a.c, got {helper_symbols[0]['source_file']}")
+
+        # Second symbol should map to b.c
+        self.assertEqual(
+            helper_symbols[1]['source_file'],
+            'b.c',
+            f"Second helper_function should map to b.c, got {helper_symbols[1]['source_file']}")
+
+        for symbol in helper_symbols:
+            self.assertEqual(
+                symbol['type'],
+                'FUNC',
+                "helper_function should be a FUNC type symbol")
+            self.assertEqual(
+                symbol['binding'],
+                'LOCAL',
+                "static function should have LOCAL binding")
+
+    def test_13_dwarf4_bss_section_mapping(self):
+        """
+        Test Case 13: BSS section variables with DWARF 4
+
+        Verifies that uninitialized static variables in .bss section
+        are correctly mapped with DWARF 4 debug format.
+
+        Setup:
+        - a.c: static int uninitialized_var; static char buffer[256];
+        - b.c: static int uninitialized_var; static char buffer[256];
+        - Compiled with -gdwarf-4
+
+        Expected: All BSS symbols correctly map to their source files
+        """
+        # Check if ARC compiler is available
+        arc_gcc = "/tmp/arc-multilib-elf32/bin/arc-elf32-gcc"
+        if not Path(arc_gcc).exists():
+            self.skipTest("ARC compiler not available")
+
+        source_dir = self.test_dir / "bss_static"
+
+        # Compile test case with DWARF 4
+        try:
+            elf_path = self._compile_test_case(
+                source_dir,
+                compiler=arc_gcc,
+                extra_flags=["-dwarf-4"]
+            )
+        except RuntimeError as e:
+            self.skipTest(f"DWARF 4 compilation failed: {e}")
+
+        # Generate report
+        report = self._generate_memory_report(elf_path)
+
+        # Find uninitialized_var symbols in .bss section
+        symbols = report.get('symbols', [])
+        uninit_symbols = [
+            s for s in symbols
+            if s.get('name') == 'uninitialized_var'
+            and s.get('binding') == 'LOCAL'
+            and '.bss' in s.get('section', '')
+        ]
+
+        # Verify results
+        self.assertGreaterEqual(
+            len(uninit_symbols),
+            2,
+            "Should have at least 2 uninitialized_var symbols in .bss section")
+
+        # Verify both source files are represented
+        source_files = [s['source_file'] for s in uninit_symbols]
+        self.assertIn('a.c', source_files,
+                      "Should have uninitialized_var from a.c")
+        self.assertIn('b.c', source_files,
+                      "Should have uninitialized_var from b.c")
+
+        # Verify properties of LOCAL symbols from our source files
+        our_symbols = [s for s in uninit_symbols if s['source_file'] in ['a.c', 'b.c']]
+        for symbol in our_symbols:
+            self.assertEqual(
+                symbol['type'],
+                'OBJECT',
+                f"{symbol['name']} should be an OBJECT type symbol")
+            self.assertEqual(
+                symbol['binding'],
+                'LOCAL',
+                f"{symbol['name']} should have LOCAL binding")
+            self.assertIn(
+                '.bss',
+                symbol['section'],
+                f"{symbol['name']} should be in .bss section")
+
+    def test_14_report_schema_validation(self):
+        """
+        Test Case 7: Validate that generated reports have correct schema
 
         Ensures that the memory reports contain all expected fields and structure.
         """
