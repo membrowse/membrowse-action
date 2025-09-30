@@ -13,11 +13,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from elf_parser import (
+from membrowse.linker.elf_info import (
     get_architecture_info, get_linker_parsing_strategy,
     Architecture, Platform, ELFInfo
 )
-from memory_regions import LinkerScriptParser, parse_linker_scripts
+from membrowse.linker.parser import LinkerScriptParser, parse_linker_scripts
 
 # Add shared directory to path so we can import our modules
 sys.path.insert(0, str(Path(__file__).parent.parent / 'shared'))

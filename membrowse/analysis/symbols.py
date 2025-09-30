@@ -8,8 +8,8 @@ including symbol filtering, type mapping, and source file resolution.
 
 from typing import Dict, List
 from elftools.common.exceptions import ELFError
-from .models import Symbol
-from .exceptions import SymbolExtractionError
+from ..core.models import Symbol
+from ..core.exceptions import SymbolExtractionError
 
 
 class SymbolExtractor:

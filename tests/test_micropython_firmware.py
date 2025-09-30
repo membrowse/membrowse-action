@@ -3,7 +3,7 @@
 Test real MicroPython firmware analysis for source file mapping verification.
 """
 
-from shared.report_generator import MemoryReportGenerator
+from membrowse.core import ReportGenerator
 import unittest
 import json
 import os
@@ -73,7 +73,7 @@ class TestMicroPythonFirmware(unittest.TestCase):
                 memory_regions_data = json.load(f)
 
             # Initialize the generator
-            generator = MemoryReportGenerator(
+            generator = ReportGenerator(
                 str(self.firmware_path), memory_regions_data)
 
             # Generate the report
@@ -546,7 +546,7 @@ class TestMicroPythonESP32Firmware(unittest.TestCase):
                 memory_regions_data = json.load(f)
 
             # Initialize the generator
-            generator = MemoryReportGenerator(
+            generator = ReportGenerator(
                 str(self.firmware_path), memory_regions_data)
 
             # Generate the report

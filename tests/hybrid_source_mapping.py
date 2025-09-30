@@ -126,7 +126,7 @@ def demo_hybrid_approach():
     print(f"\n.debug_line mappings found: {len(mapper.line_mapping)}")
 
     # Test with our known symbols
-    from shared.elf_analyzer import ELFAnalyzer  # pylint: disable=import-outside-toplevel
+    from membrowse.core import ELFAnalyzer  # pylint: disable=import-outside-toplevel
     analyzer = ELFAnalyzer(str(elf_file))
     symbols = analyzer.get_symbols()
 

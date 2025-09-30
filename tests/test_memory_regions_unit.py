@@ -14,7 +14,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from memory_regions import LinkerScriptParser, parse_linker_scripts, validate_memory_regions
+from membrowse.linker.parser import LinkerScriptParser, parse_linker_scripts, validate_memory_regions
 
 # Add shared directory to path so we can import our modules
 sys.path.insert(0, str(Path(__file__).parent.parent / 'shared'))

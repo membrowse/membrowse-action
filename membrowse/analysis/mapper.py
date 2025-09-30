@@ -7,7 +7,7 @@ addresses and types, with optimized binary search algorithms for performance.
 """
 
 from typing import Dict, List, Optional
-from .models import MemoryRegion, MemorySection
+from ..core.models import MemoryRegion, MemorySection
 
 
 class MemoryMapper:

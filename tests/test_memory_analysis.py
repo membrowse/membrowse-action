@@ -18,8 +18,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from shared.report_generator import MemoryReportGenerator
-from memory_regions import parse_linker_scripts, validate_memory_regions
+from membrowse.core import ReportGenerator
+from membrowse.linker.parser import parse_linker_scripts, validate_memory_regions
 
 try:
     import jsonschema
@@ -258,13 +258,13 @@ LOAD,256,1280
         # Parse memory regions first
         try:
             # pylint: disable=import-outside-toplevel,reimported
-            from memory_regions import parse_linker_scripts as parse_scripts
+            from membrowse.linker.parser import parse_linker_scripts as parse_scripts
             memory_regions_data = parse_scripts([str(self.ld_file)])
         except Exception as e:  # pylint: disable=broad-exception-caught
             self.fail(f"Failed to parse memory regions: {e}")
 
         # Generate memory report
-        generator = MemoryReportGenerator(
+        generator = ReportGenerator(
             str(self.elf_file), memory_regions_data)
 
         try:
@@ -413,13 +413,13 @@ LOAD,256,1280
         # Parse memory regions
         try:
             # pylint: disable=import-outside-toplevel,reimported
-            from memory_regions import parse_linker_scripts as parse_scripts
+            from membrowse.linker.parser import parse_linker_scripts as parse_scripts
             memory_regions_data = parse_scripts([str(self.ld_file)])
         except Exception as e:  # pylint: disable=broad-exception-caught
             self.fail(f"Failed to parse memory regions: {e}")
 
         # Generate memory report
-        generator = MemoryReportGenerator(
+        generator = ReportGenerator(
             str(self.elf_file), memory_regions_data)
 
         try:
@@ -498,7 +498,7 @@ def run_full_integration_test():
             # Test just the memory_report.py directly with mock data
             sys.path.insert(0, str(shared_dir))
             # pylint: disable=import-outside-toplevel,reimported,redefined-outer-name
-            from shared.report_generator import MemoryReportGenerator
+            from membrowse.core import ReportGenerator
 
             # Create mock bloaty files
             mock_dir = temp_dir / 'mock'
@@ -524,7 +524,7 @@ LOAD,2816,2816
             (mock_dir / 'segments.csv').write_text(segments_csv)
 
             # Generate report
-            generator = MemoryReportGenerator(str(elf_file), {})
+            generator = ReportGenerator(str(elf_file), {})
             report = generator.generate_report(verbose=False)
 
             # Verify basic report structure

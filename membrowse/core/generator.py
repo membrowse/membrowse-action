@@ -9,12 +9,12 @@ the generation of comprehensive memory reports from ELF files and memory regions
 import time
 from typing import Dict, Any
 from .models import MemoryRegion
-from .elf_analyzer import ELFAnalyzer
-from .memory_mapper import MemoryMapper
+from .analyzer import ELFAnalyzer
+from ..analysis.mapper import MemoryMapper
 from .exceptions import ELFAnalysisError
 
 
-class MemoryReportGenerator:
+class ReportGenerator:
     """Main class for generating comprehensive memory reports"""
 
     def __init__(self, elf_path: str, memory_regions_data: Dict[str, Dict[str, Any]] = None,

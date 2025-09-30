@@ -19,7 +19,7 @@ from pathlib import Path
 import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from shared.cli import CLIHandler
+from membrowse.core.cli import CLIHandler
 
 
 class TestStaticVariableSourceMapping(unittest.TestCase):
@@ -85,7 +85,8 @@ class TestStaticVariableSourceMapping(unittest.TestCase):
             elf_path=str(elf_path),
             memory_regions=None,
             output=str(output_path),
-            verbose=False
+            verbose=False,
+            skip_line_program=False
         )
 
         # Generate report

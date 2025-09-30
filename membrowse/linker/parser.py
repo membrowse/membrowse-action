@@ -28,10 +28,7 @@ from enum import Enum
 from pathlib import Path
 
 # Import ELF parser for architecture detection
-try:
-    from .elf_parser import get_architecture_info, get_linker_parsing_strategy
-except ImportError:
-    from elf_parser import get_architecture_info, get_linker_parsing_strategy
+from .elf_info import get_architecture_info, get_linker_parsing_strategy
 
 
 # Configure logging
@@ -1098,22 +1095,3 @@ def _is_hierarchical_overlap(  # pylint: disable=too-many-locals,too-many-return
     return False
 
 
-if __name__ == "__main__":
-    # Output JSON when run directly for integration with memory_report.py
-    import sys
-    import json
-
-    if len(sys.argv) < 2:
-        print(
-            "Usage: python memory_regions.py <linker_script1> [linker_script2] ...")
-        sys.exit(1)
-
-    try:
-        regions = parse_linker_scripts(sys.argv[1:])
-
-        # Output JSON to stdout for consumption by memory_report.py
-        print(json.dumps(regions, indent=2))
-
-    except Exception as e:  # pylint: disable=broad-exception-caught
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(1)

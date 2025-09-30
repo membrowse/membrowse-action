@@ -13,7 +13,7 @@ import json
 import sys
 from pathlib import Path
 
-from memory_regions import parse_linker_scripts, validate_memory_regions
+from membrowse.linker.parser import parse_linker_scripts, validate_memory_regions
 
 # Add shared directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent / 'shared'))

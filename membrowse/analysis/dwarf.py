@@ -12,7 +12,7 @@ import bisect
 from typing import Dict, List, Optional, Any, Tuple
 from collections import deque
 from elftools.common.exceptions import ELFError
-from .exceptions import DWARFParsingError, DWARFCUProcessingError, DWARFAttributeError
+from ..core.exceptions import DWARFParsingError, DWARFCUProcessingError, DWARFAttributeError
 
 # Configure logger
 logger = logging.getLogger(__name__)

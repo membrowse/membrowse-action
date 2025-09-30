@@ -11,9 +11,9 @@ LD_PATHS="$4"
 TARGET_NAME="$5"
 API_KEY="$6"
 
-# Get the directory of this script to find shared resources
+# Get the directory of this script to find scripts
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SHARED_DIR="$(dirname "$SCRIPT_DIR")/shared"
+SCRIPTS_DIR="$(dirname "$SCRIPT_DIR")/scripts"
 
 # Progress tracking variables
 SUCCESSFUL_UPLOADS=0
@@ -177,7 +177,7 @@ while IFS= read -r commit; do
     [ -n "$GITHUB_STEP_SUMMARY" ] && add_commit_result "$COMMIT_COUNT" "$commit" "UPLOADING" "Complete" "Uploading..."
 
     # Run the modular memory collection script
-    if ! bash "$SHARED_DIR/collect_report.sh" \
+    if ! bash "$SCRIPTS_DIR/collect_report.sh" \
         "$ELF_PATH" \
         "$LD_PATHS" \
         "$TARGET_NAME" \

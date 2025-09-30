@@ -63,14 +63,11 @@ echo "Linker scripts: $LD_SCRIPTS"
 
 echo "($COMMIT_SHA): ELF analysis."
 
-# Get script directory for relative imports
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
 # Parse memory regions from linker scripts
 echo "($COMMIT_SHA): Parsing memory regions from linker scripts."
 MEMORY_REGIONS_JSON=$(mktemp)
 
-python3 "$SCRIPT_DIR/memory_regions.py" $LD_SCRIPTS > "$MEMORY_REGIONS_JSON" || {
+python3 -m membrowse.linker.cli $LD_SCRIPTS > "$MEMORY_REGIONS_JSON" || {
     echo "($COMMIT_SHA): Error: Failed to parse memory regions"
     exit 1
 }
@@ -79,7 +76,7 @@ python3 "$SCRIPT_DIR/memory_regions.py" $LD_SCRIPTS > "$MEMORY_REGIONS_JSON" || 
 echo "($COMMIT_SHA): Generating JSON memory report..."
 REPORT_JSON=$(mktemp)
 
-python3 "$SCRIPT_DIR/memory_report.py" \
+python3 -m membrowse.core.cli \
     --elf-path "$ELF_PATH" \
     --memory-regions "$MEMORY_REGIONS_JSON" \
     --output "$REPORT_JSON" || {
@@ -132,7 +129,7 @@ if [[ -n "$API_KEY" ]]; then
     fi
 fi
 
-python3 "$SCRIPT_DIR/upload.py" "${UPLOAD_ARGS[@]}" || {
+python3 -m membrowse.api.client "${UPLOAD_ARGS[@]}" || {
     echo "($COMMIT_SHA): Error: Failed upload report"
     exit 1
 }

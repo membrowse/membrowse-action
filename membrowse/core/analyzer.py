@@ -15,10 +15,10 @@ from elftools.common.exceptions import ELFError
 
 from .models import ELFMetadata, Symbol, MemorySection
 from .exceptions import ELFAnalysisError
-from .dwarf_processor import DWARFProcessor
-from .source_resolver import SourceFileResolver
-from .symbol_extractor import SymbolExtractor
-from .section_analyzer import SectionAnalyzer
+from ..analysis.dwarf import DWARFProcessor
+from ..analysis.sources import SourceFileResolver
+from ..analysis.symbols import SymbolExtractor
+from ..analysis.sections import SectionAnalyzer
 
 
 class ELFAnalyzer:

@@ -14,16 +14,16 @@ MemBrowse GitHub Actions is a collection of GitHub Actions for analyzing memory 
 ### Basic Usage
 ```bash
 # Generate memory report with maximum coverage (default)
-python -m shared.cli --elf-path firmware.elf --output report.json
+python -m membrowse.core.cli --elf-path firmware.elf --output report.json
 
 # With memory regions
-python -m shared.cli --elf-path firmware.elf --memory-regions regions.json --output report.json
+python -m membrowse.core.cli --elf-path firmware.elf --memory-regions regions.json --output report.json
 
 # Fast mode: skip line program processing (88% coverage on ARM, 24% faster)
-python -m shared.cli --elf-path firmware.elf --output report.json --skip-line-program
+python -m membrowse.core.cli --elf-path firmware.elf --output report.json --skip-line-program
 
 # Verbose output with performance metrics
-python -m shared.cli --elf-path firmware.elf --output report.json --verbose
+python -m membrowse.core.cli --elf-path firmware.elf --output report.json --verbose
 ```
 
 ### Performance Options
@@ -52,19 +52,19 @@ See `SKIP_LINE_PROGRAM_SUMMARY.md` for detailed analysis.
 
 ### Run Tests
 ```bash
-PYTHONPATH=shared python -m pytest tests/
+python -m pytest tests/
 ```
 
 ### Run Specific Tests
 ```bash
 # Run a specific test file
-PYTHONPATH=shared python -m pytest tests/test_memory_regions.py -v
+python -m pytest tests/test_memory_regions.py -v
 
 # Run a specific test class
-PYTHONPATH=shared python -m pytest tests/test_memory_analysis.py::TestMemoryAnalysis -v
+python -m pytest tests/test_memory_analysis.py::TestMemoryAnalysis -v
 
 # Run with verbose output and stop on first failure
-PYTHONPATH=shared python -m pytest tests/ -v -x
+python -m pytest tests/ -v -x
 ```
 
 ### Prerequisites
@@ -88,38 +88,54 @@ pip install -r pr-action/requirements.txt
 
 ## Architecture Overview
 
-### Modular Design
-The codebase is structured with a shared module approach:
+### Package Structure
+The codebase is organized as a proper Python package:
 
 ```
-shared/
-├── collect_report.sh       # Main orchestrator script
-├── cli.py                  # Command-line interface for memory report generation
-├── elf_analyzer.py         # Main ELF analysis coordination
-├── report_generator.py     # Memory report generation
-├── models.py               # Data classes (MemoryRegion, Symbol, etc.)
-├── exceptions.py           # Exception hierarchy
-├── dwarf_processor.py      # DWARF debug information processing
-├── source_resolver.py      # Source file resolution using DWARF
-├── symbol_extractor.py     # ELF symbol extraction
-├── section_analyzer.py     # ELF section analysis
-├── memory_mapper.py        # Section-to-region mapping
-├── memory_regions.py       # Linker script parser with architecture detection
-├── elf_parser.py          # ELF file architecture detection
-└── upload.py              # Report upload to MemBrowse platform
+membrowse/                          # Main Python package
+├── __init__.py                     # Public API exports
+│
+├── core/                           # Core coordination
+│   ├── __init__.py
+│   ├── cli.py                      # CLI interface
+│   ├── generator.py                # Memory report generation
+│   ├── analyzer.py                 # Main ELF analysis coordination
+│   ├── models.py                   # Data classes (MemoryRegion, Symbol, etc.)
+│   └── exceptions.py               # Exception hierarchy
+│
+├── analysis/                       # Analysis components
+│   ├── __init__.py
+│   ├── dwarf.py                    # DWARF debug information processing
+│   ├── sources.py                  # Source file resolution
+│   ├── symbols.py                  # ELF symbol extraction
+│   ├── sections.py                 # ELF section analysis
+│   └── mapper.py                   # Section-to-region mapping
+│
+├── linker/                         # Linker script parsing
+│   ├── __init__.py
+│   ├── parser.py                   # Linker script parser (library)
+│   ├── cli.py                      # Linker parser CLI
+│   └── elf_info.py                 # ELF architecture detection
+│
+├── api/                            # API client
+│   ├── __init__.py
+│   └── client.py                   # Report upload to MemBrowse
+│
+scripts/                            # Shell orchestration
+└── collect_report.sh               # Main orchestrator script
 ```
 
 ### Action Structure
 Each action (`pr-action/`, `onboard-action/`) contains:
 - `action.yml`: GitHub Actions definition
-- `entrypoint.sh`: Action-specific entry point that calls shared scripts
+- `entrypoint.sh`: Action-specific entry point that calls scripts
 - `requirements.txt`: Python dependencies
 
 ### Key Processing Flow
-1. **Architecture Detection**: `elf_parser.py` analyzes ELF files to determine target architecture (ARM, Xtensa, RISC-V, etc.)
-2. **Linker Script Parsing**: `memory_regions.py` parses GNU LD linker scripts using architecture-specific strategies
+1. **Architecture Detection**: `linker/elf_info.py` analyzes ELF files to determine target architecture (ARM, Xtensa, RISC-V, etc.)
+2. **Linker Script Parsing**: `linker/parser.py` parses GNU LD linker scripts using architecture-specific strategies
 3. **Memory Analysis**: The modular analysis system combines ELF analysis with memory regions to generate comprehensive reports
-4. **Report Upload**: `upload.py` sends reports to MemBrowse platform (optional)
+4. **Report Upload**: `api/client.py` sends reports to MemBrowse platform (optional)
 
 ### Advanced Features
 - **DWARF Debug Info**: Extracts source file mappings from debug symbols (prioritizes definition locations over declarations)

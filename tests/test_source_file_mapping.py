@@ -13,8 +13,8 @@ from pathlib import Path
 # Add shared directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent / 'shared'))
 
-from shared.elf_analyzer import ELFAnalyzer
-from shared.source_resolver import SourceFileResolver
+from membrowse.core import ELFAnalyzer
+from membrowse.analysis import SourceFileResolver
 
 
 class TestSourceFileMapping(unittest.TestCase):
@@ -24,15 +24,15 @@ class TestSourceFileMapping(unittest.TestCase):
         """Set up test fixtures"""
         self.test_elf_path = "/test/firmware.elf"
 
-    @patch('shared.elf_analyzer.Path.exists')
-    @patch('shared.elf_analyzer.os.access')
+    @patch('membrowse.core.analyzer.Path.exists')
+    @patch('membrowse.core.analyzer.os.access')
     def test_mapping_initialization(self, mock_access, mock_exists):
         """Test that mapping structure is initialized correctly"""
         mock_exists.return_value = True
         mock_access.return_value = True
 
         with patch('builtins.open', mock_open()):
-            with patch('shared.elf_analyzer.ELFFile'):
+            with patch('membrowse.core.analyzer.ELFFile'):
                 analyzer = ELFAnalyzer(self.test_elf_path)
 
         # Check DWARF data structure exists
@@ -46,8 +46,8 @@ class TestSourceFileMapping(unittest.TestCase):
 
 
 
-    @patch('shared.elf_analyzer.Path.exists')
-    @patch('shared.elf_analyzer.os.access')
+    @patch('membrowse.core.analyzer.Path.exists')
+    @patch('membrowse.core.analyzer.os.access')
     def test_source_file_extraction_address_priority(
             self, mock_access, mock_exists):
         """Test that DIE-based symbol lookup has priority over address lookup"""
@@ -55,7 +55,7 @@ class TestSourceFileMapping(unittest.TestCase):
         mock_access.return_value = True
 
         with patch('builtins.open', mock_open()):
-            with patch('shared.elf_analyzer.ELFFile'):
+            with patch('membrowse.core.analyzer.ELFFile'):
                 analyzer = ELFAnalyzer(self.test_elf_path)
 
         # Initialize DWARF data structure
@@ -79,8 +79,8 @@ class TestSourceFileMapping(unittest.TestCase):
         result = analyzer._source_resolver.extract_source_file('test_func', 'FUNC', 0x1000)
         self.assertEqual(result, 'symbol_file.c')
 
-    @patch('shared.elf_analyzer.Path.exists')
-    @patch('shared.elf_analyzer.os.access')
+    @patch('membrowse.core.analyzer.Path.exists')
+    @patch('membrowse.core.analyzer.os.access')
     def test_source_file_extraction_compound_key_fallback(
             self, mock_access, mock_exists):
         """Test compound key fallback when address mapping doesn't exist"""
@@ -88,7 +88,7 @@ class TestSourceFileMapping(unittest.TestCase):
         mock_access.return_value = True
 
         with patch('builtins.open', mock_open()):
-            with patch('shared.elf_analyzer.ELFFile'):
+            with patch('membrowse.core.analyzer.ELFFile'):
                 analyzer = ELFAnalyzer(self.test_elf_path)
 
         # Initialize DWARF data structure
@@ -111,8 +111,8 @@ class TestSourceFileMapping(unittest.TestCase):
         result = analyzer._source_resolver.extract_source_file('test_func', 'FUNC', 0x1000)
         self.assertEqual(result, 'fallback_file.c')
 
-    @patch('shared.elf_analyzer.Path.exists')
-    @patch('shared.elf_analyzer.os.access')
+    @patch('membrowse.core.analyzer.Path.exists')
+    @patch('membrowse.core.analyzer.os.access')
     def test_source_file_extraction_placeholder_fallback(
             self, mock_access, mock_exists):
         """Test placeholder fallback for symbols without address info"""
@@ -120,7 +120,7 @@ class TestSourceFileMapping(unittest.TestCase):
         mock_access.return_value = True
 
         with patch('builtins.open', mock_open()):
-            with patch('shared.elf_analyzer.ELFFile'):
+            with patch('membrowse.core.analyzer.ELFFile'):
                 analyzer = ELFAnalyzer(self.test_elf_path)
 
         # Initialize DWARF data structure
@@ -143,8 +143,8 @@ class TestSourceFileMapping(unittest.TestCase):
         result = analyzer._source_resolver.extract_source_file('test_func', 'FUNC', None)
         self.assertEqual(result, 'placeholder_file.c')
 
-    @patch('shared.elf_analyzer.Path.exists')
-    @patch('shared.elf_analyzer.os.access')
+    @patch('membrowse.core.analyzer.Path.exists')
+    @patch('membrowse.core.analyzer.os.access')
     def test_source_file_extraction_invalid_address_handling(
             self, mock_access, mock_exists):
         """Test that invalid addresses (0, None) are handled correctly"""
@@ -152,7 +152,7 @@ class TestSourceFileMapping(unittest.TestCase):
         mock_access.return_value = True
 
         with patch('builtins.open', mock_open()):
-            with patch('shared.elf_analyzer.ELFFile'):
+            with patch('membrowse.core.analyzer.ELFFile'):
                 analyzer = ELFAnalyzer(self.test_elf_path)
 
         # Initialize DWARF data structure
@@ -180,30 +180,30 @@ class TestSourceFileMapping(unittest.TestCase):
         result = analyzer._source_resolver.extract_source_file('test_func', 'FUNC', None)
         self.assertEqual(result, 'correct_file.c')
 
-    @patch('shared.elf_analyzer.Path.exists')
-    @patch('shared.elf_analyzer.os.access')
+    @patch('membrowse.core.analyzer.Path.exists')
+    @patch('membrowse.core.analyzer.os.access')
     def test_source_file_extraction_no_match(self, mock_access, mock_exists):
         """Test behavior when no source file mapping is found"""
         mock_exists.return_value = True
         mock_access.return_value = True
 
         with patch('builtins.open', mock_open()):
-            with patch('shared.elf_analyzer.ELFFile'):
+            with patch('membrowse.core.analyzer.ELFFile'):
                 analyzer = ELFAnalyzer(self.test_elf_path)
 
         # No mappings exist
         result = analyzer._source_resolver.extract_source_file('unknown_func', 'FUNC', 0x1000)
         self.assertEqual(result, '')
 
-    @patch('shared.elf_analyzer.Path.exists')
-    @patch('shared.elf_analyzer.os.access')
+    @patch('membrowse.core.analyzer.Path.exists')
+    @patch('membrowse.core.analyzer.os.access')
     def test_basename_extraction(self, mock_access, mock_exists):
         """Test that only basename is returned, not full path"""
         mock_exists.return_value = True
         mock_access.return_value = True
 
         with patch('builtins.open', mock_open()):
-            with patch('shared.elf_analyzer.ELFFile'):
+            with patch('membrowse.core.analyzer.ELFFile'):
                 analyzer = ELFAnalyzer(self.test_elf_path)
 
         # Initialize DWARF data structure

@@ -9,8 +9,8 @@ categorization, and memory allocation tracking.
 from typing import Dict, List, Tuple
 from elftools.common.exceptions import ELFError
 import elftools.elf.constants
-from .models import MemorySection
-from .exceptions import SectionAnalysisError
+from ..core.models import MemorySection
+from ..core.exceptions import SectionAnalysisError
 
 SHF_ALLOC = elftools.elf.constants.SH_FLAGS.SHF_ALLOC
 SHF_WRITE = elftools.elf.constants.SH_FLAGS.SHF_WRITE

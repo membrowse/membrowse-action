@@ -16,7 +16,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from memory_regions import (
+from membrowse.linker.parser import (
     parse_linker_scripts,
     validate_memory_regions
 )
@@ -449,7 +449,7 @@ class TestMemoryRegions(unittest.TestCase):
     def test_address_parsing_edge_cases(self):
         """Test edge cases in address parsing"""
         # pylint: disable=import-outside-toplevel
-        from memory_regions import ExpressionEvaluator, MemoryRegionBuilder
+        from membrowse.linker.parser import ExpressionEvaluator, MemoryRegionBuilder
 
         evaluator = ExpressionEvaluator()
         builder = MemoryRegionBuilder(evaluator)
@@ -467,7 +467,7 @@ class TestMemoryRegions(unittest.TestCase):
     def test_size_parsing_edge_cases(self):
         """Test edge cases in size parsing"""
         # pylint: disable=import-outside-toplevel
-        from memory_regions import ExpressionEvaluator, MemoryRegionBuilder
+        from membrowse.linker.parser import ExpressionEvaluator, MemoryRegionBuilder
 
         evaluator = ExpressionEvaluator()
         builder = MemoryRegionBuilder(evaluator)

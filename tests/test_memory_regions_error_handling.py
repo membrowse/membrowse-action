@@ -19,7 +19,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from memory_regions import (
+from membrowse.linker.parser import (
     LinkerScriptParser,
     parse_linker_scripts,
     LinkerScriptError,

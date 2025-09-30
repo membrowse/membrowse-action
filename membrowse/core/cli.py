@@ -10,14 +10,8 @@ import argparse
 import json
 import sys
 
-try:
-    # Try relative imports first (when used as module)
-    from .report_generator import MemoryReportGenerator
-    from .exceptions import ELFAnalysisError
-except ImportError:
-    # Fall back to absolute imports (when run directly)
-    from report_generator import MemoryReportGenerator
-    from exceptions import ELFAnalysisError
+from .generator import ReportGenerator
+from .exceptions import ELFAnalysisError
 
 
 class CLIHandler:
@@ -88,7 +82,7 @@ Examples:
                 with open(args.memory_regions, 'r', encoding='utf-8') as f:
                     memory_regions_data = json.load(f)
 
-            generator = MemoryReportGenerator(
+            generator = ReportGenerator(
                 args.elf_path,
                 memory_regions_data,
                 skip_line_program=args.skip_line_program
