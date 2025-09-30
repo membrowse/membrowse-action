@@ -56,13 +56,14 @@ class MemoryReportGenerator:
 
             # Calculate performance statistics
             total_time = time.time() - report_start_time
-            perf_stats = self.elf_analyzer.get_performance_stats()
-            perf_stats['total_report_time'] = total_time
-            perf_stats['symbols_processed'] = len(symbols)
-            perf_stats['avg_time_per_symbol'] = total_time / len(symbols) if symbols else 0
             symbols_with_source = sum(1 for s in symbols if s.source_file)
-            perf_stats['source_mapping_success_rate'] = (
-                symbols_with_source / len(symbols) * 100) if symbols else 0
+
+            if verbose:
+                print(f"\nPerformance Summary:")
+                print(f"  Total time: {total_time:.2f}s")
+                print(f"  Symbols processed: {len(symbols)}")
+                print(f"  Avg time per symbol: {total_time / len(symbols) * 1000:.2f}ms" if symbols else "  Avg time per symbol: 0ms")
+                print(f"  Source mapping success: {symbols_with_source / len(symbols) * 100:.1f}%" if symbols else "  Source mapping success: 0%")
 
             # Build final report
             report = {
@@ -78,9 +79,6 @@ class MemoryReportGenerator:
                 }
             }
 
-            # Print performance summary
-            if verbose:
-                self._print_performance_summary(perf_stats, len(symbols))
 
             return report
 
@@ -107,19 +105,3 @@ class MemoryReportGenerator:
             )
         return regions
 
-    def _print_performance_summary(self, perf_stats: Dict[str, Any], symbol_count: int) -> None:
-        """Print detailed performance summary.
-
-        Args:
-            perf_stats: Performance statistics dictionary
-            symbol_count: Number of symbols processed
-        """
-        print("\nPerformance Summary:")
-        print(f"  Total time: {perf_stats['total_report_time']:.2f}s")
-        print(f"  Symbols processed: {symbol_count}")
-        print(f"  Avg time per symbol: {perf_stats['avg_time_per_symbol']*1000:.2f}ms")
-        print(f"  Source mapping success: {perf_stats['source_mapping_success_rate']:.1f}%")
-        print(f"  Line mapping time: {perf_stats['line_mapping_time']:.2f}s")
-        print(f"  Source mapping time: {perf_stats['source_mapping_time']:.2f}s")
-        print(f"  Binary searches: {perf_stats['binary_searches']}")
-        print(f"  Proximity searches: {perf_stats['proximity_searches']}")
