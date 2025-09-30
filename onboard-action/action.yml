@@ -30,10 +30,10 @@ runs:
       with:
         python-version: '3.11'
     
-    - name: Install Python dependencies
+    - name: Install membrowse package
       shell: bash
       run: |
-        pip install -r ${{ github.action_path }}/requirements.txt
+        pip install ${{ github.action_path }}/..
     
     - name: Fetch full git history
       shell: bash
