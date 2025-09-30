@@ -34,43 +34,19 @@ class TestMicroPythonFirmware(unittest.TestCase):
     def test_micropython_firmware_analysis(self):
         """Test full MicroPython firmware analysis and uart_init source file mapping"""
 
-        # Create temporary files for memory regions and report
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as regions_file:
-            # Create minimal memory regions in the expected format
-            regions_data = {
-                "FLASH": {
-                    "type": "FLASH",
-                    "attributes": "rx",
-                    "address": int("0x08000000", 16),
-                    "end_address": int("0x08000000", 16) + int("0x100000", 16) - 1,
-                    "limit_size": int("0x100000", 16),
-                    "used_size": 0,
-                    "free_size": int("0x100000", 16),
-                    "utilization_percent": 0.0,
-                    "sections": []
-                },
-                "RAM": {
-                    "type": "RAM",
-                    "attributes": "rwx",
-                    "address": int("0x20000000", 16),
-                    "end_address": int("0x20000000", 16) + int("0x20000", 16) - 1,
-                    "limit_size": int("0x20000", 16),
-                    "used_size": 0,
-                    "free_size": int("0x20000", 16),
-                    "utilization_percent": 0.0,
-                    "sections": []
-                }
-            }
-            json.dump(regions_data, regions_file, indent=2)
-            regions_file_path = regions_file.name
+        # Parse memory regions from actual linker script
+        from membrowse.linker.parser import parse_linker_scripts
+        linker_script_path = Path(__file__).parent.parent.parent / "micropython" / "ports" / "stm32" / "boards" / "stm32f405.ld"
+
+        memory_regions_data = parse_linker_scripts(
+            [str(linker_script_path)],
+            elf_file=str(self.firmware_path)
+        )
 
         with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as report_file:
             report_file_path = report_file.name
 
         try:
-            # Load memory regions data
-            with open(regions_file_path, 'r') as f:
-                memory_regions_data = json.load(f)
 
             # Initialize the generator
             generator = ReportGenerator(
@@ -502,7 +478,6 @@ class TestMicroPythonFirmware(unittest.TestCase):
         finally:
             # Clean up temporary files
             try:
-                os.unlink(regions_file_path)
                 os.unlink(report_file_path)
             except OSError:
                 pass
@@ -542,65 +517,19 @@ class TestMicroPythonESP32Firmware(unittest.TestCase):
     def test_micropython_esp32_firmware_analysis(self):
         """Test full MicroPython ESP32 firmware analysis and source file mapping"""
 
-        # Create temporary files for memory regions and report
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as regions_file:
-            # Create ESP32-specific memory regions in the expected format
-            regions_data = {
-                "iram0_0_seg": {
-                    "type": "RAM",
-                    "attributes": "rwx",
-                    "address": int("0x40080000", 16),
-                    "end_address": int("0x40080000", 16) + int("0x20000", 16) - 1,
-                    "limit_size": int("0x20000", 16),
-                    "used_size": 0,
-                    "free_size": int("0x20000", 16),
-                    "utilization_percent": 0.0,
-                    "sections": []
-                },
-                "dram0_0_seg": {
-                    "type": "RAM",
-                    "attributes": "rw",
-                    "address": int("0x3FFB0000", 16),
-                    "end_address": int("0x3FFB0000", 16) + int("0x50000", 16) - 1,
-                    "limit_size": int("0x50000", 16),
-                    "used_size": 0,
-                    "free_size": int("0x50000", 16),
-                    "utilization_percent": 0.0,
-                    "sections": []
-                },
-                "flash_text": {
-                    "type": "FLASH",
-                    "attributes": "rx",
-                    "address": int("0x400D0000", 16),
-                    "end_address": int("0x400D0000", 16) + int("0x330000", 16) - 1,
-                    "limit_size": int("0x330000", 16),
-                    "used_size": 0,
-                    "free_size": int("0x330000", 16),
-                    "utilization_percent": 0.0,
-                    "sections": []
-                },
-                "flash_rodata": {
-                    "type": "FLASH",
-                    "attributes": "r",
-                    "address": int("0x3F400000", 16),
-                    "end_address": int("0x3F400000", 16) + int("0x400000", 16) - 1,
-                    "limit_size": int("0x400000", 16),
-                    "used_size": 0,
-                    "free_size": int("0x400000", 16),
-                    "utilization_percent": 0.0,
-                    "sections": []
-                }
-            }
-            json.dump(regions_data, regions_file, indent=2)
-            regions_file_path = regions_file.name
+        # Parse memory regions from actual linker script
+        from membrowse.linker.parser import parse_linker_scripts
+        linker_script_path = Path(__file__).parent.parent.parent / "micropython" / "ports" / "esp32" / "build-ESP32_GENERIC" / "esp-idf" / "esp_system" / "ld" / "memory.ld"
+
+        memory_regions_data = parse_linker_scripts(
+            [str(linker_script_path)],
+            elf_file=str(self.firmware_path)
+        )
 
         with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as report_file:
             report_file_path = report_file.name
 
         try:
-            # Load memory regions data
-            with open(regions_file_path, 'r') as f:
-                memory_regions_data = json.load(f)
 
             # Initialize the generator
             generator = ReportGenerator(
@@ -840,7 +769,6 @@ class TestMicroPythonESP32Firmware(unittest.TestCase):
         finally:
             # Clean up temporary files
             try:
-                os.unlink(regions_file_path)
                 os.unlink(report_file_path)
             except OSError:
                 pass

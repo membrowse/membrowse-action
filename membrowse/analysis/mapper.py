@@ -48,33 +48,34 @@ class MemoryMapper:
     def find_region_by_address(
             self,
             section: MemorySection) -> Optional[MemoryRegion]:
-        """Find memory region using binary search for efficiency.
+        """Find the most specific memory region containing the section address.
+
+        When multiple regions overlap (e.g., FLASH parent and FLASH_START child),
+        this returns the smallest region that contains the address, ensuring
+        sections map to the most specific region available.
 
         Args:
             section: ELF section to find region for
 
         Returns:
-            MemoryRegion that contains the section address, or None if not found
+            MemoryRegion that contains the section address (smallest if multiple),
+            or None if not found
         """
         # Skip sections with zero address (debug/metadata sections)
         if section.address == 0:
             return None
 
-        # Binary search for the region containing this address
-        left, right = 0, len(self._sorted_regions)
-        while left < right:
-            mid = (left + right) // 2
-            start_addr, end_addr, region = self._sorted_regions[mid]
+        # Find all regions that contain this address
+        matching_regions = []
+        for start_addr, end_addr, region in self._sorted_regions:
+            if start_addr <= section.address < end_addr:
+                matching_regions.append(region)
 
-            if section.address < start_addr:
-                right = mid
-            elif section.address >= end_addr:
-                left = mid + 1
-            else:
-                # Found the region containing this address
-                return region
+        if not matching_regions:
+            return None
 
-        return None
+        # Return the most specific (smallest) region
+        return min(matching_regions, key=lambda r: r.limit_size)
 
     @staticmethod
     def _find_region_by_type(section: MemorySection,
