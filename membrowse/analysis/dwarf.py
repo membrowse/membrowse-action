@@ -415,6 +415,56 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes
             raise DWARFAttributeError(
                 f"Failed to extract string value: {e}") from e
 
+    def _parse_location_expression(self, location_value) -> Optional[int]:
+        """Parse DWARF location expression to extract address from DW_OP_addr.
+
+        DWARF location expressions are bytecode sequences that describe where
+        a variable is located. For global/static variables, the most common
+        form is DW_OP_addr (opcode 0x03) followed by an address.
+
+        Args:
+            location_value: DWARF location expression (list or bytes)
+
+        Returns:
+            Extracted address or None if parsing fails or not a DW_OP_addr expression
+
+        Note:
+            This parser currently handles only DW_OP_addr (0x03) expressions.
+            More complex location expressions (e.g., register-relative, computed)
+            are not supported and will return None.
+        """
+        try:
+            # Handle both list (from ListContainer) and bytes formats
+            if hasattr(location_value, '__iter__'):
+                expr_bytes = list(location_value) if not isinstance(
+                    location_value, list) else location_value
+            else:
+                return None
+
+            # Check if this is a DW_OP_addr (0x03) expression
+            # DW_OP_addr format: [0x03, addr_byte1, addr_byte2, ...]
+            if not expr_bytes or expr_bytes[0] != 0x03:
+                return None
+
+            # Extract address bytes (skip the opcode at index 0)
+            addr_bytes = expr_bytes[1:]
+
+            if not addr_bytes:
+                return None
+
+            # Convert bytes to address (little-endian, typical for most architectures)
+            # For 32-bit: [b0, b1, b2, b3] -> b0 + (b1<<8) + (b2<<16) + (b3<<24)
+            address = 0
+            for i, byte_val in enumerate(addr_bytes):
+                address |= (byte_val << (i * 8))
+
+            return address
+
+        except (TypeError, AttributeError, IndexError) as e:
+            logger.debug(
+                "Failed to parse location expression: %s", e)
+            return None
+
     def _extract_line_program_data(self, cu, dwarfinfo) -> None:
         """Extract line program data to map addresses to source files.
 
@@ -614,12 +664,14 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes
             if not die_address:
                 location_attr = attrs.get('DW_AT_location')
                 if location_attr and hasattr(location_attr, 'value'):
-                    try:
-                        die_address = int(location_attr.value)
-                    except (ValueError, TypeError) as e:
+                    # DW_AT_location contains DWARF expressions, parse them
+                    die_address = self._parse_location_expression(
+                        location_attr.value)
+                    if not die_address:
                         logger.debug(
-                            "Could not parse DW_AT_location value '%s' for symbol '%s': %s",
-                            location_attr.value, die_name, e)
+                            "Could not parse DW_AT_location expression for symbol '%s' "
+                            "(not a simple DW_OP_addr or unsupported expression type)",
+                            die_name)
 
             # Only process if this address is in our symbol table
             if die_address and not self._is_address_in_symbol_set_with_tolerance(

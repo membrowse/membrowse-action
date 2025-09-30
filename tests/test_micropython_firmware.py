@@ -60,7 +60,7 @@ class TestMicroPythonFirmware(unittest.TestCase):
                 json.dump(report, f, indent=2)
 
             # Also save to a known location for inspection
-            known_report_path = Path("micropython_report_with_cu.json")
+            known_report_path = Path("micropython_report_stm32.json")
             with open(known_report_path, 'w') as f:
                 json.dump(report, f, indent=2)
             print(f"\n📁 Report saved to: {known_report_path.absolute()}")
@@ -78,11 +78,12 @@ class TestMicroPythonFirmware(unittest.TestCase):
             self.assertIn('architecture', report)
             self.assertIn('entry_point', report)
 
-            # Find uart_init, I2CHandle1, micropython_ringio_any, and machine_init symbols
+            # Find uart_init, I2CHandle1, micropython_ringio_any, machine_init, and usb_device symbols
             uart_init_symbol = None
             i2c_handle1_symbol = None
             ringio_any_symbol = None
             machine_init_symbol = None
+            usb_device_symbol = None
             uart_symbols = []
             i2c_symbols = []
 
@@ -102,6 +103,9 @@ class TestMicroPythonFirmware(unittest.TestCase):
 
                 if symbol['name'] == 'machine_init':
                     machine_init_symbol = symbol
+
+                if symbol['name'] == 'usb_device':
+                    usb_device_symbol = symbol
 
             print(f"\nFound {len(uart_symbols)} UART-related symbols:")
             for uart_sym in uart_symbols[:10]:  # Show first 10
@@ -272,6 +276,28 @@ class TestMicroPythonFirmware(unittest.TestCase):
                     f"     (Fixed: was incorrectly mapping to misc.h due to file index bug)")
             else:
                 print(f"\n⚠️  machine_init not found in symbols")
+
+            # Check usb_device symbol mapping (validates DW_AT_location expression parsing fix)
+            if usb_device_symbol:
+                print(f"\nFound usb_device symbol:")
+                print(f"  Address: 0x{usb_device_symbol['address']:08x}")
+                print(f"  Size: {usb_device_symbol['size']}")
+                print(f"  Type: {usb_device_symbol['type']}")
+                print(f"  Source file: {usb_device_symbol['source_file']}")
+
+                # This is the critical test for DW_AT_location expression parsing fix
+                self.assertEqual(
+                    usb_device_symbol['source_file'],
+                    'usb.c',
+                    f"usb_device should map to usb.c, not "
+                    f"{usb_device_symbol['source_file']}")
+
+                print(
+                    f"  ✅ usb_device correctly maps to: {usb_device_symbol['source_file']}")
+                print(
+                    f"     (Fixed: was not mapping due to unparsed DW_AT_location expression)")
+            else:
+                print(f"\n⚠️  usb_device not found in symbols")
 
             # Print summary statistics
             total_symbols = len(report['symbols'])
