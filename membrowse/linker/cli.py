@@ -8,7 +8,7 @@ and outputting memory regions as JSON.
 
 import sys
 import json
-from .parser import parse_linker_scripts
+from .parser import parse_linker_scripts, LinkerScriptError
 
 
 def main():
@@ -22,8 +22,14 @@ def main():
         regions = parse_linker_scripts(sys.argv[1:])
         # Output JSON to stdout for consumption by other tools
         print(json.dumps(regions, indent=2))
-    except Exception as e:  # pylint: disable=broad-exception-caught
+    except FileNotFoundError as e:
         print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    except LinkerScriptError as e:
+        print(f"Linker script parsing error: {e}", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        print(f"Unexpected error: {e}", file=sys.stderr)
         sys.exit(1)
 
 

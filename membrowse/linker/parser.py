@@ -69,6 +69,10 @@ class RegionParsingError(LinkerScriptError):
     """Exception raised when memory region parsing fails"""
 
 
+class VariableResolutionError(LinkerScriptError):
+    """Exception raised when variable resolution fails"""
+
+
 class ScriptContentCleaner:  # pylint: disable=too-few-public-methods
     """Handles preprocessing and cleanup of linker script content"""
 
@@ -188,28 +192,36 @@ class ExpressionEvaluator:
             resolving_vars: Set[str]) -> str:
         """Substitute variables in expression with their values"""
         for var_name, var_value in self.variables.items():
-            if (
-                var_name in expr
-            ):  # Only process variables that are actually in the expression
-                if isinstance(var_value, (int, float)):
-                    expr = expr.replace(var_name, str(var_value))
-                elif isinstance(var_value, str) and var_name not in resolving_vars:
-                    # Try to recursively evaluate string variables with cycle
-                    # detection
-                    try:
-                        resolving_vars.add(var_name)
-                        resolved_value = self.evaluate_expression(
-                            var_value, resolving_vars
-                        )
+            # Quick substring check first (fast)
+            if var_name not in expr:
+                continue
+
+            # Use word boundary regex to check if variable is in expression
+            # This avoids matching _ram_start when looking for _app_ram_start
+            var_pattern = r'\b' + re.escape(var_name) + r'\b'
+            if not re.search(var_pattern, expr):
+                continue  # Variable not in expression (was substring), skip
+
+            if isinstance(var_value, (int, float)):
+                # Substitute numeric values
+                expr = re.sub(var_pattern, str(var_value), expr)
+            elif isinstance(var_value, str) and var_name not in resolving_vars:
+                # Try to recursively evaluate string variables with cycle
+                # detection
+                try:
+                    resolving_vars.add(var_name)
+                    resolved_value = self.evaluate_expression(
+                        var_value, resolving_vars
+                    )
+                    resolving_vars.remove(var_name)
+                    self.variables[var_name] = (
+                        resolved_value  # Cache the resolved value
+                    )
+                    expr = re.sub(var_pattern, str(resolved_value), expr)
+                except (ExpressionEvaluationError, VariableResolutionError):
+                    if var_name in resolving_vars:
                         resolving_vars.remove(var_name)
-                        self.variables[var_name] = (
-                            resolved_value  # Cache the resolved value
-                        )
-                        expr = expr.replace(var_name, str(resolved_value))
-                    except Exception:  # pylint: disable=broad-exception-caught
-                        if var_name in resolving_vars:
-                            resolving_vars.remove(var_name)
-                        # Skip unresolvable variables
+                    # Skip unresolvable variables - part of iterative resolution
         return expr
 
     def _handle_linker_functions(self, expr: str) -> str:
@@ -282,7 +294,7 @@ class ExpressionEvaluator:
                 cond_result = 0
 
             return true_value if cond_result != 0 else false_value
-        except Exception:  # pylint: disable=broad-exception-caught
+        except (ExpressionEvaluationError, KeyError, ValueError):
             # If condition can't be evaluated, use false value for safety
             return false_value
 
@@ -340,7 +352,7 @@ class ExpressionEvaluator:
                     # Try to evaluate the inner expression
                     result = self._evaluate_simple_arithmetic(inner_expr)
                     return str(result)
-                except Exception:  # pylint: disable=broad-exception-caught
+                except (ExpressionEvaluationError, ValueError, ArithmeticError):
                     # If we can't evaluate, keep the original expression
                     return match.group(0)
 
@@ -358,7 +370,9 @@ class ExpressionEvaluator:
         # Replace known variables with their values
         for var_name, var_value in self.variables.items():
             if var_name in expr and isinstance(var_value, (int, float)):
-                expr = expr.replace(var_name, str(var_value))
+                # Use word boundary regex to avoid substring matches
+                expr = re.sub(r'\b' + re.escape(var_name) + r'\b',
+                              str(var_value), expr)
 
         # Handle hex and octal literals
         expr = re.sub(r"0[xX]([0-9a-fA-F]+)",
@@ -534,7 +548,7 @@ class VariableExtractor:  # pylint: disable=too-few-public-methods
                 else:
                     # Store complex expressions for later resolution
                     complex_vars[var_name] = var_value
-            except Exception:  # pylint: disable=broad-exception-caught
+            except (ExpressionEvaluationError, ValueError):
                 # Store as string for potential later resolution
                 complex_vars[var_name] = var_value
 
@@ -557,7 +571,7 @@ class VariableExtractor:  # pylint: disable=too-few-public-methods
                     self.variables[var_name] = evaluated_value
                     self.evaluator.add_variables({var_name: evaluated_value})
                     resolved_any = True
-                except Exception:  # pylint: disable=broad-exception-caught
+                except (ExpressionEvaluationError, ValueError):
                     unresolved_vars[var_name] = var_value
 
             complex_vars = unresolved_vars
@@ -728,7 +742,7 @@ class MemoryRegionBuilder:  # pylint: disable=too-few-public-methods
                 limit_size=length,
             )
 
-        except Exception:  # pylint: disable=broad-exception-caught
+        except (ExpressionEvaluationError, ValueError, KeyError):
             # Restore previous state on failure
             self.evaluator.set_memory_regions(saved_regions)
             # Don't log here - region will be retried in subsequent iterations
@@ -738,75 +752,16 @@ class MemoryRegionBuilder:  # pylint: disable=too-few-public-methods
         """Parse address string (supports hex, decimal, variables, and expressions)"""
         addr_str = addr_str.strip()
 
-        # Try to evaluate as expression first (handles variables and
-        # arithmetic)
-        try:
-            return self.evaluator.evaluate_expression(addr_str, set())
-        except Exception:  # pylint: disable=broad-exception-caught
-            # Fallback to simple parsing
-            try:
-                if addr_str.startswith("0x") or addr_str.startswith("0X"):
-                    return int(addr_str, 16)
-                if addr_str.startswith("0") and len(addr_str) > 1:
-                    # Octal notation
-                    return int(addr_str, 8)
-                return int(addr_str, 10)
-            except Exception as exc:
-                # Final fallback for complex expressions
-                raise ExpressionEvaluationError(
-                    f"Could not parse address '{addr_str}' - unsupported expressions"
-                ) from exc
+        # Evaluate as expression (handles variables and arithmetic)
+        # This will raise ExpressionEvaluationError if it fails
+        return self.evaluator.evaluate_expression(addr_str, set())
 
     def _parse_size(self, size_str: str) -> int:
         """Parse size string (supports K, M, G suffixes, variables, and expressions)"""
         size_str = size_str.strip()
 
-        # First, try to evaluate as expression (handles variables and arithmetic)
-        # This handles complex expressions like "512 * 1024" or variable
-        # references
-        try:
-            return self.evaluator.evaluate_expression(size_str, set())
-        except Exception:  # pylint: disable=broad-exception-caught
-            pass
-
-        # If expression evaluation fails, try size suffixes
-        try:
-            size_str_upper = size_str.upper()
-
-            # Handle size multipliers
-            multipliers = {
-                "K": 1024,
-                "M": 1024 * 1024,
-                "G": 1024 * 1024 * 1024,
-                "KB": 1024,
-                "MB": 1024 * 1024,
-                "GB": 1024 * 1024 * 1024,
-            }
-
-            for suffix, multiplier in multipliers.items():
-                if size_str_upper.endswith(suffix):
-                    base_value = size_str[: -len(suffix)]
-                    try:
-                        # Try to evaluate base value (may contain
-                        # variables/expressions)
-                        base_int = self.evaluator.evaluate_expression(
-                            base_value, set())
-                        return base_int * multiplier
-                    except Exception:  # pylint: disable=broad-exception-caught
-                        # Fallback to simple parsing
-                        return int(base_value) * multiplier
-
-            # Fallback to simple parsing
-            if size_str_upper.startswith("0X"):
-                return int(size_str, 16)
-            if size_str.startswith("0") and len(size_str) > 1:
-                return int(size_str, 8)
-            return int(size_str, 10)
-        except Exception as exc:
-            # Final fallback for complex expressions
-            raise ExpressionEvaluationError(
-                f"Could not parse size '{size_str}' - contains unsupported expressions"
-            ) from exc
+        # Evaluate as expression (handles variables, arithmetic, and size suffixes)
+        return self.evaluator.evaluate_expression(size_str, set())
 
 
 class LinkerScriptParser:  # pylint: disable=too-few-public-methods
