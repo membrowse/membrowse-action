@@ -214,8 +214,8 @@ jobs:
 ## Requirements
 
 - **GitHub Actions runners**: Linux, macOS, and Windows are all supported
-- **Python 3.11+**: Automatically installed by the actions
-- **Dependencies**: pyelftools and requests (automatically installed via requirements.txt)
+- **Python 3.7+**: Automatically installed by the actions
+- **Dependencies**: pyelftools and requests (automatically installed)
 - **Git history**: Full git history is fetched automatically for historical analysis
 - **ELF with debug symbols**: Required for source file mapping (compile with `-g` flag)
 
@@ -252,7 +252,6 @@ Enable detailed logging by setting environment variables:
 - name: Analyze memory usage
   env:
     MEMBROWSE_DEBUG: "1"
-    PYTHONPATH: "/path/to/shared"
   uses: membrowse/membrowse-action/pr-action@v1.0.0
   # ... other inputs
 ```
@@ -266,13 +265,82 @@ Test the analysis locally before using in GitHub Actions:
 git clone https://github.com/membrowse/membrowse-action.git
 cd membrowse-action
 
+# Install the package
+pip install -e .
+
 # Run analysis on your firmware
-bash shared/collect_report.sh \
+python -m membrowse.core.cli \
+  --elf-path /path/to/firmware.elf \
+  --memory-regions /path/to/regions.json \
+  --output report.json
+
+# Or use the orchestration script
+bash scripts/collect_report.sh \
   /path/to/firmware.elf \
   "/path/to/linker.ld" \
   target_name \
   "" \
   $(git rev-parse HEAD)
+```
+
+### Running Onboarding Locally
+
+Process historical commits and generate memory reports locally without GitHub Actions:
+
+```bash
+# Navigate to your firmware project directory
+cd /path/to/your/firmware-project
+
+# Install membrowse
+pip install /path/to/membrowse-action
+
+# Ensure you have full git history
+git fetch --unshallow || true
+git fetch --all
+
+# Run historical analysis
+# Syntax: onboard.sh <num_commits> <build_script> <elf_path> <ld_paths> <target_name> <api_key>
+bash /path/to/membrowse-action/scripts/onboard.sh \
+  50 \
+  "make clean && make all" \
+  "build/firmware.elf" \
+  "src/linker.ld src/memory.ld" \
+  "stm32f4" \
+  "$MEMBROWSE_API_KEY"
+```
+
+**Example: ESP32 Project**
+```bash
+# ESP32 with ESP-IDF build system
+export MEMBROWSE_UPLOAD_URL="https://membrowse.appspot.com/api/upload"
+bash /path/to/membrowse-action/scripts/onboard.sh \
+  100 \
+  "idf.py build" \
+  "build/firmware.elf" \
+  "build/esp-idf/esp32/esp32.project.ld" \
+  "esp32" \
+  "$MEMBROWSE_API_KEY"
+```
+
+**Example: STM32 with ARM GCC**
+```bash
+export MEMBROWSE_UPLOAD_URL="https://membrowse.appspot.com/api/upload"
+bash /path/to/membrowse-action/scripts/onboard.sh \
+  25 \
+  "make clean && make" \
+  "build/firmware.elf" \
+  "STM32F746ZGTx_FLASH.ld" \
+  "stm32f746zg" \
+  "$MEMBROWSE_API_KEY"
+```
+
+**Notes:**
+- The script will checkout each commit sequentially, build it, analyze it, and upload results
+- Build failures will stop the onboarding process
+- Make sure your build script works from a clean checkout
+- The script processes commits from oldest to newest
+- Set `MEMBROWSE_UPLOAD_URL` environment variable if using a custom API endpoint
+- Use empty string `""` for `api_key` to skip uploading and only generate local JSON reports
 ```
 
 ## Key Features
@@ -301,6 +369,13 @@ bash shared/collect_report.sh \
 - **Cross-platform Support**: Works on Linux, macOS, and Windows runners
 - **Zero Configuration**: Automatic architecture detection and memory layout analysis
 
+### ⚡ Performance Optimization
+- **Fast Mode**: Optional `--skip-line-program` flag for 24-31% faster analysis
+- **Configurable Coverage**: Balance between speed and source file coverage
+- **Efficient Processing**: Optimized for large firmware files (>10MB)
+- **ARM**: 97% → 88% coverage, 9.3s → 7.1s (24% faster)
+- **ESP32**: 76% → 65% coverage, 30.1s → 20.8s (31% faster)
+
 ## Architecture Support
 
 Automatically detects and optimizes parsing for:
@@ -313,6 +388,38 @@ Automatically detects and optimizes parsing for:
 | **RISC-V** | RISC-V | QEMU and embedded targets | ✅ Full Support |
 | **Arduino** | Various | Standard Arduino memory layouts | ✅ Full Support |
 | **Custom** | ARM/x86/Others | Generic GNU LD parsing | ✅ Full Support |
+
+## Package Structure
+
+The project is organized as a proper Python package:
+
+```
+membrowse/                          # Main Python package
+├── core/                           # Core coordination & CLI
+│   ├── cli.py                      # Command-line interface
+│   ├── generator.py                # Memory report generation
+│   ├── analyzer.py                 # Main ELF analysis coordination
+│   ├── models.py                   # Data classes
+│   └── exceptions.py               # Exception hierarchy
+│
+├── analysis/                       # Analysis components
+│   ├── dwarf.py                    # DWARF debug information
+│   ├── sources.py                  # Source file resolution
+│   ├── symbols.py                  # ELF symbol extraction
+│   ├── sections.py                 # ELF section analysis
+│   └── mapper.py                   # Section-to-region mapping
+│
+├── linker/                         # Linker script parsing
+│   ├── parser.py                   # GNU LD parser
+│   ├── cli.py                      # Linker parser CLI
+│   └── elf_info.py                 # Architecture detection
+│
+└── api/                            # API client
+    └── client.py                   # MemBrowse integration
+
+scripts/                            # Shell orchestration
+└── collect_report.sh               # Main workflow script
+```
 
 ## Output Format
 
@@ -357,44 +464,71 @@ Generates comprehensive JSON reports with:
 
 ## Development
 
+### Installation
+
+```bash
+# Install in development mode
+pip install -e .
+
+# Or install with development dependencies
+pip install -e ".[dev]"
+```
+
 ### Testing
 
 ```bash
-# Run all tests with proper module imports
-PYTHONPATH=shared python -m pytest tests/
+# Run all tests
+python -m pytest tests/
 
 # Run specific test categories
-PYTHONPATH=shared python -m pytest tests/test_memory_regions.py -v
-PYTHONPATH=shared python -m pytest tests/test_architecture_detection.py -v
+python -m pytest tests/test_static_variable_source_mapping.py -v
+python -m pytest tests/test_micropython_firmware.py -v
+
+# Run with verbose output
+python -m pytest tests/ -v
 
 # Run with coverage
-PYTHONPATH=shared python -m pytest tests/ --cov=shared
+python -m pytest tests/ --cov=membrowse
 ```
 
 ### Code Quality
 
 ```bash
-# Lint shared modules
-PYTHONPATH=shared:. pylint shared/*.py
+# Lint membrowse package
+pylint membrowse/
 
-# Lint tests  
-PYTHONPATH=shared:. pylint tests/*.py
+# Lint tests
+pylint tests/
 
-# Check all code
-PYTHONPATH=shared:. pylint shared/*.py tests/*.py --score=yes
+# Check all code with scores
+pylint membrowse/ tests/ --score=yes
 ```
 
 ### Local Testing
 
 ```bash
 # Test linker script parsing directly
-python shared/memory_regions.py path/to/linker.ld
+python -m membrowse.linker.cli path/to/linker.ld
 
 # Test complete ELF analysis
-python shared/cli.py --elf-path firmware.elf --memory-regions regions.json --output report.json
+python -m membrowse.core.cli \
+  --elf-path firmware.elf \
+  --memory-regions regions.json \
+  --output report.json
+
+# Fast mode: skip line program processing (24-31% faster)
+python -m membrowse.core.cli \
+  --elf-path firmware.elf \
+  --memory-regions regions.json \
+  --output report.json \
+  --skip-line-program
 
 # Test full workflow
-bash shared/collect_report.sh firmware.elf "linker.ld" target_name api_key
+bash scripts/collect_report.sh \
+  firmware.elf \
+  "linker.ld" \
+  target_name \
+  api_key
 ```
 
 ## License

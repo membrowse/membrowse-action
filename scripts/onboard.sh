@@ -186,6 +186,7 @@ while IFS= read -r commit; do
         "$BASE_SHA" \
         "$CURRENT_BRANCH" \
         "$REPO_NAME" \
+        "" \
         "$COMMIT_COUNT" \
         "$NUM_COMMITS"; then
         echo "$commit: Failed to generate or upload memory report, stopping workflow..."
