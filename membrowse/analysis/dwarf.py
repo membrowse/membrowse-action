@@ -641,11 +641,23 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes
 
             attrs = die.attributes
 
-            # Get symbol name
+            # Get symbol name - may be in specification
             die_name = None
             name_attr = attrs.get('DW_AT_name')
             if name_attr and hasattr(name_attr, 'value'):
                 die_name = self._extract_string_value(name_attr.value)
+
+            # If no name, check if there's a specification reference
+            spec_die = None
+            if not die_name:
+                spec_attr = attrs.get('DW_AT_specification')
+                if spec_attr:
+                    # Follow the specification reference to get name and other attributes
+                    spec_die = die.get_DIE_from_attribute('DW_AT_specification')
+                    if spec_die and spec_die.attributes:
+                        name_attr = spec_die.attributes.get('DW_AT_name')
+                        if name_attr and hasattr(name_attr, 'value'):
+                            die_name = self._extract_string_value(name_attr.value)
 
             if not die_name:
                 return
@@ -692,14 +704,31 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes
 
             # Determine best source file
             is_declaration = 'DW_AT_declaration' in attrs
+            has_location = 'DW_AT_location' in attrs or die_address is not None
+            has_external_linkage = 'DW_AT_external' in attrs
 
-            # For declarations in headers, prefer the CU source file over the header.
-            # This handles cases where extern declarations in headers should be attributed
-            # to the compilation unit that actually defines them, providing more accurate
-            # source attribution for the actual implementation.
-            if is_declaration and decl_file and decl_file.endswith('.h'):
-                best_source_file = cu_source_file  # Prefer CU over header for declarations
+            # Check specification DIE for external linkage if not found directly
+            if not has_external_linkage and spec_die and spec_die.attributes:
+                has_external_linkage = 'DW_AT_external' in spec_die.attributes
+
+            # Source file selection strategy:
+            # 1. Static symbols (no DW_AT_external): Use decl_file (where they're declared/defined)
+            #    - Static variables in headers should map to the header
+            # 2. Global symbols (DW_AT_external) with definitions: Use CU source file
+            #    - Global variables defined in .c but declared in .h should map to .c
+            # 3. Declarations only (no location): Use decl_file
+            #    - Function prototypes, extern declarations should map to where declared
+
+            if not is_declaration and has_location and has_external_linkage and decl_file != cu_source_file and cu_source_file:
+                # Definition with external linkage - prefer CU source file
+                # This handles cases like usb_device where DW_AT_decl_file points to header
+                # but the actual definition is in the .c file
+                best_source_file = cu_source_file
             else:
+                # All other cases: use decl_file if available
+                # - Static variables/functions (including those in headers)
+                # - Declarations
+                # - Cases where decl_file matches cu_source_file
                 best_source_file = decl_file if decl_file else cu_source_file
 
             if best_source_file:
