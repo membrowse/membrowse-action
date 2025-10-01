@@ -12,12 +12,8 @@ import sys
 from typing import Dict, Any
 import requests
 
-# Get package version
-try:
-    from importlib.metadata import version
-    PACKAGE_VERSION = version('membrowse')
-except Exception:  # pylint: disable=broad-except
-    PACKAGE_VERSION = '1.0.0'  # Fallback if package not installed
+from importlib.metadata import version
+PACKAGE_VERSION = version('membrowse')
 
 
 class MemBrowseUploader:  # pylint: disable=too-few-public-methods

@@ -141,14 +141,6 @@ while IFS= read -r commit; do
     echo "$commit: Checking out commit..."
     git checkout "$commit" --quiet
 
-    # Log the actual commit we're on for verification
-    ACTUAL_COMMIT=$(git rev-parse HEAD)
-    echo "=== COMMIT INFO ==="
-    echo "Requested commit: $commit"
-    echo "Actual HEAD: $ACTUAL_COMMIT"
-    git log -1 --oneline
-    echo "==================="
-
     # Clean any previous build artifacts
     echo "Cleaning previous build artifacts..."
     git clean -fd || true
@@ -208,14 +200,6 @@ while IFS= read -r commit; do
     # Update success count and progress
     SUCCESSFUL_UPLOADS=$((SUCCESSFUL_UPLOADS + 1))
     [ -n "$GITHUB_STEP_SUMMARY" ] && add_commit_result "$COMMIT_COUNT" "$commit" "SUCCESS" "Complete" "Complete"
-
-    # Check if we should stop after first successful build
-    if [ -n "$STOP_AFTER_FIRST" ]; then
-        echo ""
-        echo "STOP_AFTER_FIRST is set - stopping after first successful build"
-        echo "Artifacts available: $ELF_PATH and linker scripts"
-        break
-    fi
 
 done <<< "$COMMITS"
 

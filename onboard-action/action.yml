@@ -33,13 +33,6 @@ runs:
     - name: Install membrowse package
       shell: bash
       run: |
-        echo "=== MEMBROWSE-ACTION VERSION ==="
-        cd ${{ github.action_path }}/..
-        echo "Action path: ${{ github.action_path }}"
-        git log -1 --oneline 2>/dev/null || echo "Not a git repo"
-        git rev-parse HEAD 2>/dev/null || echo "No git HEAD"
-        cat setup.py | grep version || echo "No version in setup.py"
-        echo "================================"
         pip install --force-reinstall --no-cache-dir ${{ github.action_path }}/..
     
     - name: Fetch full git history
@@ -52,9 +45,6 @@ runs:
       shell: bash
       env:
         MEMBROWSE_UPLOAD_URL: https://membrowse.appspot.com/api/upload
-        STOP_AFTER_FIRST: "1"
-        DEBUG_MODE: "1"
-        DEBUG_REPORT_PATH: "./debug_report.json"
       run: |
         ${{ github.action_path }}/../scripts/onboard.sh \
           "${{ inputs.num_commits }}" \
@@ -63,24 +53,6 @@ runs:
           "${{ inputs.ld }}" \
           "${{ inputs.target_name }}" \
           "${{ inputs.api_key }}"
-
-    - name: Upload build artifacts
-      uses: actions/upload-artifact@v4
-      if: always()
-      with:
-        name: firmware-artifacts-${{ inputs.target_name }}
-        path: |
-          ${{ inputs.elf }}
-        retention-days: 7
-
-    - name: Upload debug report
-      uses: actions/upload-artifact@v4
-      if: always()
-      with:
-        name: debug-report-${{ inputs.target_name }}
-        path: |
-          ./debug_report*.json
-        retention-days: 7
 
 branding:
   icon: 'clock'
