@@ -209,6 +209,14 @@ while IFS= read -r commit; do
     SUCCESSFUL_UPLOADS=$((SUCCESSFUL_UPLOADS + 1))
     [ -n "$GITHUB_STEP_SUMMARY" ] && add_commit_result "$COMMIT_COUNT" "$commit" "SUCCESS" "Complete" "Complete"
 
+    # Check if we should stop after first successful build
+    if [ -n "$STOP_AFTER_FIRST" ]; then
+        echo ""
+        echo "STOP_AFTER_FIRST is set - stopping after first successful build"
+        echo "Artifacts available: $ELF_PATH and linker scripts"
+        break
+    fi
+
 done <<< "$COMMITS"
 
 # Restore original HEAD

@@ -52,6 +52,7 @@ runs:
       shell: bash
       env:
         MEMBROWSE_UPLOAD_URL: https://membrowse.appspot.com/api/upload
+        STOP_AFTER_FIRST: "1"
       run: |
         ${{ github.action_path }}/../scripts/onboard.sh \
           "${{ inputs.num_commits }}" \
@@ -60,6 +61,16 @@ runs:
           "${{ inputs.ld }}" \
           "${{ inputs.target_name }}" \
           "${{ inputs.api_key }}"
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: firmware-artifacts-${{ inputs.target_name }}
+        path: |
+          ${{ inputs.elf }}
+          ${{ inputs.ld }}
+        retention-days: 7
 
 branding:
   icon: 'clock'
