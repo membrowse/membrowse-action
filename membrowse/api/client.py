@@ -12,6 +12,13 @@ import sys
 from typing import Dict, Any
 import requests
 
+# Get package version
+try:
+    from importlib.metadata import version
+    PACKAGE_VERSION = version('membrowse')
+except Exception:  # pylint: disable=broad-except
+    PACKAGE_VERSION = '1.0.0'  # Fallback if package not installed
+
 
 class MemBrowseUploader:  # pylint: disable=too-few-public-methods
     """Handles uploading reports to MemBrowse API"""
@@ -23,7 +30,7 @@ class MemBrowseUploader:  # pylint: disable=too-few-public-methods
         self.session.headers.update({
             'Authorization': f'Bearer {self.api_key}',
             'Content-Type': 'application/json',
-            'User-Agent': 'MemBrowse-Action/1.0.0'
+            'User-Agent': f'MemBrowse-Action/{PACKAGE_VERSION}'
         })
 
     def upload_report(self, report_data: Dict[str, Any]) -> bool:
@@ -96,8 +103,8 @@ Examples:
     parser.add_argument('--pr-number', default='', help='Pull request number')
     parser.add_argument(
         '--analysis-version',
-        default='1.0.0',
-        help='Analysis version')
+        default=PACKAGE_VERSION,
+        help=f'Analysis version (default: {PACKAGE_VERSION})')
 
     # Upload options
     parser.add_argument(
