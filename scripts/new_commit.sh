@@ -8,6 +8,7 @@ ELF_PATH="$1"
 LD_PATHS="$2"
 TARGET_NAME="$3"
 API_KEY="$4"
+MEMBROWSE_API_URL="$5"
 
 # Get the directory of this script to find scripts
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -24,7 +25,7 @@ if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
     BASE_SHA=$(jq -r '.pull_request.base.sha' "$GITHUB_EVENT_PATH")
     BRANCH_NAME=$(jq -r '.pull_request.head.ref' "$GITHUB_EVENT_PATH")
     PR_NUMBER=$(jq -r '.pull_request.number' "$GITHUB_EVENT_PATH")
-    
+
     echo "Pull request event detected"
     echo "Head commit: $COMMIT_SHA"
     echo "Base commit: $BASE_SHA"
@@ -35,9 +36,10 @@ elif [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
     COMMIT_SHA="$GITHUB_SHA"
     # For push events, use the before commit as base
     BASE_SHA=$(jq -r '.before' "$GITHUB_EVENT_PATH")
-    BRANCH_NAME="$GITHUB_REF_NAME"
+    # Extract branch name from git, with fallback to environment variable
+    BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "${GITHUB_REF_NAME:-unknown}")
     PR_NUMBER=""
-    
+
     echo "Push event detected"
     echo "Commit: $COMMIT_SHA"
     echo "Base commit: $BASE_SHA"
@@ -46,9 +48,6 @@ else
     echo "Unsupported event type: $GITHUB_EVENT_NAME"
     exit 1
 fi
-
-# Get repository name
-REPO_NAME="$GITHUB_REPOSITORY"
 
 # Run the modular memory collection script
 echo "Running memory analysis with collect_report.sh..."
@@ -60,7 +59,8 @@ bash "$SCRIPTS_DIR/collect_report.sh" \
     "$COMMIT_SHA" \
     "$BASE_SHA" \
     "$BRANCH_NAME" \
-    "$REPO_NAME" \
+    "" \
+    "$MEMBROWSE_API_URL" \
     "$PR_NUMBER"
 
 echo "Memory analysis completed successfully"

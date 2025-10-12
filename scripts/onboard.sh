@@ -10,6 +10,7 @@ ELF_PATH="$3"
 LD_PATHS="$4"
 TARGET_NAME="$5"
 API_KEY="$6"
+MEMBROWSE_API_URL="$7"
 
 # Get the directory of this script to find scripts
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -114,9 +115,8 @@ if [ -n "$GITHUB_STEP_SUMMARY" ]; then
 EOF
 fi
 
-# Get repository name
-REPO_NAME="$GITHUB_REPOSITORY"
-CURRENT_BRANCH="$GITHUB_REF_NAME"
+# Extract branch name from git, with fallback to environment variable
+CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "${GITHUB_REF_NAME:-unknown}")
 
 # Save current state
 ORIGINAL_HEAD=$(git rev-parse HEAD)
@@ -150,7 +150,10 @@ while IFS= read -r commit; do
 
     # Build the firmware
     echo "$commit: Building firmware with: $BUILD_SCRIPT"
-    if ! eval "$BUILD_SCRIPT"; then
+    # Execute build script using bash -c
+    # NOTE: BUILD_SCRIPT comes from action input and is controlled by workflow owner
+    # This is intentional - users need to specify their build commands
+    if ! bash -c "$BUILD_SCRIPT"; then
         echo "$commit: Build failed, stopping workflow..."
         FAILED_UPLOADS=$((FAILED_UPLOADS + 1))
         [ -n "$GITHUB_STEP_SUMMARY" ] && add_commit_result "$COMMIT_COUNT" "$commit" "FAILED" "Build Failed" "Skipped"
@@ -185,7 +188,8 @@ while IFS= read -r commit; do
         "$commit" \
         "$BASE_SHA" \
         "$CURRENT_BRANCH" \
-        "$REPO_NAME" \
+        "" \
+        "$MEMBROWSE_API_URL" \
         "" \
         "$COMMIT_COUNT" \
         "$NUM_COMMITS"; then

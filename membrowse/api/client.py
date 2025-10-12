@@ -105,8 +105,12 @@ Examples:
     # Upload options
     parser.add_argument(
         '--api-key',
-        help='MemBrowse API key (uploads automatically if provided)')
-    parser.add_argument('--api-endpoint', help='MemBrowse API endpoint URL')
+        required=True,
+        help='MemBrowse API key')
+    parser.add_argument(
+        '--api-endpoint',
+        required=True,
+        help='MemBrowse API endpoint URL')
     parser.add_argument(
         '--print-report',
         action='store_true',
@@ -138,13 +142,10 @@ Examples:
         if args.print_report:
             print(json.dumps(enriched_report, indent=2))
 
-        if args.api_key and args.api_endpoint:
-            uploader = MemBrowseUploader(args.api_key, args.api_endpoint)
-            success = uploader.upload_report(enriched_report)
-            if not success:
-                sys.exit(1)
-        else:
-            print("No API key provided, skipping upload", file=sys.stderr)
+        uploader = MemBrowseUploader(args.api_key, args.api_endpoint)
+        success = uploader.upload_report(enriched_report)
+        if not success:
+            sys.exit(1)
     except FileNotFoundError:
         print(
             f"Error: Base report file not found: {args.base_report}",

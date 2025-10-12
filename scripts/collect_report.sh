@@ -17,11 +17,10 @@ COMMIT_SHA="${5:-}"
 BASE_SHA="${6:-}"
 BRANCH_NAME="${7:-}"
 REPO_NAME="${8:-}"
-PR_NUMBER="${9:-}"
-CURRENT_COMMIT_NUM="${10:-}"
-TOTAL_COMMITS="${11:-}"
-
-MEMBROWSE_API_URL="${MEMBROWSE_UPLOAD_URL:-}"
+MEMBROWSE_API_URL="${9:-}"
+PR_NUMBER="${10:-}"
+CURRENT_COMMIT_NUM="${11:-}"
+TOTAL_COMMITS="${12:-}"
 
 # Validate required arguments
 if [[ -z "$ELF_PATH" ]]; then
@@ -45,7 +44,19 @@ if [[ ! -f "$ELF_PATH" ]]; then
 fi
 
 # Validate linker scripts exist
-for ld_script in $LD_SCRIPTS; do
+# NOTE: LD_SCRIPTS is a space-separated list - paths with spaces are not supported
+# Use array to properly split on spaces while protecting against other injection attacks
+IFS=' ' read -ra LD_SCRIPTS_ARRAY <<< "$LD_SCRIPTS"
+for ld_script in "${LD_SCRIPTS_ARRAY[@]}"; do
+    # Skip empty entries
+    [[ -z "$ld_script" ]] && continue
+
+    # Validate path doesn't start with dash (option injection protection)
+    if [[ "$ld_script" == -* ]]; then
+        echo "Error: Linker script path cannot start with '-': $ld_script"
+        exit 1
+    fi
+
     if [[ ! -f "$ld_script" ]]; then
         echo "Error: Linker script not found: $ld_script"
         exit 1
@@ -67,7 +78,9 @@ echo "($COMMIT_SHA): ELF analysis."
 echo "($COMMIT_SHA): Parsing memory regions from linker scripts."
 MEMORY_REGIONS_JSON=$(mktemp)
 
-python3 -m membrowse.linker.cli $LD_SCRIPTS > "$MEMORY_REGIONS_JSON" || {
+# Parse linker scripts - use array to handle spaces and special characters properly
+IFS=' ' read -ra LD_ARRAY <<< "$LD_SCRIPTS"
+python3 -m membrowse.linker.cli "${LD_ARRAY[@]}" > "$MEMORY_REGIONS_JSON" || {
     echo "($COMMIT_SHA): Error: Failed to parse memory regions"
     exit 1
 }
