@@ -104,7 +104,10 @@ if [[ -z "$COMMIT_SHA" ]]; then
 fi
 
 if [[ -z "$BRANCH_NAME" ]]; then
-    BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD)
+    # Use symbolic-ref first, then search for branches pointing at HEAD (works in detached HEAD)
+    BRANCH_NAME=$(git symbolic-ref --short HEAD 2>/dev/null || \
+                  git for-each-ref --points-at HEAD --format='%(refname:short)' refs/heads/ | head -n1 || \
+                  echo "unknown")
 fi
 
 if [[ -z "$REPO_NAME" ]]; then

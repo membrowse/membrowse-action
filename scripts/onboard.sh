@@ -116,7 +116,10 @@ EOF
 fi
 
 # Extract branch name from git, with fallback to environment variable
-CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "${GITHUB_REF_NAME:-unknown}")
+# Use symbolic-ref first, then search for branches pointing at HEAD (works in detached HEAD)
+CURRENT_BRANCH=$(git symbolic-ref --short HEAD 2>/dev/null || \
+                 git for-each-ref --points-at HEAD --format='%(refname:short)' refs/heads/ | head -n1 || \
+                 echo "${GITHUB_REF_NAME:-unknown}")
 
 # Save current state
 ORIGINAL_HEAD=$(git rev-parse HEAD)

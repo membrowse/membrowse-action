@@ -37,7 +37,10 @@ elif [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
     # For push events, use the before commit as base
     BASE_SHA=$(jq -r '.before' "$GITHUB_EVENT_PATH")
     # Extract branch name from git, with fallback to environment variable
-    BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "${GITHUB_REF_NAME:-unknown}")
+    # Use symbolic-ref first, then search for branches pointing at HEAD (works in detached HEAD)
+    BRANCH_NAME=$(git symbolic-ref --short HEAD 2>/dev/null || \
+                  git for-each-ref --points-at HEAD --format='%(refname:short)' refs/heads/ | head -n1 || \
+                  echo "${GITHUB_REF_NAME:-unknown}")
     PR_NUMBER=""
 
     echo "Push event detected"
