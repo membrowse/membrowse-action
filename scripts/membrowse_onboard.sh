@@ -12,9 +12,14 @@ TARGET_NAME="$5"
 API_KEY="$6"
 MEMBROWSE_API_URL="$7"
 
-# Get the directory of this script to find scripts
+# Find membrowse_collect_report.sh - check PATH first (for installed package), then relative path (for development)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SCRIPTS_DIR="$(dirname "$SCRIPT_DIR")/scripts"
+COLLECT_REPORT_SCRIPT="$(command -v membrowse_collect_report.sh 2>/dev/null || echo "$SCRIPT_DIR/membrowse_collect_report.sh")"
+
+if [[ ! -f "$COLLECT_REPORT_SCRIPT" ]]; then
+    echo "Error: membrowse_collect_report.sh not found in PATH or at $SCRIPT_DIR/membrowse_collect_report.sh"
+    exit 1
+fi
 
 # Progress tracking variables
 SUCCESSFUL_UPLOADS=0
@@ -183,7 +188,7 @@ while IFS= read -r commit; do
     [ -n "$GITHUB_STEP_SUMMARY" ] && add_commit_result "$COMMIT_COUNT" "$commit" "UPLOADING" "Complete" "Uploading..."
 
     # Run the modular memory collection script
-    if ! bash "$SCRIPTS_DIR/collect_report.sh" \
+    if ! bash "$COLLECT_REPORT_SCRIPT" \
         "$ELF_PATH" \
         "$LD_PATHS" \
         "$TARGET_NAME" \

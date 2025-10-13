@@ -5,10 +5,11 @@ setup(
     version="1.0.2",
     packages=find_packages(),
     scripts=[
-        "scripts/collect_report.sh",
-        "scripts/new_commit.sh",
-        "scripts/onboard.sh",
+        "scripts/membrowse_collect_report.sh",
+        "scripts/membrowse_new_commit.sh",
+        "scripts/membrowse_onboard.sh",
     ],
+    # Script names in bin/ will be: membrowse_collect_report.sh, membrowse_new_commit.sh, membrowse_onboard.sh
     install_requires=[
         "pyelftools>=0.29",
         "requests>=2.25.0",

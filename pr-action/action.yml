@@ -36,7 +36,7 @@ runs:
     - name: Run memory analysis
       shell: bash
       run: |
-        ${{ github.action_path }}/../scripts/new_commit.sh \
+        ${{ github.action_path }}/../scripts/membrowse_new_commit.sh \
           "${{ inputs.elf }}" \
           "${{ inputs.ld }}" \
           "${{ inputs.target_name }}" \

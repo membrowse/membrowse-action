@@ -10,9 +10,14 @@ TARGET_NAME="$3"
 API_KEY="$4"
 MEMBROWSE_API_URL="$5"
 
-# Get the directory of this script to find scripts
+# Find membrowse_collect_report.sh - check PATH first (for installed package), then relative path (for development)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SCRIPTS_DIR="$(dirname "$SCRIPT_DIR")/scripts"
+COLLECT_REPORT_SCRIPT="$(command -v membrowse_collect_report.sh 2>/dev/null || echo "$SCRIPT_DIR/membrowse_collect_report.sh")"
+
+if [[ ! -f "$COLLECT_REPORT_SCRIPT" ]]; then
+    echo "Error: membrowse_collect_report.sh not found in PATH or at $SCRIPT_DIR/membrowse_collect_report.sh"
+    exit 1
+fi
 
 echo "Starting memory analysis for $TARGET_NAME"
 echo "ELF file: $ELF_PATH"
@@ -53,8 +58,8 @@ else
 fi
 
 # Run the modular memory collection script
-echo "Running memory analysis with collect_report.sh..."
-bash "$SCRIPTS_DIR/collect_report.sh" \
+echo "Running memory analysis with membrowse_collect_report.sh..."
+bash "$COLLECT_REPORT_SCRIPT" \
     "$ELF_PATH" \
     "$LD_PATHS" \
     "$TARGET_NAME" \
