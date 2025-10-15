@@ -188,7 +188,7 @@ while IFS= read -r commit; do
     [ -n "$GITHUB_STEP_SUMMARY" ] && add_commit_result "$COMMIT_COUNT" "$commit" "UPLOADING" "Complete" "Uploading..."
 
     # Run the modular memory collection script
-    if ! bash "$COLLECT_REPORT_SCRIPT" \
+    if ! "$COLLECT_REPORT_SCRIPT" \
         "$ELF_PATH" \
         "$LD_PATHS" \
         "$TARGET_NAME" \

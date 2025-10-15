@@ -59,7 +59,7 @@ fi
 
 # Run the modular memory collection script
 echo "Running memory analysis with membrowse_collect_report.sh..."
-bash "$COLLECT_REPORT_SCRIPT" \
+"$COLLECT_REPORT_SCRIPT" \
     "$ELF_PATH" \
     "$LD_PATHS" \
     "$TARGET_NAME" \
