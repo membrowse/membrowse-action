@@ -4,12 +4,15 @@ setup(
     name="membrowse",
     version="1.0.2",
     packages=find_packages(),
-    scripts=[
-        "scripts/membrowse_collect_report.sh",
-        "scripts/membrowse_new_commit.sh",
-        "scripts/membrowse_onboard.sh",
+    # Use data_files instead of scripts to preserve shell scripts as-is
+    # The scripts parameter is for Python scripts only and may wrap shell scripts
+    data_files=[
+        ('bin', [
+            'scripts/membrowse_collect_report.sh',
+            'scripts/membrowse_new_commit.sh',
+            'scripts/membrowse_onboard.sh',
+        ]),
     ],
-    # Script names in bin/ will be: membrowse_collect_report.sh, membrowse_new_commit.sh, membrowse_onboard.sh
     install_requires=[
         "pyelftools>=0.29",
         "requests>=2.25.0",
