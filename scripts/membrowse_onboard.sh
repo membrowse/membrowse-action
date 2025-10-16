@@ -131,7 +131,7 @@ ORIGINAL_HEAD=$(git rev-parse HEAD)
 
 # Get the last N commits on the current branch (reversed to process oldest first)
 echo "Getting commit history..."
-COMMITS=$(git log --format="%H" -n "$NUM_COMMITS" "$CURRENT_BRANCH" --reverse)
+COMMITS=$(git log --format="%H" -n "$NUM_COMMITS" --reverse)
 
 # We'll pass LD_PATHS directly to collect_report.sh which handles the parsing
 
