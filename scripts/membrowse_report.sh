@@ -4,11 +4,70 @@ set -e
 # PR Action entrypoint for MemBrowse memory analysis
 # This script handles both pull request and push events
 
+# Usage message
+usage() {
+    cat << EOF
+Usage: membrowse_report.sh [OPTIONS] <elf_path> <ld_scripts> <target_name> [<api_key> <api_url>]
+
+Generate memory usage report for embedded firmware
+
+OPTIONS:
+    --local     Generate report locally without uploading (prints JSON to stdout)
+    --help      Show this help message
+
+ARGUMENTS:
+    elf_path       Path to ELF file
+    ld_scripts     Space-separated linker script paths (quoted)
+    target_name    Target identifier (e.g., my-project)
+    api_key        MemBrowse API key (required without --local)
+    api_url        MemBrowse API endpoint (required without --local)
+
+EXAMPLES:
+    # Local mode - print report to stdout
+    membrowse_report.sh --local build/firmware.elf "linker.ld" my-target
+
+    # Upload to MemBrowse
+    membrowse_report.sh build/firmware.elf "linker.ld" my-target "\$API_KEY" "https://membrowse.appspot.com/api/upload"
+
+EOF
+    exit 0
+}
+
+# Parse flags
+LOCAL_MODE=false
+while [[ "$1" == --* ]]; do
+    case "$1" in
+        --help)
+            usage
+            ;;
+        --local)
+            LOCAL_MODE=true
+            shift
+            ;;
+        *)
+            echo "Unknown option: $1"
+            usage
+            ;;
+    esac
+done
+
+# Parse positional arguments
 ELF_PATH="$1"
 LD_PATHS="$2"
 TARGET_NAME="$3"
-API_KEY="$4"
-MEMBROWSE_API_URL="$5"
+
+if [[ "$LOCAL_MODE" == "false" ]]; then
+    API_KEY="$4"
+    MEMBROWSE_API_URL="$5"
+
+    if [[ -z "$API_KEY" || -z "$MEMBROWSE_API_URL" ]]; then
+        echo "Error: API key and URL required without --local flag"
+        usage
+    fi
+else
+    API_KEY=""
+    MEMBROWSE_API_URL=""
+fi
 
 # Find membrowse_collect_report.sh - check PATH first (for installed package), then relative path (for development)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

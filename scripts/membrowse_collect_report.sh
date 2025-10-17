@@ -99,6 +99,13 @@ python3 -m membrowse.core.cli \
 
 echo "($COMMIT_SHA): JSON report generated successfully"
 
+# If no API key provided, print report to stdout and exit (local mode)
+if [[ -z "$API_KEY" ]]; then
+    echo "($COMMIT_SHA): Local mode - printing report to stdout" >&2
+    cat "$REPORT_JSON"
+    exit 0
+fi
+
 if [[ -z "$COMMIT_SHA" ]]; then
     COMMIT_SHA=$(git rev-parse HEAD)
 fi

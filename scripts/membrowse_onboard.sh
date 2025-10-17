@@ -4,6 +4,50 @@ set -e
 # Onboard Action entrypoint for MemBrowse historical analysis
 # This script processes the last N commits and generates memory reports for each
 
+# Usage message
+usage() {
+    cat << EOF
+Usage: membrowse_onboard.sh [OPTIONS] <num_commits> <build_script> <elf_path> <ld_scripts> <target_name> <api_key> <api_url>
+
+Analyze memory usage across historical commits for onboarding
+
+OPTIONS:
+    --help      Show this help message
+
+ARGUMENTS:
+    num_commits    Number of historical commits to process
+    build_script   Shell command to build firmware (quoted)
+    elf_path       Path to ELF file after build
+    ld_scripts     Space-separated linker script paths (quoted)
+    target_name    Target identifier (e.g., my-project)
+    api_key        MemBrowse API key (required for uploading)
+    api_url        MemBrowse API endpoint URL
+
+EXAMPLES:
+    # Analyze last 50 commits
+    membrowse_onboard.sh 50 "make clean && make" build/firmware.elf "linker.ld" my-target "\$API_KEY" "https://membrowse.appspot.com/api/upload"
+
+    # ESP-IDF project
+    membrowse_onboard.sh 25 "idf.py build" build/firmware.elf "build/esp-idf/esp32/esp32.project.ld" esp32-app "\$API_KEY" "https://membrowse.appspot.com/api/upload"
+
+EOF
+    exit 0
+}
+
+# Parse flags
+while [[ "$1" == --* ]]; do
+    case "$1" in
+        --help)
+            usage
+            ;;
+        *)
+            echo "Unknown option: $1"
+            usage
+            ;;
+    esac
+done
+
+# Parse positional arguments
 NUM_COMMITS="$1"
 BUILD_SCRIPT="$2"
 ELF_PATH="$3"

@@ -8,7 +8,7 @@ setup(
     # The scripts call each other directly (not via bash) to support both shell and ELF formats
     scripts=[
         "scripts/membrowse_collect_report.sh",
-        "scripts/membrowse_new_commit.sh",
+        "scripts/membrowse_report.sh",
         "scripts/membrowse_onboard.sh",
     ],
     install_requires=[
