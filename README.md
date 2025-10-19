@@ -105,7 +105,7 @@ jobs:
         run: make all
 
       - name: Analyze memory
-        uses: membrowse/membrowse-action/pr-action@v1.0.0
+        uses: membrowse/membrowse-action/pr-action@latest
         with:
           elf: build/firmware.elf
           ld: "src/linker.ld"
@@ -128,7 +128,7 @@ jobs:
           fetch-depth: 0
 
       - name: Historical analysis
-        uses: membrowse/membrowse-action/onboard-action@v1.0.0
+        uses: membrowse/membrowse-action/onboard-action@latest
         with:
           num_commits: 50
           build_script: "make clean && make"
