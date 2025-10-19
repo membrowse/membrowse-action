@@ -1,0 +1,6 @@
+#!/bin/bash
+# MemBrowse CLI wrapper
+# This script provides the command-line interface for MemBrowse memory analysis
+
+# Execute the Python CLI with all arguments
+exec python3 -m membrowse.cli "$@"

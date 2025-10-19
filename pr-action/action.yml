@@ -1,5 +1,5 @@
 name: 'MemBrowse PR Memory Report'
-description: 'Analyze memory usage of embedded firmware and upload report to MemBrowse'
+description: 'Analyze memory footprint of embedded firmware and upload report to MemBrowse'
 author: 'MemBrowse'
 
 inputs:
@@ -36,12 +36,13 @@ runs:
     - name: Run memory analysis
       shell: bash
       run: |
-        ${{ github.action_path }}/../scripts/membrowse_report.sh \
+        membrowse report \
           "${{ inputs.elf }}" \
           "${{ inputs.ld }}" \
-          "${{ inputs.target_name }}" \
-          "${{ inputs.api_key }}" \
-          "${{ inputs.api_url }}"
+          --github \
+          --target-name "${{ inputs.target_name }}" \
+          --api-key "${{ inputs.api_key }}" \
+          --api-url "${{ inputs.api_url }}"
 
 branding:
   icon: 'bar-chart-2'

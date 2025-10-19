@@ -1,6 +1,6 @@
 # MemBrowse
 
-A comprehensive Python package for analyzing memory usage in embedded firmware. MemBrowse extracts detailed memory information from ELF files and linker scripts, providing symbol-level analysis with source file mapping for any embedded architecture.
+A comprehensive Python package for analyzing memory footprint in embedded firmware. MemBrowse extracts detailed memory information from ELF files and linker scripts, providing symbol-level analysis with source file mapping for any embedded architecture.
 
 **Use it locally, in any CI/CD system, or with GitHub Actions.**
 
@@ -30,56 +30,57 @@ pip install -e .
 
 ### Verify Installation
 
-After installation, two command-line scripts will be available:
+After installation, the `membrowse` command will be available:
 
 ```bash
-membrowse_report.sh --help        # Single commit analysis (PR/push workflows)
-membrowse_onboard.sh --help           # Historical analysis (onboarding)
+membrowse --help              # Show main help
+membrowse report --help       # Help for report subcommand
+membrowse onboard --help      # Help for onboard subcommand
 ```
-
-Use `--help` to see usage information and examples.
 
 ## Quick Start
 
 ### Analyze Your Firmware Locally
 
-The simplest way to analyze your firmware:
+The simplest way to analyze your firmware (local mode - no upload):
 
 ```bash
 # Generate a memory report (prints JSON to stdout)
-membrowse_report.sh --local \
+membrowse report \
   build/firmware.elf \
-  "src/linker.ld src/memory.ld" \
-  my-target
+  "src/linker.ld src/memory.ld"
 ```
 
 This generates a JSON report with detailed memory analysis and prints it to stdout.
 
-### Analyze with MemBrowse Platform Integration
+### Upload Reports to MemBrowse Platform
 
 ```bash
 export MEMBROWSE_API_KEY="your-api-key"
 
-membrowse_report.sh \
+# Upload mode - uploads report to MemBrowse platform
+membrowse report \
   build/firmware.elf \
   "src/linker.ld" \
-  esp32-project \
-  "$MEMBROWSE_API_KEY" \
-  "https://membrowse.appspot.com/api/upload"
+  --upload \
+  --target-name esp32 \
+  --api-key "$MEMBROWSE_API_KEY"
 ```
 
 ### Analyze Historical Commits (Onboarding)
 
+Analyzes memory footprints across multiple commits and uploads them to MemBrowse:
+
 ```bash
-# Analyze the last 50 commits
-membrowse_onboard.sh \
+# Analyze and upload the last 50 commits
+membrowse onboard \
   50 \
   "make clean && make all" \
   build/firmware.elf \
   "STM32F746ZGTx_FLASH.ld" \
-  stm32f746 \
+  stm32f4 \
   "$MEMBROWSE_API_KEY" \
-  "https://membrowse.appspot.com/api/upload"
+  https://membrowse.appspot.com/api/upload
 ```
 
 

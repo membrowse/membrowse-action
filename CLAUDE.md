@@ -11,7 +11,80 @@ MemBrowse GitHub Actions is a collection of GitHub Actions for analyzing memory 
 
 ## Command-Line Interface
 
-### Basic Usage
+### Unified CLI (`membrowse`)
+
+MemBrowse provides a single `membrowse` command with subcommands for different operations:
+
+#### `membrowse report` - Generate Memory Footprint Reports
+
+Core analysis tool that generates memory footprint reports from ELF files and linker scripts.
+
+**Local Mode (Default)** - Generate JSON report without Git metadata or uploading:
+```bash
+# Minimal usage - outputs JSON to stdout
+membrowse report firmware.elf "linker.ld"
+
+# Save to file
+membrowse report firmware.elf "linker.ld" > report.json
+
+# Multiple linker scripts
+membrowse report firmware.elf "mem.ld sections.ld"
+```
+
+**Upload Mode** - Upload report to MemBrowse platform:
+```bash
+# Upload without Git metadata
+membrowse report firmware.elf "linker.ld" --upload \
+    --api-key "$API_KEY" \
+    --target-name "esp32" \
+    --api-url "https://membrowse.appspot.com/api/upload"
+
+# Upload with Git metadata (manual)
+membrowse report firmware.elf "linker.ld" --upload \
+    --api-key "$API_KEY" \
+    --target-name "stm32f4" \
+    --api-url "https://membrowse.appspot.com/api/upload" \
+    --commit-sha "abc123" \
+    --branch-name "main" \
+    --repo-name "my-repo"
+```
+
+**GitHub Actions Mode** - Automatically detect Git metadata:
+```bash
+# Auto-detects Git metadata from GitHub environment
+membrowse report firmware.elf "linker.ld" --github \
+    --target-name "esp32" \
+    --api-key "$API_KEY" \
+    --api-url "https://membrowse.appspot.com/api/upload"
+```
+
+**Modes:**
+- **Local mode (default)**: Generates JSON report and outputs to stdout
+- **Upload mode**: Uploads report to MemBrowse platform (requires `--upload` flag)
+- **GitHub mode**: Auto-detects Git metadata and uploads (requires `--github` flag)
+
+**Key Features:**
+- Does NOT execute `git` commands unless `--github` flag is used
+- Target name only required when uploading
+- All Git metadata is optional
+
+#### `membrowse onboard` - Historical Analysis
+
+Analyzes memory footprints across multiple historical commits and uploads them to the MemBrowse platform:
+```bash
+# Analyze last 50 commits and upload to MemBrowse
+membrowse onboard 50 "make clean && make" build/firmware.elf "linker.ld" \
+    stm32f4 "$API_KEY" https://membrowse.appspot.com/api/upload
+
+# ESP-IDF project (API URL is optional, defaults to https://membrowse.appspot.com/api/upload)
+membrowse onboard 25 "idf.py build" build/firmware.elf \
+    "build/esp-idf/esp32/esp32.project.ld" esp32 "$API_KEY"
+```
+
+### Python CLI (Low-level)
+
+Direct Python interface for advanced usage:
+
 ```bash
 # Generate memory report with maximum coverage (default)
 python -m membrowse.core.cli --elf-path firmware.elf --output report.json
@@ -121,9 +194,40 @@ membrowse/                          # Main Python package
 │   ├── __init__.py
 │   └── client.py                   # Report upload to MemBrowse
 │
-scripts/                            # Shell orchestration
-└── collect_report.sh               # Main orchestrator script
+├── cli.py                          # Main CLI entry point
+│
+├── commands/                       # CLI subcommands
+│   ├── __init__.py
+│   ├── report.py                   # 'report' subcommand
+│   └── onboard.py                  # 'onboard' subcommand
+│
+├── utils/                          # Utilities
+│   ├── __init__.py
+│   └── git.py                      # Git metadata detection
+│
+scripts/                            # Shell wrappers
+└── membrowse                       # Main CLI wrapper (calls membrowse.cli)
 ```
+
+### CLI Architecture
+
+**`membrowse` command** - Unified CLI interface:
+- Single entry point with subcommands (`report`, `onboard`)
+- Python-based with proper argument parsing and error handling
+- Shell wrapper provides seamless installation via setup.py
+
+**`membrowse report`** - Core analysis command:
+- Parses linker scripts to extract memory regions
+- Analyzes ELF files to generate memory footprint reports
+- Outputs JSON to stdout (default) or uploads to platform
+- `--github` flag enables automatic Git metadata detection from GitHub environment
+- Does NOT execute `git` commands unless `--github` flag is used
+
+**`membrowse onboard`** - Historical analysis command:
+- Iterates through N commits, checking out each one
+- Builds firmware at each commit
+- Automatically extracts Git metadata for each commit
+- Uploads memory footprint reports with full commit context
 
 ### Action Structure
 Each action (`pr-action/`, `onboard-action/`) contains:
@@ -179,20 +283,28 @@ pylint membrowse/ tests/ --score=yes
 # Test linker script parsing
 python -m membrowse.linker.cli path/to/linker.ld
 
-# Test ELF analysis
+# Test ELF analysis (Python CLI)
 python -m membrowse.core.cli --elf-path firmware.elf --memory-regions regions.json --output report.json
 
-# Test complete workflow
-bash scripts/collect_report.sh firmware.elf "linker1.ld linker2.ld" target_name api_key commit_sha base_sha branch repo
-```
+# Test report command - local mode (no Git, no upload)
+membrowse report firmware.elf "linker1.ld linker2.ld" > report.json
 
-### Local Action Testing
-```bash
-# Test pr-action locally
-bash pr-action/entrypoint.sh firmware.elf "linker.ld" esp32 api_key
+# Test report command - upload mode
+membrowse report firmware.elf "linker.ld" --upload \
+    --api-key "$API_KEY" \
+    --target-name "stm32f4" \
+    --api-url "https://membrowse.appspot.com/api/upload" \
+    --commit-sha "$(git rev-parse HEAD)" \
+    --branch-name "$(git branch --show-current)"
 
-# Test onboard-action locally
-bash onboard-action/entrypoint.sh 10 "make build" build/firmware.elf "src/linker.ld" stm32 api_key
+# Test report command - GitHub mode (auto-detects Git metadata and uploads)
+membrowse report firmware.elf "linker.ld" --github \
+    --target-name "esp32" \
+    --api-key "$API_KEY"
+
+# Test onboard command (analyzes and uploads historical commits)
+membrowse onboard 10 "make build" build/firmware.elf "src/linker.ld" \
+    stm32f4 "$API_KEY" https://membrowse.appspot.com/api/upload
 ```
 
 ## Common Patterns
