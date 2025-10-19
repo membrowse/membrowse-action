@@ -16,7 +16,7 @@ from ..api.client import MemBrowseUploader
 logger = logging.getLogger(__name__)
 
 # Default MemBrowse API endpoint
-DEFAULT_API_URL = 'https://membrowse.appspot.com/api/upload'
+DEFAULT_API_URL = 'https://www.membrowse.com/api/upload'
 
 
 def add_report_parser(subparsers) -> argparse.ArgumentParser:
@@ -44,7 +44,7 @@ examples:
   # Upload to MemBrowse
   membrowse report firmware.elf "linker.ld" --upload \\
       --api-key "$API_KEY" --target-name esp32 \\
-      --api-url https://membrowse.appspot.com/api/upload
+      --api-url https://www.membrowse.com/api/upload
 
   # GitHub Actions mode (auto-detects Git metadata)
   membrowse report firmware.elf "linker.ld" --github \\

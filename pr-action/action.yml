@@ -18,7 +18,7 @@ inputs:
   api_url:
     description: 'MemBrowse API endpoint URL'
     required: false
-    default: 'https://membrowse.appspot.com/api/upload'
+    default: 'https://www.membrowse.com/api/upload'
 
 runs:
   using: 'composite'
