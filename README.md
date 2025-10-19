@@ -1,6 +1,6 @@
 # MemBrowse
 
-A comprehensive tool for analyzing memory footprint in embedded firmware. MemBrowse extracts detailed memory information from ELF files and linker scripts, providing symbol-level analysis with source file mapping for any embedded architecture. Use it standalone for local analysis or integrate with the [MemBrowse SaaS platform](https://www.membrowse.com) for historical analysis and CI integration.
+A comprehensive tool for analyzing memory footprint in embedded firmware. MemBrowse extracts detailed memory information from ELF files and linker scripts, providing symbol-level analysis with source file mapping for any embedded architecture. Use it standalone for local analysis or integrate with [MemBrowse](https://membrowse.com) for historical analysis and CI integration.
 
 
 ## Features
@@ -9,7 +9,7 @@ A comprehensive tool for analyzing memory footprint in embedded firmware. MemBro
 - **Source File Mapping**: Symbols are automatically mapped to their definition source files using DWARF debug information
 - **Memory Region Extraction**: Memory region capacity and layout are extracted from GNU LD linker scripts
 - **Intelligent Linker Script Parsing**: Handles complex GNU LD syntax with automatic architecture detection and expression evaluation
-- **Cloud Integration**: Upload reports to [MemBrowse platform](https://www.membrowse.com) for historical tracking
+- **Cloud Integration**: Upload reports to [MemBrowse](https://membrowse.com) for historical tracking
 
 ## Installation
 
@@ -61,7 +61,7 @@ This generates a JSON report with detailed memory analysis and prints it to stdo
 ### Upload Reports to MemBrowse Platform
 
 ```bash
-# Upload mode - uploads report to MemBrowse platform (https://www.membrowse.com)
+# Upload mode - uploads report to MemBrowse platform (https://membrowse.com)
 membrowse report \
   build/firmware.elf \
   "src/linker.ld" \
@@ -72,7 +72,7 @@ membrowse report \
 
 ### Analyze Historical Commits (Onboarding)
 
-Analyzes memory footprints across multiple commits and uploads them to [MemBrowse](https://www.membrowse.com):
+Analyzes memory footprints across multiple commits and uploads them to [MemBrowse](https://membrowse.com):
 
 ```bash
 # Analyze and upload the last 50 commits
@@ -158,7 +158,7 @@ membrowse report \
   "linker.ld" \
   my-target \
   your-membrowse-api-key \
-  "https://www.membrowse.com/api/upload"
+  "https://membrowse.com/api/upload"
 ```
 
 ## Platform Support
@@ -213,4 +213,4 @@ See [LICENSE](LICENSE) file for details.
 
 - **Issues**: https://github.com/membrowse/membrowse-action/issues
 - **Documentation**: This README and inline code documentation
-- **MemBrowse Platform**: https://www.membrowse.com
+- **MemBrowse Support**: support@membrowse.com
