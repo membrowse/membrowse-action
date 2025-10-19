@@ -1,6 +1,6 @@
 # MemBrowse
 
-A comprehensive tool for analyzing memory footprint in embedded firmware. MemBrowse extracts detailed memory information from ELF files and linker scripts, providing symbol-level analysis with source file mapping for any embedded architecture. Use it standalone for local analysis or integrate with [MemBrowse](https://membrowse.com) for historical analysis and CI integration.
+A tool for analyzing memory footprint in embedded firmware. MemBrowse extracts detailed memory information from ELF files and linker scripts, providing symbol-level analysis with source file mapping for any embedded architecture. Use it standalone for local analysis or integrate with [MemBrowse](https://membrowse.com) for historical analysis and CI integration.
 
 
 ## Features
