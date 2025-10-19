@@ -1,15 +1,14 @@
 # MemBrowse
 
-A comprehensive Python package for analyzing memory footprint in embedded firmware. MemBrowse extracts detailed memory information from ELF files and linker scripts, providing symbol-level analysis with source file mapping for any embedded architecture.
+A comprehensive tool for analyzing memory footprint in embedded firmware. MemBrowse extracts detailed memory information from ELF files and linker scripts, providing symbol-level analysis with source file mapping for any embedded architecture. Use it standalone for local analysis or integrate with the MemBrowse SaaS platform for historical analysis and CI integration.
 
-**Use it locally, in any CI/CD system, or with GitHub Actions.**
 
 ## Features
 
-- **Multi-Architecture Support**: Works with any embedded architecture
-- **Deep ELF Analysis**: Symbol extraction, DWARF debug information, section mapping
-- **Intelligent Linker Script Parsing**: Handles GNU LD syntax with automatic architecture detection
-- **Flexible Integration**: Command-line tools for local use, CI/CD scripts, Python API
+- **Architecture Agnostic**: Works with any embedded architecture by relying on the DWARF debug format
+- **Source File Mapping**: Symbols are automatically mapped to their definition source files using DWARF debug information
+- **Memory Region Extraction**: Memory region capacity and layout are extracted from GNU LD linker scripts
+- **Intelligent Linker Script Parsing**: Handles complex GNU LD syntax with automatic architecture detection and expression evaluation
 - **Cloud Integration**: Upload reports to MemBrowse platform for historical tracking
 
 ## Installation
@@ -62,15 +61,13 @@ This generates a JSON report with detailed memory analysis and prints it to stdo
 ### Upload Reports to MemBrowse Platform
 
 ```bash
-export MEMBROWSE_API_KEY="your-api-key"
-
 # Upload mode - uploads report to MemBrowse platform
 membrowse report \
   build/firmware.elf \
   "src/linker.ld" \
   --upload \
   --target-name esp32 \
-  --api-key "$MEMBROWSE_API_KEY"
+  --api-key your-membrowse-api-key
 ```
 
 ### Analyze Historical Commits (Onboarding)
@@ -85,8 +82,7 @@ membrowse onboard \
   build/firmware.elf \
   "STM32F746ZGTx_FLASH.ld" \
   stm32f4 \
-  "$MEMBROWSE_API_KEY" \
-  https://membrowse.appspot.com/api/upload
+  your-membrowse-api-key
 ```
 
 
@@ -145,9 +141,9 @@ jobs:
           api_key: ${{ secrets.MEMBROWSE_API_KEY }}
 ```
 
-### Generic CI/CD
+### Other CI/CD
 
-For any CI system with shell access:
+For pther CI systems:
 
 ```bash
 # Install MemBrowse
@@ -157,11 +153,11 @@ pip install git+https://github.com/membrowse/membrowse-action.git
 make all
 
 # Analyze memory
-membrowse_report.sh \
+membrowse report \
   build/firmware.elf \
   "linker.ld" \
   my-target \
-  "$MEMBROWSE_API_KEY" \
+  your-membrowse-api-key \
   "https://membrowse.appspot.com/api/upload"
 ```
 
@@ -208,12 +204,6 @@ MemBrowse generates comprehensive JSON reports:
   "compilation_units": [...]
 }
 ```
-
-When uploaded to MemBrowse platform, reports are enriched with:
-- Git commit information (SHA, message, timestamp)
-- Branch and PR metadata
-- Base commit for diff analysis
-- Repository context
 
 ## License
 
