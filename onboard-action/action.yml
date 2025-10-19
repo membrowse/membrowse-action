@@ -48,7 +48,7 @@ runs:
     - name: Run historical analysis
       shell: bash
       run: |
-        ${{ github.action_path }}/../scripts/membrowse_onboard.sh \
+        membrowse onboard \
           "${{ inputs.num_commits }}" \
           "${{ inputs.build_script }}" \
           "${{ inputs.elf }}" \
