@@ -21,15 +21,20 @@ Core analysis tool that generates memory footprint reports from ELF files and li
 
 **Local Mode (Default)** - Generate JSON report without Git metadata or uploading:
 ```bash
-# Minimal usage - outputs JSON to stdout
+# Minimal usage - outputs JSON to stdout (quiet mode, only errors shown)
 membrowse report firmware.elf "linker.ld"
 
 # Save to file
 membrowse report firmware.elf "linker.ld" > report.json
 
+# With verbose output to see progress
+membrowse report firmware.elf "linker.ld" --verbose > report.json
+
 # Multiple linker scripts
 membrowse report firmware.elf "mem.ld sections.ld"
 ```
+
+**Note**: By default, only errors are shown. Use `--verbose` to see progress messages.
 
 **Upload Mode** - Upload report to MemBrowse platform:
 ```bash

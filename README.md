@@ -49,9 +49,15 @@ The simplest way to analyze your firmware (local mode - no upload):
 membrowse report \
   build/firmware.elf \
   "src/linker.ld src/memory.ld"
+
+# With verbose output to see progress
+membrowse report \
+  build/firmware.elf \
+  "src/linker.ld src/memory.ld" \
+  --verbose
 ```
 
-This generates a JSON report with detailed memory analysis and prints it to stdout.
+This generates a JSON report with detailed memory analysis and prints it to stdout. Use `--verbose` to see progress messages.
 
 ### Upload Reports to MemBrowse Platform
 

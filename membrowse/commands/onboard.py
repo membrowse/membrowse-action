@@ -1,13 +1,16 @@
 """Onboard subcommand - historical analysis across multiple commits."""
 
-import sys
 import os
 import subprocess
 import argparse
+import logging
 from datetime import datetime
-from typing import Optional
 
 from ..utils.git import run_git_command, get_commit_metadata
+from .report import generate_and_upload_report, DEFAULT_API_URL
+
+# Set up logger
+logger = logging.getLogger(__name__)
 
 
 def add_onboard_parser(subparsers) -> argparse.ArgumentParser:
@@ -45,35 +48,50 @@ Requirements:
         """,
         epilog="""
 examples:
-  # Analyze last 50 commits
+  # Analyze last 50 commits (uses default API URL)
   membrowse onboard 50 "make clean && make" build/firmware.elf "linker.ld" \\
-      stm32f4 "$API_KEY" https://membrowse.appspot.com/api/upload
+      stm32f4 "$API_KEY"
 
-  # ESP-IDF project
+  # ESP-IDF project with custom API URL
   membrowse onboard 25 "idf.py build" build/firmware.elf \\
       "build/esp-idf/esp32/esp32.project.ld" esp32 "$API_KEY" \\
-      https://membrowse.appspot.com/api/upload
-        """
-    )
+      https://custom-api.example.com/api/upload
+        """)
 
     # Required arguments
-    parser.add_argument('num_commits', type=int, help='Number of historical commits to process')
-    parser.add_argument('build_script', help='Shell command to build firmware (quoted)')
+    parser.add_argument(
+        'num_commits',
+        type=int,
+        help='Number of historical commits to process')
+    parser.add_argument(
+        'build_script',
+        help='Shell command to build firmware (quoted)')
     parser.add_argument('elf_path', help='Path to ELF file after build')
-    parser.add_argument('ld_scripts', help='Space-separated linker script paths (quoted)')
-    parser.add_argument('target_name', help='Build configuration/target (e.g., esp32, stm32, x86)')
+    parser.add_argument(
+        'ld_scripts',
+        help='Space-separated linker script paths (quoted)')
+    parser.add_argument(
+        'target_name',
+        help='Build configuration/target (e.g., esp32, stm32, x86)')
     parser.add_argument('api_key', help='MemBrowse API key')
     parser.add_argument(
         'api_url',
         nargs='?',
-        default='https://membrowse.appspot.com/api/upload',
+        default=DEFAULT_API_URL,
         help='MemBrowse API endpoint URL (default: %(default)s)'
+    )
+
+    # Optional flags
+    parser.add_argument(
+        '--verbose',
+        action='store_true',
+        help='Enable verbose output'
     )
 
     return parser
 
 
-def run_onboard(args: argparse.Namespace) -> int:
+def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-locals,too-many-statements
     """
     Execute the onboard subcommand.
 
@@ -83,11 +101,11 @@ def run_onboard(args: argparse.Namespace) -> int:
     Returns:
         Exit code (0 for success, 1 for error)
     """
-    print(f"Starting historical memory analysis for {args.target_name}")
-    print(f"Processing last {args.num_commits} commits")
-    print(f"Build script: {args.build_script}")
-    print(f"ELF file: {args.elf_path}")
-    print(f"Linker scripts: {args.ld_scripts}")
+    logger.info("Starting historical memory analysis for %s", args.target_name)
+    logger.info("Processing last %d commits", args.num_commits)
+    logger.info("Build script: %s", args.build_script)
+    logger.info("ELF file: %s", args.elf_path)
+    logger.info("Linker scripts: %s", args.ld_scripts)
 
     # Get current branch
     current_branch = (
@@ -100,7 +118,7 @@ def run_onboard(args: argparse.Namespace) -> int:
     # Save current HEAD
     original_head = run_git_command(['rev-parse', 'HEAD'])
     if not original_head:
-        print("Error: Not in a git repository", file=sys.stderr)
+        logger.error("Not in a git repository")
         return 1
 
     # Get repository name
@@ -112,10 +130,11 @@ def run_onboard(args: argparse.Namespace) -> int:
             repo_name = parts[-1]
 
     # Get commit history (reversed to process oldest first)
-    print("Getting commit history...")
-    commits_output = run_git_command(['log', '--format=%H', f'-n{args.num_commits}', '--reverse'])
+    logger.info("Getting commit history...")
+    commits_output = run_git_command(
+        ['log', '--format=%H', f'-n{args.num_commits}', '--reverse'])
     if not commits_output:
-        print("Error: Failed to get commit history", file=sys.stderr)
+        logger.error("Failed to get commit history")
         return 1
 
     commits = [c.strip() for c in commits_output.split('\n') if c.strip()]
@@ -130,27 +149,32 @@ def run_onboard(args: argparse.Namespace) -> int:
     for commit_count, commit in enumerate(commits, 1):
         log_prefix = f"({commit})"
 
-        print("")
-        print(f"=== Processing commit {commit_count}/{total_commits}: {commit} ===")
+        logger.info("")
+        logger.info("=== Processing commit %d/%d: %s ===",
+                    commit_count, total_commits, commit)
 
         # Checkout the commit
-        print(f"{log_prefix}: Checking out commit...")
+        logger.info("%s: Checking out commit...", log_prefix)
         result = subprocess.run(
             ['git', 'checkout', commit, '--quiet'],
             capture_output=True,
             check=False
         )
         if result.returncode != 0:
-            print(f"{log_prefix}: Failed to checkout commit", file=sys.stderr)
+            logger.error("%s: Failed to checkout commit", log_prefix)
             failed_uploads += 1
             continue
 
         # Clean previous build artifacts
-        print("Cleaning previous build artifacts...")
-        subprocess.run(['git', 'clean', '-fd'], capture_output=True, check=False)
+        logger.info("Cleaning previous build artifacts...")
+        subprocess.run(['git', 'clean', '-fd'],
+                       capture_output=True, check=False)
 
         # Build the firmware
-        print(f"{log_prefix}: Building firmware with: {args.build_script}")
+        logger.info(
+            "%s: Building firmware with: %s",
+            log_prefix,
+            args.build_script)
         result = subprocess.run(
             ['bash', '-c', args.build_script],
             capture_output=False,
@@ -158,74 +182,82 @@ def run_onboard(args: argparse.Namespace) -> int:
         )
 
         if result.returncode != 0:
-            print(f"{log_prefix}: Build failed, stopping workflow...", file=sys.stderr)
+            logger.error("%s: Build failed, stopping workflow...", log_prefix)
             failed_uploads += 1
             # Restore HEAD and exit
-            subprocess.run(['git', 'checkout', original_head, '--quiet'], check=False)
+            subprocess.run(
+                ['git', 'checkout', original_head, '--quiet'], check=False)
             return 1
 
         # Check if ELF file was generated
         if not os.path.exists(args.elf_path):
-            print(f"{log_prefix}: ELF file not found at {args.elf_path}, stopping workflow...",
-                  file=sys.stderr)
+            logger.error("%s: ELF file not found at %s, stopping workflow...",
+                         log_prefix, args.elf_path)
             failed_uploads += 1
-            subprocess.run(['git', 'checkout', original_head, '--quiet'], check=False)
+            subprocess.run(
+                ['git', 'checkout', original_head, '--quiet'], check=False)
             return 1
 
         # Get commit metadata
         metadata = get_commit_metadata(commit)
 
-        print(f"{log_prefix}: Generating memory report (commit {commit_count} of {total_commits})...")
-        print(f"{log_prefix}: Base commit: {metadata.get('base_sha', 'N/A')}")
+        logger.info("%s: Generating memory report (commit %d of %d)...",
+                    log_prefix, commit_count, total_commits)
+        logger.info(
+            "%s: Base commit: %s",
+            log_prefix,
+            metadata.get(
+                'base_sha',
+                'N/A'))
 
-        # Call membrowse report command
-        report_args = [
-            'python3', '-m', 'membrowse.cli',
-            'report',
-            args.elf_path,
-            args.ld_scripts,
-            '--upload',
-            '--api-key', args.api_key,
-            '--target-name', args.target_name,
-            '--api-url', args.api_url,
-            '--commit-sha', commit,
-            '--branch-name', current_branch,
-            '--repo-name', repo_name,
-            '--commit-message', metadata['commit_message'],
-            '--commit-timestamp', metadata['commit_timestamp']
-        ]
+        # Generate and upload report using helper function
+        result = generate_and_upload_report(
+            elf_path=args.elf_path,
+            ld_scripts=args.ld_scripts,
+            target_name=args.target_name,
+            api_key=args.api_key,
+            api_url=args.api_url,
+            commit_sha=commit,
+            base_sha=metadata.get('base_sha'),
+            branch_name=current_branch,
+            repo_name=repo_name,
+            commit_message=metadata['commit_message'],
+            commit_timestamp=metadata['commit_timestamp'],
+            verbose=args.verbose
+        )
 
-        if metadata.get('base_sha'):
-            report_args.extend(['--base-sha', metadata['base_sha']])
-
-        result = subprocess.run(report_args, capture_output=False, check=False)
-
-        if result.returncode != 0:
-            print(f"{log_prefix}: Failed to generate or upload memory report " +
-                  f"(commit {commit_count} of {total_commits}), stopping workflow...",
-                  file=sys.stderr)
+        if result != 0:
+            logger.error("%s: Failed to generate or upload memory report " +
+                         "(commit %d of %d), stopping workflow...",
+                         log_prefix, commit_count, total_commits)
             failed_uploads += 1
-            subprocess.run(['git', 'checkout', original_head, '--quiet'], check=False)
+            subprocess.run(
+                ['git', 'checkout', original_head, '--quiet'], check=False)
             return 1
 
-        print(f"{log_prefix}: Memory report uploaded successfully " +
-              f"(commit {commit_count} of {total_commits})")
+        logger.info(
+            "%s: Memory report uploaded successfully (commit %d of %d)",
+            log_prefix,
+            commit_count,
+            total_commits)
         successful_uploads += 1
 
     # Restore original HEAD
-    print("")
-    print("Restoring original HEAD...")
+    logger.info("")
+    logger.info("Restoring original HEAD...")
     subprocess.run(['git', 'checkout', original_head, '--quiet'], check=False)
 
     # Print summary
     elapsed = datetime.now() - start_time
-    elapsed_str = f"{int(elapsed.total_seconds() // 60):02d}:{int(elapsed.total_seconds() % 60):02d}"
+    minutes = int(elapsed.total_seconds() // 60)
+    seconds = int(elapsed.total_seconds() % 60)
+    elapsed_str = f"{minutes:02d}:{seconds:02d}"
 
-    print("")
-    print("Historical analysis completed!")
-    print(f"Processed {total_commits} commits")
-    print(f"Successful uploads: {successful_uploads}")
-    print(f"Failed uploads: {failed_uploads}")
-    print(f"Total time: {elapsed_str}")
+    logger.info("")
+    logger.info("Historical analysis completed!")
+    logger.info("Processed %d commits", total_commits)
+    logger.info("Successful uploads: %d", successful_uploads)
+    logger.info("Failed uploads: %d", failed_uploads)
+    logger.info("Total time: %s", elapsed_str)
 
     return 0 if failed_uploads == 0 else 1

@@ -6,6 +6,7 @@ Provides a unified command-line interface with subcommands for memory analysis.
 """
 
 import sys
+import logging
 import argparse
 
 from .commands.report import add_report_parser, run_report
@@ -21,7 +22,7 @@ def create_parser() -> argparse.ArgumentParser:
     """
     parser = argparse.ArgumentParser(
         prog='membrowse',
-        description='Memory footprint analysis for embedded firmware',
+        description='Memory footprint analysis tool',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 subcommands:
@@ -75,14 +76,25 @@ def main() -> int:
     parser = create_parser()
     args = parser.parse_args()
 
+    # Configure logging based on verbose flag
+    # Messages go to stderr to keep stdout clean for JSON output
+    # Default: ERROR level (only show errors)
+    # Verbose: INFO level (show all informational messages)
+    log_level = logging.INFO if getattr(
+        args, 'verbose', False) else logging.ERROR
+    logging.basicConfig(
+        level=log_level,
+        format='%(message)s',
+        stream=sys.stderr
+    )
+
     # Route to appropriate subcommand
     if args.subcommand == 'report':
         return run_report(args)
-    elif args.subcommand == 'onboard':
+    if args.subcommand == 'onboard':
         return run_onboard(args)
-    else:
-        parser.print_help()
-        return 1
+    parser.print_help()
+    return 1
 
 
 if __name__ == '__main__':
