@@ -1,5 +1,10 @@
 # MemBrowse
 
+[![PyPI version](https://badge.fury.io/py/membrowse.svg)](https://badge.fury.io/py/membrowse)
+[![Python Versions](https://img.shields.io/pypi/pyversions/membrowse.svg)](https://pypi.org/project/membrowse/)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![Downloads](https://pepy.tech/badge/membrowse)](https://pepy.tech/project/membrowse)
+
 A tool for analyzing memory footprint in embedded firmware. MemBrowse extracts detailed memory information from ELF files and linker scripts, providing symbol-level analysis with source file mapping for any embedded architecture. Use it standalone for local analysis or integrate with [MemBrowse](https://membrowse.com) for historical analysis and CI integration.
 
 
@@ -13,12 +18,20 @@ A tool for analyzing memory footprint in embedded firmware. MemBrowse extracts d
 
 ## Installation
 
+### From PyPI (Recommended)
+
+```bash
+pip install membrowse
+```
+
+### From GitHub
+
 ```bash
 # Install directly from GitHub
 pip install git+https://github.com/membrowse/membrowse-action.git
 ```
 
-Or for development:
+### For Development
 
 ```bash
 # Clone and install in editable mode
@@ -143,22 +156,22 @@ jobs:
 
 ### Other CI/CD
 
-For pther CI systems:
+For other CI systems:
 
 ```bash
 # Install MemBrowse
-pip install git+https://github.com/membrowse/membrowse-action.git
+pip install membrowse
 
 # Build your firmware
 make all
 
-# Analyze memory
+# Analyze and upload memory report
 membrowse report \
   build/firmware.elf \
   "linker.ld" \
-  my-target \
-  your-membrowse-api-key \
-  "https://membrowse.com/api/upload"
+  --upload \
+  --target-name my-target \
+  --api-key your-membrowse-api-key
 ```
 
 ## Platform Support
