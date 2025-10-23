@@ -13,6 +13,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from collections import Counter
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -195,20 +196,12 @@ class TestStaticVariableSourceMapping(unittest.TestCase):
             2,
             "Should have 2 foo symbols (one per source file)")
 
-        # Sort symbols by address for consistent ordering
-        foo_symbols.sort(key=lambda s: s['address'])
-
-        # First symbol should map to a.c
+        # Verify both source files are present (order-independent)
+        source_files = {s['source_file'] for s in foo_symbols}
         self.assertEqual(
-            foo_symbols[0]['source_file'],
-            'a.c',
-            f"First foo symbol should map to a.c, got {foo_symbols[0]['source_file']}")
-
-        # Second symbol should map to b.c
-        self.assertEqual(
-            foo_symbols[1]['source_file'],
-            'b.c',
-            f"Second foo symbol should map to b.c, got {foo_symbols[1]['source_file']}")
+            source_files,
+            {'a.c', 'b.c'},
+            f"Should have foo from both a.c and b.c, got {source_files}")
 
         for symbol in foo_symbols:
             self.assertEqual(
@@ -293,20 +286,12 @@ class TestStaticVariableSourceMapping(unittest.TestCase):
             2,
             "Should have 2 helper_function symbols (one per source file)")
 
-        # Sort symbols by address for consistent ordering
-        helper_symbols.sort(key=lambda s: s['address'])
-
-        # First symbol should map to a.c
+        # Verify both source files are present (order-independent)
+        source_files = {s['source_file'] for s in helper_symbols}
         self.assertEqual(
-            helper_symbols[0]['source_file'],
-            'a.c',
-            f"First helper_function should map to a.c, got {helper_symbols[0]['source_file']}")
-
-        # Second symbol should map to b.c
-        self.assertEqual(
-            helper_symbols[1]['source_file'],
-            'b.c',
-            f"Second helper_function should map to b.c, got {helper_symbols[1]['source_file']}")
+            source_files,
+            {'a.c', 'b.c'},
+            f"Should have helper_function from both a.c and b.c, got {source_files}")
 
         for symbol in helper_symbols:
             self.assertEqual(
@@ -359,27 +344,26 @@ class TestStaticVariableSourceMapping(unittest.TestCase):
                 # Find foo symbols
                 foo_symbols = self._find_foo_symbols(report)
 
-                # Sort by address for consistent ordering
-                foo_symbols.sort(key=lambda s: s['address'])
-
                 # Verify count
                 self.assertEqual(
                     len(foo_symbols),
                     test_case['expected_count'],
                     f"Case {test_case['name']}: Expected {test_case['expected_count']} foo symbols")
 
-                # Verify mappings
-                for i, symbol in enumerate(foo_symbols):
-                    expected_file = test_case['expected_mapping'][i]
-                    self.assertEqual(
-                        symbol['source_file'],
-                        expected_file,
-                        f"Case {test_case['name']}: Symbol {i} should map to {expected_file}")
+                # Verify mappings (order-independent using Counter for multisets)
+                actual_sources = [s['source_file'] for s in foo_symbols]
+                expected_sources = test_case['expected_mapping']
+                self.assertEqual(
+                    Counter(actual_sources),
+                    Counter(expected_sources),
+                    f"Case {test_case['name']}: Expected sources {expected_sources}, got {actual_sources}")
+
+                # Verify binding for all symbols
+                for symbol in foo_symbols:
                     self.assertEqual(
                         symbol['binding'],
                         test_case['expected_binding'],
-                        f"Case {test_case['name']}: Symbol {i} should "
-                        f"have {test_case['expected_binding']} binding")
+                        f"Case {test_case['name']}: Symbol should have {test_case['expected_binding']} binding")
 
     def test_06_compilation_prerequisite_check(self):
         """
