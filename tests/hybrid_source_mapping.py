@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# pylint: disable=import-error,too-many-nested-blocks
+# pylint: disable=import-error,too-many-nested-blocks,duplicate-code
 """
 Demonstration of a hybrid approach for source file mapping that combines
 .debug_line (for functions) with DIE analysis (for variables and context)

@@ -6,6 +6,7 @@ This module tests the DW_AT_location expression parsing functionality
 to ensure global/static variables with location expressions are correctly
 handled.
 """
+# pylint: disable=protected-access
 
 import unittest
 from membrowse.analysis.dwarf import DWARFProcessor
@@ -24,8 +25,12 @@ class TestDWARFLocationExpression(unittest.TestCase):
 
         result = processor._parse_location_expression(location_value)
 
-        self.assertIsNotNone(result, "Should successfully parse DW_OP_addr expression")
-        self.assertEqual(result, 0x20000a30, "Should extract correct 32-bit address")
+        self.assertIsNotNone(
+            result, "Should successfully parse DW_OP_addr expression")
+        self.assertEqual(
+            result,
+            0x20000a30,
+            "Should extract correct 32-bit address")
 
     def test_parse_location_expression_dw_op_addr_64bit(self):
         """Test parsing DW_OP_addr with 64-bit address"""
@@ -37,8 +42,12 @@ class TestDWARFLocationExpression(unittest.TestCase):
 
         result = processor._parse_location_expression(location_value)
 
-        self.assertIsNotNone(result, "Should successfully parse 64-bit DW_OP_addr expression")
-        self.assertEqual(result, 0x400000000000abcd, "Should extract correct 64-bit address")
+        self.assertIsNotNone(
+            result, "Should successfully parse 64-bit DW_OP_addr expression")
+        self.assertEqual(
+            result,
+            0x400000000000abcd,
+            "Should extract correct 64-bit address")
 
     def test_parse_location_expression_invalid_opcode(self):
         """Test parsing location expression with non-DW_OP_addr opcode"""
@@ -70,7 +79,8 @@ class TestDWARFLocationExpression(unittest.TestCase):
 
         result = processor._parse_location_expression(location_value)
 
-        self.assertIsNone(result, "Should return None when address bytes are missing")
+        self.assertIsNone(
+            result, "Should return None when address bytes are missing")
 
     def test_parse_location_expression_real_world_addresses(self):
         """Test parsing various real-world address patterns"""
@@ -106,9 +116,18 @@ class TestDWARFLocationExpression(unittest.TestCase):
         tuple_value = tuple(list_value)
         result_tuple = processor._parse_location_expression(tuple_value)
 
-        self.assertEqual(result_list, 0x20000a30, "Should parse list correctly")
-        self.assertEqual(result_tuple, 0x20000a30, "Should parse tuple correctly")
-        self.assertEqual(result_list, result_tuple, "Both should produce same result")
+        self.assertEqual(
+            result_list,
+            0x20000a30,
+            "Should parse list correctly")
+        self.assertEqual(
+            result_tuple,
+            0x20000a30,
+            "Should parse tuple correctly")
+        self.assertEqual(
+            result_list,
+            result_tuple,
+            "Both should produce same result")
 
 
 if __name__ == '__main__':

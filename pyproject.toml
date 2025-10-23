@@ -1,0 +1,67 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "membrowse"
+version = "0.0.1"
+description = "Memory footprint analysis tools for embedded firmware"
+readme = "README.md"
+authors = [
+    {name = "MemBrowse", email = "support@membrowse.com"}
+]
+maintainers = [
+    {name = "MemBrowse", email = "support@membrowse.com"}
+]
+keywords = [
+    "embedded",
+    "firmware",
+    "memory",
+    "analysis",
+    "elf",
+    "linker",
+    "dwarf",
+    "footprint",
+    "stm32",
+    "esp32",
+    "arm",
+    "risc-v"
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Build Tools",
+    "Topic :: Software Development :: Embedded Systems",
+    "Topic :: System :: Hardware",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.7",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+    "Environment :: Console",
+]
+requires-python = ">=3.7"
+dependencies = [
+    "pyelftools>=0.29",
+    "requests>=2.25.0",
+]
+
+[project.urls]
+Homepage = "https://membrowse.com"
+Documentation = "https://github.com/membrowse/membrowse-action#readme"
+Repository = "https://github.com/membrowse/membrowse-action"
+Issues = "https://github.com/membrowse/membrowse-action/issues"
+Changelog = "https://github.com/membrowse/membrowse-action/blob/main/CHANGELOG.md"
+
+[project.scripts]
+membrowse = "membrowse.cli:main"
+
+[tool.setuptools]
+packages = ["membrowse", "membrowse.core", "membrowse.analysis", "membrowse.linker", "membrowse.api", "membrowse.commands", "membrowse.utils"]
+zip-safe = false
+
+[tool.setuptools.package-data]
+membrowse = ["py.typed"]

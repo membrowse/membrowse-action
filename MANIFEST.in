@@ -1,0 +1,28 @@
+# Include important metadata files
+include LICENSE
+include README.md
+include CHANGELOG.md
+include CLAUDE.md
+include pyproject.toml
+
+# Include shell script wrapper
+recursive-include scripts *
+
+# Include requirements files for reference
+include pr-action/requirements.txt
+include onboard-action/requirements.txt
+
+# Exclude unnecessary files
+exclude .gitignore
+recursive-exclude * __pycache__
+recursive-exclude * *.py[co]
+recursive-exclude * .DS_Store
+recursive-exclude .git *
+recursive-exclude .pytest_cache *
+recursive-exclude build *
+recursive-exclude *.egg-info *
+
+# Exclude test artifacts and reports
+exclude a.ld
+exclude micropython_*.json
+exclude report.json

@@ -162,5 +162,6 @@ if __name__ == '__main__':
     target = sys.argv[1] if len(sys.argv) > 1 else 'NUCLEO_F401RE_basic'
     output = sys.argv[2] if len(sys.argv) > 2 else 'stm32_memory_report.json'
 
-    result = generate_stm32_report(target, output)  # pylint: disable=invalid-name
+    # pylint: disable=invalid-name
+    result = generate_stm32_report(target, output)
     sys.exit(0 if result else 1)

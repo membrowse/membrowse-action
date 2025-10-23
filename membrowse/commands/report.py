@@ -99,6 +99,7 @@ examples:
     git_group.add_argument(
         '--commit-timestamp',
         help='Commit timestamp (ISO format)')
+    git_group.add_argument('--author', help='Commit author')
     git_group.add_argument('--pr-number', help='Pull request number')
 
     # Performance options
@@ -129,6 +130,7 @@ def generate_and_upload_report(  # pylint: disable=too-many-arguments,too-many-p
     repo_name: str = None,
     commit_message: str = None,
     commit_timestamp: str = None,
+    author: str = None,
     skip_line_program: bool = False,
     verbose: bool = False,
     upload: bool = True,
@@ -151,6 +153,7 @@ def generate_and_upload_report(  # pylint: disable=too-many-arguments,too-many-p
         repo_name: Repository name (optional)
         commit_message: Commit message (optional)
         commit_timestamp: Commit timestamp in ISO format (optional)
+        author: Commit author (optional)
         skip_line_program: Skip DWARF line program processing (optional)
         verbose: Enable verbose output (optional)
         upload: Whether to upload the report (default: True)
@@ -258,9 +261,13 @@ def generate_and_upload_report(  # pylint: disable=too-many-arguments,too-many-p
                 commit_message = git_metadata.commit_message
             if not commit_timestamp:
                 commit_timestamp = git_metadata.commit_timestamp
+            if not author:
+                author = git_metadata.author
 
         # Upload report
-        logger.info("%s: Starting upload of report to MemBrowse...", log_prefix)
+        logger.info(
+            "%s: Starting upload of report to MemBrowse...",
+            log_prefix)
 
         # Build metadata structure
         metadata = {
@@ -268,6 +275,7 @@ def generate_and_upload_report(  # pylint: disable=too-many-arguments,too-many-p
                 'commit_hash': commit_sha,
                 'commit_message': commit_message,
                 'commit_timestamp': commit_timestamp,
+                'author': author,
                 'base_commit_hash': base_sha,
                 'branch_name': branch_name,
                 'pr_number': None  # pr_number not passed as parameter
@@ -334,6 +342,7 @@ def run_report(args: argparse.Namespace) -> int:
         repo_name=getattr(args, 'repo_name', None),
         commit_message=getattr(args, 'commit_message', None),
         commit_timestamp=getattr(args, 'commit_timestamp', None),
+        author=getattr(args, 'author', None),
         skip_line_program=getattr(args, 'skip_line_program', False),
         verbose=getattr(args, 'verbose', False),
         upload=getattr(args, 'upload', False),

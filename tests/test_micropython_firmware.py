@@ -2,14 +2,21 @@
 """
 Test real MicroPython firmware analysis for source file mapping verification.
 """
+# pylint: disable=import-outside-toplevel,too-many-locals,too-many-statements
+# pylint: disable=too-many-branches,line-too-long,protected-access
+# pylint: disable=f-string-without-interpolation
+# Note: This comprehensive integration test (800+ lines) has high complexity due to
+# extensive validation logic and debug output. Line length and f-string style are
+# relaxed for readability of debug output. Protected access is needed to test internal state.
 
-from membrowse.core import ReportGenerator
-import unittest
 import json
 import os
-import tempfile
-from pathlib import Path
 import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+from membrowse.core import ReportGenerator
 
 # Add shared directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent / 'shared'))
@@ -22,9 +29,9 @@ class TestMicroPythonFirmware(unittest.TestCase):
     def setUpClass(cls):
         """Set up class with firmware paths"""
         cls.firmware_path = Path(
-            "../micropython/ports/stm32/build-PYBV10/firmware.elf")
+            __file__).parent / "fixtures" / "micropython" / "stm32" / "firmware.elf"
         cls.linker_script_path = Path(
-            "../micropython/ports/stm32/boards/stm32f405xg.ld")
+            __file__).parent / "fixtures" / "micropython" / "stm32" / "linker" / "stm32f405.ld"
 
         # Check if firmware exists
         if not cls.firmware_path.exists():
@@ -36,7 +43,8 @@ class TestMicroPythonFirmware(unittest.TestCase):
 
         # Parse memory regions from actual linker script
         from membrowse.linker.parser import parse_linker_scripts
-        linker_script_path = Path(__file__).parent.parent.parent / "micropython" / "ports" / "stm32" / "boards" / "stm32f405.ld"
+        linker_script_path = Path(__file__).parent / "fixtures" / \
+            "micropython" / "stm32" / "linker" / "stm32f405.ld"
 
         memory_regions_data = parse_linker_scripts(
             [str(linker_script_path)],
@@ -56,12 +64,12 @@ class TestMicroPythonFirmware(unittest.TestCase):
             report = generator.generate_report(verbose=False)
 
             # Write report to file
-            with open(report_file_path, 'w') as f:
+            with open(report_file_path, 'w', encoding='utf-8') as f:
                 json.dump(report, f, indent=2)
 
             # Also save to a known location for inspection
             known_report_path = Path("micropython_report_stm32.json")
-            with open(known_report_path, 'w') as f:
+            with open(known_report_path, 'w', encoding='utf-8') as f:
                 json.dump(report, f, indent=2)
             print(f"\n📁 Report saved to: {known_report_path.absolute()}")
 
@@ -70,7 +78,7 @@ class TestMicroPythonFirmware(unittest.TestCase):
                 report, dict, "Report should be a dictionary")
 
             # Load the generated report
-            with open(report_file_path, 'r') as f:
+            with open(report_file_path, 'r', encoding='utf-8') as f:
                 report = json.load(f)
 
             # Basic report structure validation
@@ -78,7 +86,8 @@ class TestMicroPythonFirmware(unittest.TestCase):
             self.assertIn('architecture', report)
             self.assertIn('entry_point', report)
 
-            # Find uart_init, I2CHandle1, micropython_ringio_any, machine_init, and usb_device symbols
+            # Find uart_init, I2CHandle1, micropython_ringio_any, machine_init,
+            # and usb_device symbols
             uart_init_symbol = None
             i2c_handle1_symbol = None
             ringio_any_symbol = None
@@ -255,7 +264,8 @@ class TestMicroPythonFirmware(unittest.TestCase):
             else:
                 print(f"\n⚠️  micropython_ringio_any not found in symbols")
 
-            # Check machine_init symbol mapping (validates file index deduplication fix)
+            # Check machine_init symbol mapping (validates file index
+            # deduplication fix)
             if machine_init_symbol:
                 print(f"\nFound machine_init symbol:")
                 print(f"  Address: 0x{machine_init_symbol['address']:08x}")
@@ -263,7 +273,8 @@ class TestMicroPythonFirmware(unittest.TestCase):
                 print(f"  Type: {machine_init_symbol['type']}")
                 print(f"  Source file: {machine_init_symbol['source_file']}")
 
-                # This is the critical test for file index deduplication bug fix
+                # This is the critical test for file index deduplication bug
+                # fix
                 self.assertEqual(
                     machine_init_symbol['source_file'],
                     'modmachine.c',
@@ -277,7 +288,8 @@ class TestMicroPythonFirmware(unittest.TestCase):
             else:
                 print(f"\n⚠️  machine_init not found in symbols")
 
-            # Check usb_device symbol mapping (validates DW_AT_location expression parsing fix)
+            # Check usb_device symbol mapping (validates DW_AT_location
+            # expression parsing fix)
             if usb_device_symbol:
                 print(f"\nFound usb_device symbol:")
                 print(f"  Address: 0x{usb_device_symbol['address']:08x}")
@@ -285,7 +297,8 @@ class TestMicroPythonFirmware(unittest.TestCase):
                 print(f"  Type: {usb_device_symbol['type']}")
                 print(f"  Source file: {usb_device_symbol['source_file']}")
 
-                # This is the critical test for DW_AT_location expression parsing fix
+                # This is the critical test for DW_AT_location expression
+                # parsing fix
                 self.assertEqual(
                     usb_device_symbol['source_file'],
                     'usb.c',
@@ -442,9 +455,6 @@ class TestMicroPythonFirmware(unittest.TestCase):
                 total_elf_symbols = len(report['symbols'])
                 symbols_with_source = len(
                     [s for s in report['symbols'] if s['source_file']])
-                symbols_from_die_only = 0
-                symbols_from_line_program = 0
-                symbols_no_source = 0
 
                 # We need to check which resolution path was used for each symbol
                 # This requires examining the resolver's lookup order
@@ -515,24 +525,25 @@ class TestMicroPythonESP32Firmware(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         """Set up class with ESP32 firmware paths"""
-        cls.firmware_path = Path(
-            "../micropython/ports/esp32/build-ESP32_GENERIC/micropython.elf")
+        fixtures_dir = Path(__file__).parent / \
+            "fixtures" / "micropython" / "esp32"
+        cls.firmware_path = fixtures_dir / "micropython.elf"
         cls.linker_scripts = [
-            Path("../micropython/ports/esp32/build-ESP32_GENERIC/esp-idf/esp_system/ld/memory.ld"),
-            Path("../micropython/ports/esp32/build-ESP32_GENERIC/esp-idf/esp_system/ld/sections.ld"),
-            Path("../micropython/esp-idf/components/esp_rom/esp32/ld/esp32.rom.ld"),
-            Path("../micropython/esp-idf/components/esp_rom/esp32/ld/esp32.rom.api.ld"),
-            Path("../micropython/esp-idf/components/esp_rom/esp32/ld/esp32.rom.libgcc.ld"),
-            Path("../micropython/esp-idf/components/esp_rom/esp32/ld/esp32.rom.newlib-data.ld"),
-            Path("../micropython/esp-idf/components/esp_rom/esp32/ld/esp32.rom.syscalls.ld"),
-            Path("../micropython/esp-idf/components/esp_rom/esp32/ld/esp32.rom.newlib-funcs.ld"),
-            Path("../micropython/esp-idf/components/soc/esp32/ld/esp32.peripherals.ld"),
-            Path("../micropython/esp-idf/components/esp_rom/esp32/ld/esp32.rom.newlib-time.ld"),
-            Path("../micropython/esp-idf/components/esp_rom/esp32/ld/esp32.rom.newlib-nano.ld"),
-            Path("../micropython/esp-idf/components/esp_rom/esp32/ld/esp32.rom.newlib-locale.ld"),
-            Path("../micropython/esp-idf/components/esp_rom/esp32/ld/esp32.rom.eco3.ld"),
-            Path("../micropython/esp-idf/components/esp_rom/esp32/ld/esp32.rom.redefined.ld"),
-            Path("../micropython/esp-idf/components/esp_rom/esp32/ld/esp32.rom.spiflash_legacy.ld"),
+            fixtures_dir / "linker" / "esp-idf" / "esp_system" / "ld" / "memory.ld",
+            fixtures_dir / "linker" / "esp-idf" / "esp_system" / "ld" / "sections.ld",
+            fixtures_dir / "linker" / "esp_rom" / "esp32" / "ld" / "esp32.rom.ld",
+            fixtures_dir / "linker" / "esp_rom" / "esp32" / "ld" / "esp32.rom.api.ld",
+            fixtures_dir / "linker" / "esp_rom" / "esp32" / "ld" / "esp32.rom.libgcc.ld",
+            fixtures_dir / "linker" / "esp_rom" / "esp32" / "ld" / "esp32.rom.newlib-data.ld",
+            fixtures_dir / "linker" / "esp_rom" / "esp32" / "ld" / "esp32.rom.syscalls.ld",
+            fixtures_dir / "linker" / "esp_rom" / "esp32" / "ld" / "esp32.rom.newlib-funcs.ld",
+            fixtures_dir / "linker" / "soc" / "esp32" / "ld" / "esp32.peripherals.ld",
+            fixtures_dir / "linker" / "esp_rom" / "esp32" / "ld" / "esp32.rom.newlib-time.ld",
+            fixtures_dir / "linker" / "esp_rom" / "esp32" / "ld" / "esp32.rom.newlib-nano.ld",
+            fixtures_dir / "linker" / "esp_rom" / "esp32" / "ld" / "esp32.rom.newlib-locale.ld",
+            fixtures_dir / "linker" / "esp_rom" / "esp32" / "ld" / "esp32.rom.eco3.ld",
+            fixtures_dir / "linker" / "esp_rom" / "esp32" / "ld" / "esp32.rom.redefined.ld",
+            fixtures_dir / "linker" / "esp_rom" / "esp32" / "ld" / "esp32.rom.spiflash_legacy.ld",
         ]
 
         # Check if firmware exists
@@ -545,7 +556,8 @@ class TestMicroPythonESP32Firmware(unittest.TestCase):
 
         # Parse memory regions from actual linker script
         from membrowse.linker.parser import parse_linker_scripts
-        linker_script_path = Path(__file__).parent.parent.parent / "micropython" / "ports" / "esp32" / "build-ESP32_GENERIC" / "esp-idf" / "esp_system" / "ld" / "memory.ld"
+        linker_script_path = Path(__file__).parent / "fixtures" / "micropython" / \
+            "esp32" / "linker" / "esp-idf" / "esp_system" / "ld" / "memory.ld"
 
         memory_regions_data = parse_linker_scripts(
             [str(linker_script_path)],
@@ -565,12 +577,12 @@ class TestMicroPythonESP32Firmware(unittest.TestCase):
             report = generator.generate_report(verbose=False)
 
             # Write report to file
-            with open(report_file_path, 'w') as f:
+            with open(report_file_path, 'w', encoding='utf-8') as f:
                 json.dump(report, f, indent=2)
 
             # Also save to a known location for inspection
             known_report_path = Path("micropython_esp32_report.json")
-            with open(known_report_path, 'w') as f:
+            with open(known_report_path, 'w', encoding='utf-8') as f:
                 json.dump(report, f, indent=2)
             print(f"\n📁 ESP32 Report saved to: {known_report_path.absolute()}")
 
@@ -579,7 +591,7 @@ class TestMicroPythonESP32Firmware(unittest.TestCase):
                 report, dict, "Report should be a dictionary")
 
             # Load the generated report
-            with open(report_file_path, 'r') as f:
+            with open(report_file_path, 'r', encoding='utf-8') as f:
                 report = json.load(f)
 
             # Basic report structure validation

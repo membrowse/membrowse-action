@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # pylint: disable=import-error,no-member,protected-access,wrong-import-order
+# pylint: disable=duplicate-code
 """
 Debug script to understand why uart_tx_count maps to stdint-uintn.h
 """

@@ -28,7 +28,7 @@ ARM_MACHINES = {
 }
 
 
-class DWARFProcessor:  # pylint: disable=too-many-instance-attributes
+class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-public-methods
     """Handles DWARF debug information processing for source file mapping.
 
     This processor extracts source file mappings from DWARF debug information
@@ -126,7 +126,8 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes
             # Build CU address range index
             cu_address_index = self._build_cu_address_index(dwarfinfo)
             logger.debug(
-                "Built CU index with %d compilation units", len(cu_address_index))
+                "Built CU index with %d compilation units",
+                len(cu_address_index))
 
             # Only process CUs that contain relevant addresses for performance optimization
             # This avoids processing all CUs when we only need specific symbols
@@ -367,7 +368,8 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes
         # - DIE data: Maps symbol definitions to source files (more accurate for variables)
 
         # Track coverage before line program processing
-        # die_coverage_before = len(self.dwarf_data['symbol_to_file'])  # unused
+        # die_coverage_before = len(self.dwarf_data['symbol_to_file'])  #
+        # unused
 
         # Skip line program processing if requested (20-30% performance
         # improvement)
@@ -453,7 +455,8 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes
                 return None
 
             # Convert bytes to address (little-endian, typical for most architectures)
-            # For 32-bit: [b0, b1, b2, b3] -> b0 + (b1<<8) + (b2<<16) + (b3<<24)
+            # For 32-bit: [b0, b1, b2, b3] -> b0 + (b1<<8) + (b2<<16) +
+            # (b3<<24)
             address = 0
             for i, byte_val in enumerate(addr_bytes):
                 address |= (byte_val << (i * 8))
@@ -465,7 +468,7 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes
                 "Failed to parse location expression: %s", e)
             return None
 
-    def _extract_line_program_data(self, cu, dwarfinfo) -> None:
+    def _extract_line_program_data(self, cu, dwarfinfo) -> None:  # pylint: disable=too-many-nested-blocks
         """Extract line program data to map addresses to source files.
 
         Line program data provides instruction-level address to source file mappings,
@@ -476,7 +479,7 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes
             cu: Compilation unit containing the line program
             dwarfinfo: DWARF debug information object
         """
-        try:
+        try:  # pylint: disable=too-many-nested-blocks
             line_program = dwarfinfo.line_program_for_CU(cu)
             if not line_program:
                 return
@@ -555,10 +558,12 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes
                 # DWARF 4 and earlier: file indices are 1-based
                 # DWARF 5 and later: file indices are 0-based
                 # Even if there are duplicates, we must keep original indices
-                # because DW_AT_decl_file references them by their original index
+                # because DW_AT_decl_file references them by their original
+                # index
                 dwarf_version = cu['version']
                 start_index = 0 if dwarf_version >= 5 else 1
-                for idx, file_entry in enumerate(line_program.header.file_entry, start=start_index):
+                for idx, file_entry in enumerate(
+                        line_program.header.file_entry, start=start_index):
                     if file_entry and hasattr(file_entry, 'name'):
                         filename = self._extract_string_value(file_entry.name)
                         if filename:
@@ -586,7 +591,7 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes
                           file_entries: Dict[int,
                                              str],
                           cu_source_file: Optional[str],
-                          depth: int,
+                          depth: int,  # pylint: disable=unused-argument
                           cu_low_pc: Optional[int],  # pylint: disable=unused-argument
                           cu_high_pc: Optional[int]) -> None:  # pylint: disable=unused-argument
         """Process DIE tree.
@@ -619,7 +624,7 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes
                 self._process_die_for_dictionaries_optimized(
                     current_die, file_entries, cu_source_file, cu_low_pc, cu_high_pc)
 
-    def _process_die_for_dictionaries_optimized(  # pylint: disable=too-many-branches,too-many-statements,too-many-nested-blocks
+    def _process_die_for_dictionaries_optimized(  # pylint: disable=too-many-branches,too-many-statements,too-many-nested-blocks,too-many-arguments,too-many-positional-arguments,too-many-locals
             self,
             die,
             file_entries: Dict[int, str],
@@ -652,12 +657,15 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes
             if not die_name:
                 spec_attr = attrs.get('DW_AT_specification')
                 if spec_attr:
-                    # Follow the specification reference to get name and other attributes
-                    spec_die = die.get_DIE_from_attribute('DW_AT_specification')
+                    # Follow the specification reference to get name and other
+                    # attributes
+                    spec_die = die.get_DIE_from_attribute(
+                        'DW_AT_specification')
                     if spec_die and spec_die.attributes:
                         name_attr = spec_die.attributes.get('DW_AT_name')
                         if name_attr and hasattr(name_attr, 'value'):
-                            die_name = self._extract_string_value(name_attr.value)
+                            die_name = self._extract_string_value(
+                                name_attr.value)
 
             if not die_name:
                 return
@@ -682,8 +690,7 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes
                     if not die_address:
                         logger.debug(
                             "Could not parse DW_AT_location expression for symbol '%s' "
-                            "(not a simple DW_OP_addr or unsupported expression type)",
-                            die_name)
+                            "(not a simple DW_OP_addr or unsupported expression type)", die_name)
 
             # Only process if this address is in our symbol table
             if die_address and not self._is_address_in_symbol_set_with_tolerance(
@@ -707,7 +714,8 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes
             has_location = 'DW_AT_location' in attrs or die_address is not None
             has_external_linkage = 'DW_AT_external' in attrs
 
-            # Check specification DIE for external linkage if not found directly
+            # Check specification DIE for external linkage if not found
+            # directly
             if not has_external_linkage and spec_die and spec_die.attributes:
                 has_external_linkage = 'DW_AT_external' in spec_die.attributes
 
@@ -719,7 +727,8 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes
             # 3. Declarations only (no location): Use decl_file
             #    - Function prototypes, extern declarations should map to where declared
 
-            if not is_declaration and has_location and has_external_linkage and decl_file != cu_source_file and cu_source_file:
+            if (not is_declaration and has_location and has_external_linkage
+                    and decl_file != cu_source_file and cu_source_file):
                 # Definition with external linkage - prefer CU source file
                 # This handles cases like usb_device where DW_AT_decl_file points to header
                 # but the actual definition is in the .c file

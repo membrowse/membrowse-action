@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# pylint: disable=import-error,too-many-nested-blocks
+# pylint: disable=import-error,too-many-nested-blocks,duplicate-code
 """
 Example of how to use .debug_line section for more accurate source file mapping
 """

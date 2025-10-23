@@ -28,7 +28,7 @@ def main():
     except LinkerScriptError as e:
         print(f"Linker script parsing error: {e}", file=sys.stderr)
         sys.exit(1)
-    except Exception as e:
+    except Exception as e:  # pylint: disable=broad-exception-caught
         print(f"Unexpected error: {e}", file=sys.stderr)
         sys.exit(1)
 

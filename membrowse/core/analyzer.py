@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# pylint: disable=duplicate-code
 """
 ELF file analysis and data extraction.
 
@@ -35,7 +36,8 @@ class ELFAnalyzer:  # pylint: disable=too-many-instance-attributes
         self._validate_elf_file()
 
         # Open ELF file once and reuse throughout
-        self._elf_file_handle = open(self.elf_path, 'rb')  # pylint: disable=consider-using-with
+        # pylint: disable=consider-using-with
+        self._elf_file_handle = open(self.elf_path, 'rb')
         self.elffile = ELFFile(self._elf_file_handle)
 
         # Cache for expensive string operations and file paths

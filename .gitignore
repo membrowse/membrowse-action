@@ -1,4 +1,5 @@
 *.pyc
 *.o
 *.elf
+!tests/fixtures/**/*.elf
 *.out

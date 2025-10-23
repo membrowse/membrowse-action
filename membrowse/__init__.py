@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# pylint: disable=duplicate-code
 """
 MemBrowse - Memory analysis for embedded firmware.
 
@@ -11,7 +12,7 @@ from .core.analyzer import ELFAnalyzer
 from .core.models import Symbol, MemoryRegion, MemorySection, ELFMetadata
 from .linker.parser import parse_linker_scripts
 
-__version__ = "1.0.0"
+__version__ = "0.0.1"
 
 __all__ = [
     'ReportGenerator',

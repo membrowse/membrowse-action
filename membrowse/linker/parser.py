@@ -164,6 +164,10 @@ class ExpressionEvaluator:
         """Set memory regions for ORIGIN/LENGTH function resolution"""
         self._memory_regions = memory_regions.copy()
 
+    def get_memory_regions(self) -> Dict[str, MemoryRegion]:
+        """Get copy of current memory regions"""
+        return self._memory_regions.copy()
+
     def evaluate_expression(
         self, expr: str, resolving_vars: Optional[Set[str]] = None
     ) -> int:
@@ -221,7 +225,8 @@ class ExpressionEvaluator:
                 except (ExpressionEvaluationError, VariableResolutionError):
                     if var_name in resolving_vars:
                         resolving_vars.remove(var_name)
-                    # Skip unresolvable variables - part of iterative resolution
+                    # Skip unresolvable variables - part of iterative
+                    # resolution
         return expr
 
     def _handle_linker_functions(self, expr: str) -> str:
@@ -610,7 +615,7 @@ class MemoryRegionBuilder:  # pylint: disable=too-few-public-methods
     def __init__(self, evaluator: ExpressionEvaluator):
         self.evaluator = evaluator
 
-    def parse_memory_block(
+    def parse_memory_block(  # pylint: disable=too-many-branches
             self, memory_content: str, deferred_matches: Optional[List[tuple]] = None
     ) -> tuple:
         """Parse individual memory regions from MEMORY block content
@@ -633,20 +638,21 @@ class MemoryRegionBuilder:  # pylint: disable=too-few-public-methods
         )
 
         # Try no-comma format (whitespace separator, used in some Intel/embedded scripts)
-        # Pattern must handle expressions with spaces (e.g., "ADDR(x) - ADDR(y)")
+        # Pattern must handle expressions with spaces (e.g., "ADDR(x) -
+        # ADDR(y)")
         no_comma_pattern = (
             r"(\w+)\s*:\s*(?:ORIGIN|origin|org)\s*=\s*([^\s]+(?:\s*[-+*/]\s*[^\s]+)*)\s+"
-            r"(?:LENGTH|length|len)\s*=\s*([^/\n]+?)(?=\s*(?://|$|\n|(?:\w+\s*:)))"
-        )
+            r"(?:LENGTH|length|len)\s*=\s*([^/\n]+?)(?=\s*(?://|$|\n|(?:\w+\s*:)))")
 
         # First try standard pattern
         for match in re.finditer(standard_pattern, memory_content):
             region = self._build_region_from_match(match, has_attributes=True)
             if region:
                 memory_regions[region.name] = region
-                # Update evaluator immediately so subsequent regions can reference this one
+                # Update evaluator immediately so subsequent regions can
+                # reference this one
                 self.evaluator.set_memory_regions({
-                    **self.evaluator._memory_regions,
+                    **self.evaluator.get_memory_regions(),
                     region.name: region
                 })
             else:
@@ -661,7 +667,7 @@ class MemoryRegionBuilder:  # pylint: disable=too-few-public-methods
                     memory_regions[region.name] = region
                     # Update evaluator immediately
                     self.evaluator.set_memory_regions({
-                        **self.evaluator._memory_regions,
+                        **self.evaluator.get_memory_regions(),
                         region.name: region
                     })
                 else:
@@ -676,13 +682,14 @@ class MemoryRegionBuilder:  # pylint: disable=too-few-public-methods
                     memory_regions[region.name] = region
                     # Update evaluator immediately
                     self.evaluator.set_memory_regions({
-                        **self.evaluator._memory_regions,
+                        **self.evaluator.get_memory_regions(),
                         region.name: region
                     })
                 else:
                     failed_matches.append((match, False))
 
-        # Process deferred matches from previous iteration (after parsing new ones)
+        # Process deferred matches from previous iteration (after parsing new
+        # ones)
         if deferred_matches:
             for match, has_attributes in deferred_matches:
                 region = self._build_region_from_match(match, has_attributes)
@@ -690,7 +697,7 @@ class MemoryRegionBuilder:  # pylint: disable=too-few-public-methods
                     memory_regions[region.name] = region
                     # Update evaluator
                     self.evaluator.set_memory_regions({
-                        **self.evaluator._memory_regions,
+                        **self.evaluator.get_memory_regions(),
                         region.name: region
                     })
                 else:
@@ -704,7 +711,7 @@ class MemoryRegionBuilder:  # pylint: disable=too-few-public-methods
     ) -> Optional[MemoryRegion]:
         """Build a memory region from a regex match"""
         # Save current state in case we need to restore
-        saved_regions = self.evaluator._memory_regions.copy()
+        saved_regions = self.evaluator.get_memory_regions()
 
         try:
             if has_attributes:
@@ -721,7 +728,8 @@ class MemoryRegionBuilder:  # pylint: disable=too-few-public-methods
             origin = self._parse_address(origin_str)
 
             # For self-referential LENGTH expressions (e.g., ADDR(dccm) when parsing dccm),
-            # temporarily add the region with a placeholder size so ADDR() can resolve
+            # temporarily add the region with a placeholder size so ADDR() can
+            # resolve
             temp_region = MemoryRegion(
                 name=name,
                 attributes=attributes,
@@ -729,7 +737,7 @@ class MemoryRegionBuilder:  # pylint: disable=too-few-public-methods
                 limit_size=0,  # Placeholder
             )
             self.evaluator.set_memory_regions({
-                **self.evaluator._memory_regions,
+                **self.evaluator.get_memory_regions(),
                 name: temp_region
             })
 
@@ -760,7 +768,8 @@ class MemoryRegionBuilder:  # pylint: disable=too-few-public-methods
         """Parse size string (supports K, M, G suffixes, variables, and expressions)"""
         size_str = size_str.strip()
 
-        # Evaluate as expression (handles variables, arithmetic, and size suffixes)
+        # Evaluate as expression (handles variables, arithmetic, and size
+        # suffixes)
         return self.evaluator.evaluate_expression(size_str, set())
 
 
@@ -861,7 +870,8 @@ class LinkerScriptParser:  # pylint: disable=too-few-public-methods
             # Update deferred list for next iteration
             deferred_matches = new_deferred
 
-            # If no new regions were added and no deferred matches remain, we're done
+            # If no new regions were added and no deferred matches remain,
+            # we're done
             if len(memory_regions) == old_count and not deferred_matches:
                 break
 
@@ -874,8 +884,7 @@ class LinkerScriptParser:  # pylint: disable=too-few-public-methods
 
             raise RegionParsingError(
                 f"Could not resolve memory regions after {max_iterations} iterations: "
-                f"{', '.join(sorted(failed_regions))}"
-            )
+                f"{', '.join(sorted(failed_regions))}")
 
         return memory_regions
 
@@ -902,7 +911,8 @@ class LinkerScriptParser:  # pylint: disable=too-few-public-methods
             return {}, []
 
         memory_content = memory_match.group(1)
-        return self.region_builder.parse_memory_block(memory_content, deferred_matches)
+        return self.region_builder.parse_memory_block(
+            memory_content, deferred_matches)
 
 
 # Convenience functions for backward compatibility

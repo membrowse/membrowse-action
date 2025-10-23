@@ -10,6 +10,7 @@ This test suite covers:
 4. Error handling
 5. Real-world linker script examples
 """
+# pylint: disable=duplicate-code
 
 import sys
 import tempfile
@@ -285,7 +286,9 @@ class TestMemoryRegions(unittest.TestCase):
             parse_linker_scripts([str(file_path)])
 
         # Verify the error message mentions the failed regions
-        self.assertIn("Could not resolve memory regions", str(context.exception))
+        self.assertIn(
+            "Could not resolve memory regions", str(
+                context.exception))
 
     def test_case_insensitive_memory_keyword(self):
         """Test case-insensitive MEMORY keyword"""
