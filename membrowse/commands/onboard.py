@@ -223,6 +223,7 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
             repo_name=repo_name,
             commit_message=metadata['commit_message'],
             commit_timestamp=metadata['commit_timestamp'],
+            author=metadata.get('author'),
             verbose=args.verbose
         )
 

@@ -18,6 +18,7 @@ class GitMetadata:
         repo_name: Optional[str] = None,
         commit_message: Optional[str] = None,
         commit_timestamp: Optional[str] = None,
+        author: Optional[str] = None,
         pr_number: Optional[str] = None
     ):
         self.commit_sha = commit_sha
@@ -26,6 +27,7 @@ class GitMetadata:
         self.repo_name = repo_name
         self.commit_message = commit_message
         self.commit_timestamp = commit_timestamp
+        self.author = author
         self.pr_number = pr_number
 
 
@@ -107,18 +109,23 @@ def detect_github_metadata() -> GitMetadata:
         if parts:
             repo_name = parts[-1]
 
-    # Get commit message and timestamp
+    # Get commit message, author, and timestamp
     commit_message = 'Unknown commit message'
     commit_timestamp = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
+    author = 'Unknown'
 
     if commit_sha:
-        msg = run_git_command(['log', '-1', '--pretty=format:%s', commit_sha])
+        msg = run_git_command(['log', '-1', '--pretty=format:%B', commit_sha])
         if msg:
             commit_message = msg
 
         ts = run_git_command(['log', '-1', '--pretty=format:%cI', commit_sha])
         if ts:
             commit_timestamp = ts
+
+        auth = run_git_command(['log', '-1', '--pretty=format:%an', commit_sha])
+        if auth:
+            author = auth
 
     return GitMetadata(
         commit_sha=commit_sha or None,
@@ -127,6 +134,7 @@ def detect_github_metadata() -> GitMetadata:
         repo_name=repo_name or None,
         commit_message=commit_message or None,
         commit_timestamp=commit_timestamp or None,
+        author=author or None,
         pr_number=pr_number or None
     )
 
@@ -146,6 +154,7 @@ def get_commit_metadata(commit_sha: str) -> Dict[str, Any]:
         'base_sha': None,
         'commit_message': 'Unknown commit message',
         'commit_timestamp': datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
+        'author': 'Unknown',
     }
 
     # Get parent commit
@@ -153,8 +162,8 @@ def get_commit_metadata(commit_sha: str) -> Dict[str, Any]:
     if base_sha:
         metadata['base_sha'] = base_sha
 
-    # Get commit message
-    msg = run_git_command(['log', '-1', '--pretty=format:%s', commit_sha])
+    # Get commit message (full message body)
+    msg = run_git_command(['log', '-1', '--pretty=format:%B', commit_sha])
     if msg:
         metadata['commit_message'] = msg
 
@@ -162,5 +171,10 @@ def get_commit_metadata(commit_sha: str) -> Dict[str, Any]:
     ts = run_git_command(['log', '-1', '--pretty=format:%cI', commit_sha])
     if ts:
         metadata['commit_timestamp'] = ts
+
+    # Get commit author
+    auth = run_git_command(['log', '-1', '--pretty=format:%an', commit_sha])
+    if auth:
+        metadata['author'] = auth
 
     return metadata
