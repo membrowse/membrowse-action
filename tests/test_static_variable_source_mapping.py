@@ -356,14 +356,16 @@ class TestStaticVariableSourceMapping(unittest.TestCase):
                 self.assertEqual(
                     Counter(actual_sources),
                     Counter(expected_sources),
-                    f"Case {test_case['name']}: Expected sources {expected_sources}, got {actual_sources}")
+                    f"Case {test_case['name']}: Expected sources "
+                    f"{expected_sources}, got {actual_sources}")
 
                 # Verify binding for all symbols
                 for symbol in foo_symbols:
                     self.assertEqual(
                         symbol['binding'],
                         test_case['expected_binding'],
-                        f"Case {test_case['name']}: Symbol should have {test_case['expected_binding']} binding")
+                        f"Case {test_case['name']}: Symbol should have "
+                        f"{test_case['expected_binding']} binding")
 
     def test_06_compilation_prerequisite_check(self):
         """
