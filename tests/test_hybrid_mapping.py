@@ -2,6 +2,8 @@
 """
 Test the hybrid source file mapping implementation
 """
+# pylint: disable=protected-access,too-many-branches
+# pylint: disable=too-many-statements,broad-exception-caught,duplicate-code
 
 import sys
 from pathlib import Path
@@ -35,10 +37,10 @@ def test_hybrid_mapping():
     # Get symbols
     symbols = analyzer.get_symbols()
 
-    print(f"\n🧪 HYBRID APPROACH RESULTS:")
+    print("\n🧪 HYBRID APPROACH RESULTS:")
     print("=" * 60)
 
-    print(f"\n📋 Functions (should use .debug_line):")
+    print("\n📋 Functions (should use .debug_line):")
     for symbol in symbols:
         if symbol.type == 'FUNC' and 'uart' in symbol.name.lower():
             # Check what method was used
@@ -62,7 +64,8 @@ def test_hybrid_mapping():
                     if symbol.address in analyzer._dwarf_data.get(
                             'address_to_cu_file', {}):
                         method_used = "DIE fallback (by_address)"
-                    elif (symbol.name, symbol.address) in analyzer._dwarf_data.get('symbol_to_file', {}):
+                    elif ((symbol.name, symbol.address) in
+                          analyzer._dwarf_data.get('symbol_to_file', {})):
                         method_used = "DIE fallback (compound_key)"
                     else:
                         method_used = "No mapping found"
@@ -71,7 +74,7 @@ def test_hybrid_mapping():
                 f"  ✅ {symbol.name:15} @ 0x{symbol.address:08x} -> {symbol.source_file}")
             print(f"     Method: {method_used}")
 
-    print(f"\n📦 Variables (must use DIE analysis):")
+    print("\n📦 Variables (must use DIE analysis):")
     for symbol in symbols:
         if symbol.type == 'OBJECT' and 'uart' in symbol.name.lower():
             # Variables should never be in .debug_line
@@ -91,9 +94,9 @@ def test_hybrid_mapping():
                 f"  ✅ {symbol.name:15} @ 0x{symbol.address:08x} -> {symbol.source_file}")
             print(f"     Method: {die_method}")
             if in_line_mapping:
-                print(f"     ⚠️  WARNING: Variable unexpectedly found in .debug_line!")
+                print("     ⚠️  WARNING: Variable unexpectedly found in .debug_line!")
 
-    print(f"\n📊 All Global Variables Summary:")
+    print("\n📊 All Global Variables Summary:")
     for symbol in symbols:
         if symbol.type == 'OBJECT' and symbol.binding == 'GLOBAL':
             print(f"  {symbol.name:20} -> {symbol.source_file}")
@@ -105,7 +108,7 @@ def test_hybrid_mapping():
 if __name__ == '__main__':
     try:
         test_hybrid_mapping()
-        print(f"\n🎉 Hybrid mapping test completed!")
+        print("\n🎉 Hybrid mapping test completed!")
     except Exception as e:
         print(f"\n❌ Hybrid mapping test failed: {e}")
         sys.exit(1)

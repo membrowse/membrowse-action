@@ -87,25 +87,12 @@ class SourceFileResolver:  # pylint: disable=too-few-public-methods
 
             return source_file_basename
 
-        # Priority 1c: For static variables, use ordered matching from DWARF
+        # Priority 1c: For static variables, use CU-based matching from DWARF
         # processing
         if symbol_type == 'OBJECT' and symbol_name in self._static_symbol_lookup:
-            static_mappings = self._static_symbol_lookup[symbol_name]
-            if static_mappings:
-                # Track which mappings we've used for this symbol name
-                if symbol_name not in self.used_static_mappings:
-                    self.used_static_mappings[symbol_name] = 0
-
-                # Get the next unused mapping
-                index = self.used_static_mappings[symbol_name]
-                if index < len(static_mappings):
-                    mapping = static_mappings[index]
-                    self.used_static_mappings[symbol_name] += 1
-                    source_file = mapping[2]
-                    return self._get_basename(source_file)
-                # Fallback to first mapping if we've run out
-                source_file = static_mappings[0][2]
-                return self._get_basename(source_file)
+            result = self._resolve_static_symbol(symbol_name, symbol_address)
+            if result:
+                return result
 
         # Priority 2: Address-based lookup for FUNC symbols (fallback)
         if symbol_address is not None and symbol_address > 0 and symbol_type == 'FUNC':
@@ -113,6 +100,47 @@ class SourceFileResolver:  # pylint: disable=too-few-public-methods
 
         # Priority 3: Fallback lookups for OBJECT symbols and edge cases
         return self._resolve_fallback(symbol_name, symbol_address)
+
+    def _resolve_static_symbol(self, symbol_name: str, symbol_address: int) -> str:
+        """Resolve static symbols with duplicate names using CU-based matching.
+
+        Args:
+            symbol_name: Name of the static symbol
+            symbol_address: Address of the symbol
+
+        Returns:
+            Basename of the source file, or empty string if not found
+        """
+        static_mappings = self._static_symbol_lookup[symbol_name]
+        if not static_mappings:
+            return ""
+
+        # If we have an address, try CU-based matching first
+        if symbol_address is not None and symbol_address > 0:
+            symbol_cu = self.dwarf_data['address_to_cu_file'].get(symbol_address)
+            if symbol_cu:
+                # Find mapping with matching CU
+                symbol_cu_basename = self._get_basename(symbol_cu)
+                for mapping in static_mappings:
+                    mapping_cu = mapping[1]  # cu_source_file
+                    if mapping_cu and self._get_basename(mapping_cu) == symbol_cu_basename:
+                        source_file = mapping[2]  # best_source_file
+                        return self._get_basename(source_file)
+
+            # If no CU match, fall back to sequential matching
+            if symbol_name not in self.used_static_mappings:
+                self.used_static_mappings[symbol_name] = 0
+
+            index = self.used_static_mappings[symbol_name]
+            if index < len(static_mappings):
+                mapping = static_mappings[index]
+                self.used_static_mappings[symbol_name] += 1
+                source_file = mapping[2]
+                return self._get_basename(source_file)
+
+        # Fallback to first mapping if we have mappings but no address
+        source_file = static_mappings[0][2]
+        return self._get_basename(source_file)
 
     def _resolve_by_address(self, symbol_address: int) -> str:
         """Resolve source file by symbol address."""

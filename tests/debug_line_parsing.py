@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# pylint: disable=import-error,too-many-nested-blocks
+# pylint: disable=import-error,too-many-nested-blocks,duplicate-code
 """
 Debug why .debug_line parsing isn't working
 """

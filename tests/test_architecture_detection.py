@@ -6,6 +6,7 @@ test_architecture_detection.py - Unit tests for ELF-based architecture detection
 This test suite verifies that the parser correctly detects architectures from ELF files
 and applies appropriate parsing strategies.
 """
+# pylint: disable=duplicate-code
 
 import os
 import sys

@@ -2,14 +2,21 @@
 """
 Test real MicroPython firmware analysis for source file mapping verification.
 """
+# pylint: disable=import-outside-toplevel,too-many-locals,too-many-statements
+# pylint: disable=too-many-branches,line-too-long,protected-access
+# pylint: disable=f-string-without-interpolation
+# Note: This comprehensive integration test (800+ lines) has high complexity due to
+# extensive validation logic and debug output. Line length and f-string style are
+# relaxed for readability of debug output. Protected access is needed to test internal state.
 
-from membrowse.core import ReportGenerator
-import unittest
 import json
 import os
-import tempfile
-from pathlib import Path
 import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+from membrowse.core import ReportGenerator
 
 # Add shared directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent / 'shared'))
@@ -57,12 +64,12 @@ class TestMicroPythonFirmware(unittest.TestCase):
             report = generator.generate_report(verbose=False)
 
             # Write report to file
-            with open(report_file_path, 'w') as f:
+            with open(report_file_path, 'w', encoding='utf-8') as f:
                 json.dump(report, f, indent=2)
 
             # Also save to a known location for inspection
             known_report_path = Path("micropython_report_stm32.json")
-            with open(known_report_path, 'w') as f:
+            with open(known_report_path, 'w', encoding='utf-8') as f:
                 json.dump(report, f, indent=2)
             print(f"\n📁 Report saved to: {known_report_path.absolute()}")
 
@@ -71,7 +78,7 @@ class TestMicroPythonFirmware(unittest.TestCase):
                 report, dict, "Report should be a dictionary")
 
             # Load the generated report
-            with open(report_file_path, 'r') as f:
+            with open(report_file_path, 'r', encoding='utf-8') as f:
                 report = json.load(f)
 
             # Basic report structure validation
@@ -448,9 +455,6 @@ class TestMicroPythonFirmware(unittest.TestCase):
                 total_elf_symbols = len(report['symbols'])
                 symbols_with_source = len(
                     [s for s in report['symbols'] if s['source_file']])
-                symbols_from_die_only = 0
-                symbols_from_line_program = 0
-                symbols_no_source = 0
 
                 # We need to check which resolution path was used for each symbol
                 # This requires examining the resolver's lookup order
@@ -573,12 +577,12 @@ class TestMicroPythonESP32Firmware(unittest.TestCase):
             report = generator.generate_report(verbose=False)
 
             # Write report to file
-            with open(report_file_path, 'w') as f:
+            with open(report_file_path, 'w', encoding='utf-8') as f:
                 json.dump(report, f, indent=2)
 
             # Also save to a known location for inspection
             known_report_path = Path("micropython_esp32_report.json")
-            with open(known_report_path, 'w') as f:
+            with open(known_report_path, 'w', encoding='utf-8') as f:
                 json.dump(report, f, indent=2)
             print(f"\n📁 ESP32 Report saved to: {known_report_path.absolute()}")
 
@@ -587,7 +591,7 @@ class TestMicroPythonESP32Firmware(unittest.TestCase):
                 report, dict, "Report should be a dictionary")
 
             # Load the generated report
-            with open(report_file_path, 'r') as f:
+            with open(report_file_path, 'r', encoding='utf-8') as f:
                 report = json.load(f)
 
             # Basic report structure validation

@@ -10,6 +10,7 @@ This test suite covers:
 4. Error handling
 5. Real-world linker script examples
 """
+# pylint: disable=duplicate-code
 
 import sys
 import tempfile

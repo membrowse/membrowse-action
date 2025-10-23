@@ -6,6 +6,7 @@ This module tests the DW_AT_location expression parsing functionality
 to ensure global/static variables with location expressions are correctly
 handled.
 """
+# pylint: disable=protected-access
 
 import unittest
 from membrowse.analysis.dwarf import DWARFProcessor

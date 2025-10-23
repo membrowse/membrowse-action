@@ -13,6 +13,7 @@ Test categories:
 4. File system errors
 5. Edge cases and boundary conditions
 """
+# pylint: disable=duplicate-code
 
 import sys
 import tempfile

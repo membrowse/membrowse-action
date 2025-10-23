@@ -229,7 +229,8 @@ class TestStaticVariableSourceMapping(unittest.TestCase):
         - a.c: int foo = 0; (definition)
         - b.c: #include "c.h", uses foo
 
-        Expected: foo symbol should map to "a.c" (where it's defined), not "c.h" (where it's declared)
+        Expected: foo symbol should map to "a.c" (where it's defined),
+        not "c.h" (where it's declared)
         """
         source_dir = self.test_dir / "header_declaration_static"
 
@@ -252,7 +253,8 @@ class TestStaticVariableSourceMapping(unittest.TestCase):
         self.assertEqual(
             symbol['source_file'],
             'a.c',
-            f"foo should be mapped to a.c (definition), not c.h (declaration). Got {symbol['source_file']}")
+            f"foo should be mapped to a.c (definition), not c.h "
+            f"(declaration). Got {symbol['source_file']}")
         self.assertEqual(
             symbol['type'],
             'OBJECT',
@@ -376,7 +378,8 @@ class TestStaticVariableSourceMapping(unittest.TestCase):
                     self.assertEqual(
                         symbol['binding'],
                         test_case['expected_binding'],
-                        f"Case {test_case['name']}: Symbol {i} should have {test_case['expected_binding']} binding")
+                        f"Case {test_case['name']}: Symbol {i} should "
+                        f"have {test_case['expected_binding']} binding")
 
     def test_06_compilation_prerequisite_check(self):
         """

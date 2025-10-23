@@ -652,7 +652,6 @@ class TestLinkerScriptParser(unittest.TestCase):
         parser = LinkerScriptParser([script_path])
 
         # Should raise RegionParsingError for invalid syntax
-        from membrowse.linker.parser import RegionParsingError
         with self.assertRaises(RegionParsingError):
             parser.parse_memory_regions()
 
