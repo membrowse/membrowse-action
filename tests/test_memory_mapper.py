@@ -15,8 +15,14 @@ class TestMemoryMapper(unittest.TestCase):
         """Test section mapping with non-overlapping regions"""
         # Create non-overlapping regions
         regions = {
-            'FLASH': MemoryRegion(address=0x08000000, limit_size=0x100000, type='FLASH'),
-            'RAM': MemoryRegion(address=0x20000000, limit_size=0x20000, type='RAM'),
+            'FLASH': MemoryRegion(
+                address=0x08000000,
+                limit_size=0x100000,
+                type='FLASH'),
+            'RAM': MemoryRegion(
+                address=0x20000000,
+                limit_size=0x20000,
+                type='RAM'),
         }
 
         mapper = MemoryMapper(regions)
@@ -63,7 +69,8 @@ class TestMemoryMapper(unittest.TestCase):
 
         mapper = MemoryMapper(regions)
 
-        # Section at 0x08000000 should map to FLASH_START (smaller/more specific)
+        # Section at 0x08000000 should map to FLASH_START (smaller/more
+        # specific)
         section = MemorySection(
             name='.isr_vector',
             address=0x08000000,
@@ -73,7 +80,8 @@ class TestMemoryMapper(unittest.TestCase):
         region = mapper.find_region_by_address(section)
         self.assertIsNotNone(region)
         self.assertEqual(region.address, 0x08000000)
-        self.assertEqual(region.limit_size, 0x4000)  # Should be FLASH_START, not FLASH
+        # Should be FLASH_START, not FLASH
+        self.assertEqual(region.limit_size, 0x4000)
 
     def test_three_level_hierarchy(self):
         """Test three-level region hierarchy (grandparent/parent/child)"""
@@ -140,7 +148,9 @@ class TestMemoryMapper(unittest.TestCase):
         region = mapper.find_region_by_address(section)
         self.assertIsNotNone(region)
         self.assertEqual(region.address, 0x08000000)
-        self.assertEqual(region.limit_size, 0x100000)  # Should be FLASH (parent)
+        self.assertEqual(
+            region.limit_size,
+            0x100000)  # Should be FLASH (parent)
 
     def test_section_at_boundary(self):
         """Test sections at region boundaries"""
@@ -173,7 +183,10 @@ class TestMemoryMapper(unittest.TestCase):
     def test_zero_address_section(self):
         """Test that sections with zero address are skipped"""
         regions = {
-            'FLASH': MemoryRegion(address=0x08000000, limit_size=0x100000, type='FLASH'),
+            'FLASH': MemoryRegion(
+                address=0x08000000,
+                limit_size=0x100000,
+                type='FLASH'),
         }
 
         mapper = MemoryMapper(regions)
@@ -191,8 +204,14 @@ class TestMemoryMapper(unittest.TestCase):
     def test_section_not_in_any_region(self):
         """Test section that doesn't fit in any region"""
         regions = {
-            'FLASH': MemoryRegion(address=0x08000000, limit_size=0x100000, type='FLASH'),
-            'RAM': MemoryRegion(address=0x20000000, limit_size=0x20000, type='RAM'),
+            'FLASH': MemoryRegion(
+                address=0x08000000,
+                limit_size=0x100000,
+                type='FLASH'),
+            'RAM': MemoryRegion(
+                address=0x20000000,
+                limit_size=0x20000,
+                type='RAM'),
         }
 
         mapper = MemoryMapper(regions)
@@ -272,9 +291,21 @@ class TestMemoryMapper(unittest.TestCase):
         }
 
         sections = [
-            MemorySection(name='.isr_vector', address=0x08000000, size=0x188, type='code'),
-            MemorySection(name='.text', address=0x08020000, size=0x10000, type='code'),
-            MemorySection(name='.data', address=0x20000000, size=0x100, type='data'),
+            MemorySection(
+                name='.isr_vector',
+                address=0x08000000,
+                size=0x188,
+                type='code'),
+            MemorySection(
+                name='.text',
+                address=0x08020000,
+                size=0x10000,
+                type='code'),
+            MemorySection(
+                name='.data',
+                address=0x20000000,
+                size=0x100,
+                type='data'),
         ]
 
         # Map sections to regions
@@ -282,7 +313,9 @@ class TestMemoryMapper(unittest.TestCase):
 
         # Verify sections are in correct regions
         self.assertEqual(len(regions['FLASH_START'].sections), 1)
-        self.assertEqual(regions['FLASH_START'].sections[0]['name'], '.isr_vector')
+        self.assertEqual(
+            regions['FLASH_START'].sections[0]['name'],
+            '.isr_vector')
 
         self.assertEqual(len(regions['FLASH_TEXT'].sections), 1)
         self.assertEqual(regions['FLASH_TEXT'].sections[0]['name'], '.text')

@@ -11,7 +11,7 @@ import bisect
 from typing import Any, Dict, Optional
 
 
-class SourceFileResolver:
+class SourceFileResolver:  # pylint: disable=too-few-public-methods
     """Handles source file resolution logic for symbols using DWARF debug information"""
 
     def __init__(self, dwarf_data: Dict[str, Any],

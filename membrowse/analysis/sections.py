@@ -17,7 +17,7 @@ SHF_WRITE = elftools.elf.constants.SH_FLAGS.SHF_WRITE
 SHF_EXECINSTR = elftools.elf.constants.SH_FLAGS.SHF_EXECINSTR
 
 
-class SectionAnalyzer:
+class SectionAnalyzer:  # pylint: disable=too-few-public-methods
     """Handles ELF section analysis and categorization"""
 
     def __init__(self, elffile):

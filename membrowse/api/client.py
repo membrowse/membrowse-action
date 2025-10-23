@@ -9,10 +9,11 @@ them to the MemBrowse API using the requests library.
 import argparse
 import json
 import sys
+from importlib.metadata import version
 from typing import Dict, Any
+
 import requests
 
-from importlib.metadata import version
 PACKAGE_VERSION = version('membrowse')
 
 

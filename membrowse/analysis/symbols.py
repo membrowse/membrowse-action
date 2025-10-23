@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# pylint: disable=duplicate-code
 """
 Symbol extraction and analysis from ELF files.
 
@@ -12,7 +13,7 @@ from ..core.models import Symbol
 from ..core.exceptions import SymbolExtractionError
 
 
-class SymbolExtractor:
+class SymbolExtractor:  # pylint: disable=too-few-public-methods
     """Handles symbol extraction and analysis from ELF files"""
 
     def __init__(self, elffile):

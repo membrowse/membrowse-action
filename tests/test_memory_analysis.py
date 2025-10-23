@@ -494,7 +494,8 @@ def run_full_integration_test():
 
             # Test just the memory_report.py directly with mock data
             sys.path.insert(0, str(shared_dir))
-            # pylint: disable=import-outside-toplevel,reimported,redefined-outer-name
+            # pylint:
+            # disable=import-outside-toplevel,reimported,redefined-outer-name
             from membrowse.core import ReportGenerator
 
             # Create mock bloaty files

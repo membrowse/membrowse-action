@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# pylint: disable=duplicate-code
 """
 MemBrowse - Memory analysis for embedded firmware.
 

@@ -110,7 +110,8 @@ class TestELFArchitectureDetection(unittest.TestCase):
         self.assertIn('memory_block_patterns', strategy)
         self.assertIn('esp_style', strategy['memory_block_patterns'])
         self.assertIn('default_variables', strategy)
-        # Default variables removed - parser only uses values from linker scripts
+        # Default variables removed - parser only uses values from linker
+        # scripts
         self.assertEqual(strategy['default_variables'], {})
 
     def test_parsing_strategy_stm32(self):
@@ -129,7 +130,8 @@ class TestELFArchitectureDetection(unittest.TestCase):
         self.assertEqual(strategy['memory_block_patterns'], ['standard'])
         self.assertTrue(strategy['hierarchical_validation'])
         self.assertIn('default_variables', strategy)
-        # Default variables removed - parser only uses values from linker scripts
+        # Default variables removed - parser only uses values from linker
+        # scripts
         self.assertEqual(strategy['default_variables'], {})
 
     def test_linker_parser_with_elf(self):

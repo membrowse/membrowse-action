@@ -1,0 +1,101 @@
+name: Lint with Pylint
+
+on:
+  pull_request:
+    branches:
+      - main
+      - develop
+    types: [opened, synchronize, reopened]
+    paths:
+      - '**.py'
+      - 'membrowse/**'
+      - 'tests/**'
+      - '.github/workflows/lint.yml'
+
+jobs:
+  pylint:
+    name: Pylint (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11']
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install pylint
+
+      - name: Run pylint on membrowse package
+        id: pylint-membrowse
+        run: |
+          echo "::group::Pylint: membrowse/"
+          python -m pylint membrowse/ --score=yes --output-format=text | tee pylint-membrowse.txt
+          SCORE=$(python -m pylint membrowse/ --score=yes 2>&1 | grep -oP 'rated at \K[0-9.]+' | head -1)
+          echo "score=$SCORE" >> $GITHUB_OUTPUT
+          echo "::endgroup::"
+          echo "ℹ️ membrowse/ score: $SCORE/10"
+
+      - name: Run pylint on tests
+        id: pylint-tests
+        run: |
+          echo "::group::Pylint: tests/"
+          python -m pylint tests/ --score=yes --output-format=text --disable=duplicate-code,redefined-outer-name | tee pylint-tests.txt
+          SCORE=$(python -m pylint tests/ --score=yes --disable=duplicate-code,redefined-outer-name 2>&1 | grep -oP 'rated at \K[0-9.]+' | head -1)
+          echo "score=$SCORE" >> $GITHUB_OUTPUT
+          echo "::endgroup::"
+          echo "ℹ️ tests/ score: $SCORE/10"
+
+      - name: Check if score is 10/10
+        run: |
+          MEMBROWSE_SCORE="${{ steps.pylint-membrowse.outputs.score }}"
+          TESTS_SCORE="${{ steps.pylint-tests.outputs.score }}"
+
+          echo "📊 Pylint Scores:"
+          echo "  membrowse/: $MEMBROWSE_SCORE/10"
+          echo "  tests/:     $TESTS_SCORE/10"
+          echo ""
+
+          # Check membrowse package score
+          if [ "$(echo "$MEMBROWSE_SCORE == 10.00" | bc -l)" -eq 1 ]; then
+            echo "✅ membrowse/ achieved perfect score: 10/10"
+          else
+            echo "❌ membrowse/ score is $MEMBROWSE_SCORE/10 - must be 10.00/10"
+            echo ""
+            echo "💡 Fix the issues above to achieve 10/10, or add a .pylintrc to disable specific checks."
+            exit 1
+          fi
+
+          # Check tests score
+          if [ "$(echo "$TESTS_SCORE == 10.00" | bc -l)" -eq 1 ]; then
+            echo "✅ tests/ achieved perfect score: 10/10"
+          else
+            echo "❌ tests/ score is $TESTS_SCORE/10 - must be 10.00/10"
+            echo ""
+            echo "💡 Fix the issues above to achieve 10/10, or add a .pylintrc to disable specific checks."
+            exit 1
+          fi
+
+          echo ""
+          echo "🎉 All pylint checks passed with perfect scores!"
+
+      - name: Upload pylint reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pylint-reports-py${{ matrix.python-version }}
+          path: |
+            pylint-*.txt
+          retention-days: 7

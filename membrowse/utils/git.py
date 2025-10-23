@@ -7,10 +7,10 @@ from datetime import datetime
 from typing import Optional, Dict, Any
 
 
-class GitMetadata:
+class GitMetadata:  # pylint: disable=too-many-instance-attributes,too-few-public-methods
     """Container for Git metadata."""
 
-    def __init__(
+    def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
         commit_sha: Optional[str] = None,
         base_sha: Optional[str] = None,
@@ -47,7 +47,7 @@ def run_git_command(command: list) -> Optional[str]:
         return None
 
 
-def detect_github_metadata() -> GitMetadata:
+def detect_github_metadata() -> GitMetadata:  # pylint: disable=too-many-locals
     """
     Detect Git metadata from GitHub Actions environment.
 
@@ -73,16 +73,33 @@ def detect_github_metadata() -> GitMetadata:
                 event_data = json.load(f)
 
             if event_name == 'pull_request':
-                base_sha = event_data.get('pull_request', {}).get('base', {}).get('sha', '')
-                branch_name = event_data.get('pull_request', {}).get('head', {}).get('ref', '')
-                pr_number = str(event_data.get('pull_request', {}).get('number', ''))
+                base_sha = event_data.get(
+                    'pull_request',
+                    {}).get(
+                    'base',
+                    {}).get(
+                    'sha',
+                    '')
+                branch_name = event_data.get(
+                    'pull_request',
+                    {}).get(
+                    'head',
+                    {}).get(
+                    'ref',
+                    '')
+                pr_number = str(
+                    event_data.get(
+                        'pull_request',
+                        {}).get(
+                        'number',
+                        ''))
             elif event_name == 'push':
                 base_sha = event_data.get('before', '')
                 # Try to get branch from git, fall back to env var
                 branch_name = (
                     run_git_command(['symbolic-ref', '--short', 'HEAD']) or
                     run_git_command(['for-each-ref', '--points-at', 'HEAD',
-                                   '--format=%(refname:short)', 'refs/heads/']) or
+                                     '--format=%(refname:short)', 'refs/heads/']) or
                     os.environ.get('GITHUB_REF_NAME', 'unknown')
                 )
         except Exception:  # pylint: disable=broad-exception-caught
@@ -96,7 +113,7 @@ def detect_github_metadata() -> GitMetadata:
         branch_name = (
             run_git_command(['symbolic-ref', '--short', 'HEAD']) or
             run_git_command(['for-each-ref', '--points-at', 'HEAD',
-                           '--format=%(refname:short)', 'refs/heads/']) or
+                             '--format=%(refname:short)', 'refs/heads/']) or
             'unknown'
         )
 
@@ -123,7 +140,8 @@ def detect_github_metadata() -> GitMetadata:
         if ts:
             commit_timestamp = ts
 
-        auth = run_git_command(['log', '-1', '--pretty=format:%an', commit_sha])
+        auth = run_git_command(
+            ['log', '-1', '--pretty=format:%an', commit_sha])
         if auth:
             author = auth
 

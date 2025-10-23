@@ -22,9 +22,9 @@ class TestMicroPythonFirmware(unittest.TestCase):
     def setUpClass(cls):
         """Set up class with firmware paths"""
         cls.firmware_path = Path(
-            "../micropython/ports/stm32/build-PYBV10/firmware.elf")
+            __file__).parent / "fixtures" / "micropython" / "stm32" / "firmware.elf"
         cls.linker_script_path = Path(
-            "../micropython/ports/stm32/boards/stm32f405xg.ld")
+            __file__).parent / "fixtures" / "micropython" / "stm32" / "linker" / "stm32f405.ld"
 
         # Check if firmware exists
         if not cls.firmware_path.exists():
@@ -36,7 +36,8 @@ class TestMicroPythonFirmware(unittest.TestCase):
 
         # Parse memory regions from actual linker script
         from membrowse.linker.parser import parse_linker_scripts
-        linker_script_path = Path(__file__).parent.parent.parent / "micropython" / "ports" / "stm32" / "boards" / "stm32f405.ld"
+        linker_script_path = Path(__file__).parent / "fixtures" / \
+            "micropython" / "stm32" / "linker" / "stm32f405.ld"
 
         memory_regions_data = parse_linker_scripts(
             [str(linker_script_path)],
@@ -78,7 +79,8 @@ class TestMicroPythonFirmware(unittest.TestCase):
             self.assertIn('architecture', report)
             self.assertIn('entry_point', report)
 
-            # Find uart_init, I2CHandle1, micropython_ringio_any, machine_init, and usb_device symbols
+            # Find uart_init, I2CHandle1, micropython_ringio_any, machine_init,
+            # and usb_device symbols
             uart_init_symbol = None
             i2c_handle1_symbol = None
             ringio_any_symbol = None
@@ -255,7 +257,8 @@ class TestMicroPythonFirmware(unittest.TestCase):
             else:
                 print(f"\n⚠️  micropython_ringio_any not found in symbols")
 
-            # Check machine_init symbol mapping (validates file index deduplication fix)
+            # Check machine_init symbol mapping (validates file index
+            # deduplication fix)
             if machine_init_symbol:
                 print(f"\nFound machine_init symbol:")
                 print(f"  Address: 0x{machine_init_symbol['address']:08x}")
@@ -263,7 +266,8 @@ class TestMicroPythonFirmware(unittest.TestCase):
                 print(f"  Type: {machine_init_symbol['type']}")
                 print(f"  Source file: {machine_init_symbol['source_file']}")
 
-                # This is the critical test for file index deduplication bug fix
+                # This is the critical test for file index deduplication bug
+                # fix
                 self.assertEqual(
                     machine_init_symbol['source_file'],
                     'modmachine.c',
@@ -277,7 +281,8 @@ class TestMicroPythonFirmware(unittest.TestCase):
             else:
                 print(f"\n⚠️  machine_init not found in symbols")
 
-            # Check usb_device symbol mapping (validates DW_AT_location expression parsing fix)
+            # Check usb_device symbol mapping (validates DW_AT_location
+            # expression parsing fix)
             if usb_device_symbol:
                 print(f"\nFound usb_device symbol:")
                 print(f"  Address: 0x{usb_device_symbol['address']:08x}")
@@ -285,7 +290,8 @@ class TestMicroPythonFirmware(unittest.TestCase):
                 print(f"  Type: {usb_device_symbol['type']}")
                 print(f"  Source file: {usb_device_symbol['source_file']}")
 
-                # This is the critical test for DW_AT_location expression parsing fix
+                # This is the critical test for DW_AT_location expression
+                # parsing fix
                 self.assertEqual(
                     usb_device_symbol['source_file'],
                     'usb.c',
@@ -515,24 +521,25 @@ class TestMicroPythonESP32Firmware(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         """Set up class with ESP32 firmware paths"""
-        cls.firmware_path = Path(
-            "../micropython/ports/esp32/build-ESP32_GENERIC/micropython.elf")
+        fixtures_dir = Path(__file__).parent / \
+            "fixtures" / "micropython" / "esp32"
+        cls.firmware_path = fixtures_dir / "micropython.elf"
         cls.linker_scripts = [
-            Path("../micropython/ports/esp32/build-ESP32_GENERIC/esp-idf/esp_system/ld/memory.ld"),
-            Path("../micropython/ports/esp32/build-ESP32_GENERIC/esp-idf/esp_system/ld/sections.ld"),
-            Path("../micropython/esp-idf/components/esp_rom/esp32/ld/esp32.rom.ld"),
-            Path("../micropython/esp-idf/components/esp_rom/esp32/ld/esp32.rom.api.ld"),
-            Path("../micropython/esp-idf/components/esp_rom/esp32/ld/esp32.rom.libgcc.ld"),
-            Path("../micropython/esp-idf/components/esp_rom/esp32/ld/esp32.rom.newlib-data.ld"),
-            Path("../micropython/esp-idf/components/esp_rom/esp32/ld/esp32.rom.syscalls.ld"),
-            Path("../micropython/esp-idf/components/esp_rom/esp32/ld/esp32.rom.newlib-funcs.ld"),
-            Path("../micropython/esp-idf/components/soc/esp32/ld/esp32.peripherals.ld"),
-            Path("../micropython/esp-idf/components/esp_rom/esp32/ld/esp32.rom.newlib-time.ld"),
-            Path("../micropython/esp-idf/components/esp_rom/esp32/ld/esp32.rom.newlib-nano.ld"),
-            Path("../micropython/esp-idf/components/esp_rom/esp32/ld/esp32.rom.newlib-locale.ld"),
-            Path("../micropython/esp-idf/components/esp_rom/esp32/ld/esp32.rom.eco3.ld"),
-            Path("../micropython/esp-idf/components/esp_rom/esp32/ld/esp32.rom.redefined.ld"),
-            Path("../micropython/esp-idf/components/esp_rom/esp32/ld/esp32.rom.spiflash_legacy.ld"),
+            fixtures_dir / "linker" / "esp-idf" / "esp_system" / "ld" / "memory.ld",
+            fixtures_dir / "linker" / "esp-idf" / "esp_system" / "ld" / "sections.ld",
+            fixtures_dir / "linker" / "esp_rom" / "esp32" / "ld" / "esp32.rom.ld",
+            fixtures_dir / "linker" / "esp_rom" / "esp32" / "ld" / "esp32.rom.api.ld",
+            fixtures_dir / "linker" / "esp_rom" / "esp32" / "ld" / "esp32.rom.libgcc.ld",
+            fixtures_dir / "linker" / "esp_rom" / "esp32" / "ld" / "esp32.rom.newlib-data.ld",
+            fixtures_dir / "linker" / "esp_rom" / "esp32" / "ld" / "esp32.rom.syscalls.ld",
+            fixtures_dir / "linker" / "esp_rom" / "esp32" / "ld" / "esp32.rom.newlib-funcs.ld",
+            fixtures_dir / "linker" / "soc" / "esp32" / "ld" / "esp32.peripherals.ld",
+            fixtures_dir / "linker" / "esp_rom" / "esp32" / "ld" / "esp32.rom.newlib-time.ld",
+            fixtures_dir / "linker" / "esp_rom" / "esp32" / "ld" / "esp32.rom.newlib-nano.ld",
+            fixtures_dir / "linker" / "esp_rom" / "esp32" / "ld" / "esp32.rom.newlib-locale.ld",
+            fixtures_dir / "linker" / "esp_rom" / "esp32" / "ld" / "esp32.rom.eco3.ld",
+            fixtures_dir / "linker" / "esp_rom" / "esp32" / "ld" / "esp32.rom.redefined.ld",
+            fixtures_dir / "linker" / "esp_rom" / "esp32" / "ld" / "esp32.rom.spiflash_legacy.ld",
         ]
 
         # Check if firmware exists
@@ -545,7 +552,8 @@ class TestMicroPythonESP32Firmware(unittest.TestCase):
 
         # Parse memory regions from actual linker script
         from membrowse.linker.parser import parse_linker_scripts
-        linker_script_path = Path(__file__).parent.parent.parent / "micropython" / "ports" / "esp32" / "build-ESP32_GENERIC" / "esp-idf" / "esp_system" / "ld" / "memory.ld"
+        linker_script_path = Path(__file__).parent / "fixtures" / "micropython" / \
+            "esp32" / "linker" / "esp-idf" / "esp_system" / "ld" / "memory.ld"
 
         memory_regions_data = parse_linker_scripts(
             [str(linker_script_path)],

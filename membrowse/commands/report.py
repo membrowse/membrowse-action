@@ -265,7 +265,9 @@ def generate_and_upload_report(  # pylint: disable=too-many-arguments,too-many-p
                 author = git_metadata.author
 
         # Upload report
-        logger.info("%s: Starting upload of report to MemBrowse...", log_prefix)
+        logger.info(
+            "%s: Starting upload of report to MemBrowse...",
+            log_prefix)
 
         # Build metadata structure
         metadata = {

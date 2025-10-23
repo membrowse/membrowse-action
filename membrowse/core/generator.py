@@ -14,7 +14,7 @@ from ..analysis.mapper import MemoryMapper
 from .exceptions import ELFAnalysisError
 
 
-class ReportGenerator:
+class ReportGenerator:  # pylint: disable=too-few-public-methods
     """Main class for generating comprehensive memory reports"""
 
     def __init__(self,
@@ -120,6 +120,7 @@ class ReportGenerator:
             regions[name] = MemoryRegion(
                 address=data['address'],
                 limit_size=data['limit_size'],
-                type=data.get('type', 'UNKNOWN')  # Type field no longer in linker parser output
+                # Type field no longer in linker parser output
+                type=data.get('type', 'UNKNOWN')
             )
         return regions
