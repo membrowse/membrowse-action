@@ -31,7 +31,14 @@ runs:
     - name: Install membrowse package
       shell: bash
       run: |
-        pip install ${{ github.action_path }}/..
+        cd "${{ github.action_path }}"
+        if git describe --tags --exact-match HEAD 2>/dev/null | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+'; then
+          echo "Installing from PyPI (tagged release)"
+          pip install membrowse
+        else
+          echo "Installing from local source (main/development)"
+          pip install "${{ github.action_path }}/.."
+        fi
     
     - name: Run memory analysis
       shell: bash
