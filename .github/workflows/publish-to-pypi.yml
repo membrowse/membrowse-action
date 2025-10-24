@@ -56,6 +56,9 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
 
+    permissions:
+      actions: write  # Required for uploading artifacts
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -90,6 +93,7 @@ jobs:
     if: github.event_name == 'release' && github.event.action == 'published'
 
     permissions:
+      actions: read     # Required for downloading artifacts
       id-token: write  # IMPORTANT: mandatory for trusted publishing
 
     environment:
@@ -113,6 +117,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && inputs.dry-run == 'true'
 
     permissions:
+      actions: read     # Required for downloading artifacts
       id-token: write  # IMPORTANT: mandatory for trusted publishing
 
     environment:
@@ -138,6 +143,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && inputs.dry-run == 'false'
 
     permissions:
+      actions: read     # Required for downloading artifacts
       id-token: write  # IMPORTANT: mandatory for trusted publishing
 
     environment:
