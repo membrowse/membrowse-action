@@ -47,6 +47,7 @@ requires-python = ">=3.7"
 dependencies = [
     "pyelftools>=0.29",
     "requests>=2.25.0",
+    "cxxfilt>=0.3.0",
 ]
 
 [project.urls]
