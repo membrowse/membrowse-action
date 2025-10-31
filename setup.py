@@ -26,6 +26,7 @@ setup(
     install_requires=[
         "pyelftools>=0.29",
         "requests>=2.25.0",
+        "cxxfilt>=0.3.0",
     ],
     python_requires=">=3.7",
 
