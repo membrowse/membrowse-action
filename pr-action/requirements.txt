@@ -1,2 +1,3 @@
 pyelftools>=0.29
 requests>=2.25.0
+cxxfilt>=0.3.0
