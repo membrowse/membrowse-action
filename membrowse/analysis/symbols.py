@@ -8,6 +8,7 @@ including symbol filtering, type mapping, and source file resolution.
 """
 
 from typing import Dict, List
+import cxxfilt
 from elftools.common.exceptions import ELFError
 from ..core.models import Symbol
 from ..core.exceptions import SymbolExtractionError
@@ -19,6 +20,27 @@ class SymbolExtractor:  # pylint: disable=too-few-public-methods
     def __init__(self, elffile):
         """Initialize with ELF file handle."""
         self.elffile = elffile
+
+    def _demangle_symbol_name(self, name: str) -> str:
+        """
+        Demangle C++ symbol names using cxxfilt.
+
+        Returns the demangled name for C++ symbols, or the original name
+        for C symbols or if demangling fails.
+
+        Args:
+            name: Symbol name (potentially mangled)
+
+        Returns:
+            Demangled symbol name, or original name if not mangled or on error
+        """
+        try:
+            # cxxfilt.demangle with external_only=True (default) checks for _Z prefix
+            # and returns the original name unchanged if it's not a mangled symbol
+            return cxxfilt.demangle(name)
+        except cxxfilt.InvalidName:
+            # Return original name for malformed mangled symbols
+            return name
 
     def extract_symbols(self, source_resolver) -> List[Symbol]:
         """Extract symbol information from ELF file with source file mapping."""
@@ -36,7 +58,7 @@ class SymbolExtractor:  # pylint: disable=too-few-public-methods
                 if not self._is_valid_symbol(symbol):
                     continue
 
-                symbol_name = symbol.name
+                symbol_name = self._demangle_symbol_name(symbol.name)
                 symbol_type = self._get_symbol_type(symbol['st_info']['type'])
                 symbol_binding = self._get_symbol_binding(
                     symbol['st_info']['bind'])
