@@ -18,7 +18,8 @@ class GitMetadata:  # pylint: disable=too-many-instance-attributes,too-few-publi
         repo_name: Optional[str] = None,
         commit_message: Optional[str] = None,
         commit_timestamp: Optional[str] = None,
-        author: Optional[str] = None,
+        author_name: Optional[str] = None,
+        author_email: Optional[str] = None,
         pr_number: Optional[str] = None
     ):
         self.commit_sha = commit_sha
@@ -27,7 +28,8 @@ class GitMetadata:  # pylint: disable=too-many-instance-attributes,too-few-publi
         self.repo_name = repo_name
         self.commit_message = commit_message
         self.commit_timestamp = commit_timestamp
-        self.author = author
+        self.author_name = author_name
+        self.author_email = author_email
         self.pr_number = pr_number
 
 
@@ -129,7 +131,8 @@ def detect_github_metadata() -> GitMetadata:  # pylint: disable=too-many-locals
     # Get commit message, author, and timestamp
     commit_message = 'Unknown commit message'
     commit_timestamp = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
-    author = 'Unknown'
+    author_name = 'Unknown'
+    author_email = 'unknown@example.com'
 
     if commit_sha:
         msg = run_git_command(['log', '-1', '--pretty=format:%B', commit_sha])
@@ -140,10 +143,15 @@ def detect_github_metadata() -> GitMetadata:  # pylint: disable=too-many-locals
         if ts:
             commit_timestamp = ts
 
-        auth = run_git_command(
+        auth_name = run_git_command(
             ['log', '-1', '--pretty=format:%an', commit_sha])
-        if auth:
-            author = auth
+        if auth_name:
+            author_name = auth_name
+
+        auth_email = run_git_command(
+            ['log', '-1', '--pretty=format:%ae', commit_sha])
+        if auth_email:
+            author_email = auth_email
 
     return GitMetadata(
         commit_sha=commit_sha or None,
@@ -152,7 +160,8 @@ def detect_github_metadata() -> GitMetadata:  # pylint: disable=too-many-locals
         repo_name=repo_name or None,
         commit_message=commit_message or None,
         commit_timestamp=commit_timestamp or None,
-        author=author or None,
+        author_name=author_name or None,
+        author_email=author_email or None,
         pr_number=pr_number or None
     )
 
@@ -172,7 +181,8 @@ def get_commit_metadata(commit_sha: str) -> Dict[str, Any]:
         'base_sha': None,
         'commit_message': 'Unknown commit message',
         'commit_timestamp': datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
-        'author': 'Unknown',
+        'author_name': 'Unknown',
+        'author_email': 'unknown@example.com',
     }
 
     # Get parent commit
@@ -190,9 +200,14 @@ def get_commit_metadata(commit_sha: str) -> Dict[str, Any]:
     if ts:
         metadata['commit_timestamp'] = ts
 
-    # Get commit author
-    auth = run_git_command(['log', '-1', '--pretty=format:%an', commit_sha])
-    if auth:
-        metadata['author'] = auth
+    # Get commit author name
+    auth_name = run_git_command(['log', '-1', '--pretty=format:%an', commit_sha])
+    if auth_name:
+        metadata['author_name'] = auth_name
+
+    # Get commit author email
+    auth_email = run_git_command(['log', '-1', '--pretty=format:%ae', commit_sha])
+    if auth_email:
+        metadata['author_email'] = auth_email
 
     return metadata
