@@ -19,6 +19,10 @@ inputs:
     description: 'MemBrowse API endpoint URL'
     required: false
     default: 'https://www.membrowse.com/api/upload'
+  dont_fail_on_alerts:
+    description: 'Continue even if budget alerts are detected (default: fail on alerts)'
+    required: false
+    default: 'false'
 
 runs:
   using: 'composite'
@@ -36,13 +40,20 @@ runs:
     - name: Run memory analysis
       shell: bash
       run: |
-        membrowse report \
-          "${{ inputs.elf }}" \
-          "${{ inputs.ld }}" \
-          --github \
-          --target-name "${{ inputs.target_name }}" \
-          --api-key "${{ inputs.api_key }}" \
+        ARGS=(
+          "${{ inputs.elf }}"
+          "${{ inputs.ld }}"
+          --github
+          --target-name "${{ inputs.target_name }}"
+          --api-key "${{ inputs.api_key }}"
           --api-url "${{ inputs.api_url }}"
+        )
+
+        if [ "${{ inputs.dont_fail_on_alerts }}" = "true" ]; then
+          ARGS+=(--dont-fail-on-alerts)
+        fi
+
+        membrowse report "${ARGS[@]}"
 
 branding:
   icon: 'bar-chart-2'

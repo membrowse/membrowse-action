@@ -211,6 +211,7 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
                 'N/A'))
 
         # Generate and upload report using helper function
+        # For onboarding, don't fail on alerts to continue processing all commits
         result = generate_and_upload_report(
             elf_path=args.elf_path,
             ld_scripts=args.ld_scripts,
@@ -224,7 +225,8 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
             commit_message=metadata['commit_message'],
             commit_timestamp=metadata['commit_timestamp'],
             author=metadata.get('author'),
-            verbose=args.verbose
+            verbose=args.verbose,
+            dont_fail_on_alerts=True
         )
 
         if result != 0:

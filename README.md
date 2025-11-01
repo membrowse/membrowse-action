@@ -127,6 +127,7 @@ jobs:
           ld: "src/linker.ld"
           target_name: stm32f4
           api_key: ${{ secrets.MEMBROWSE_API_KEY }}
+          # dont_fail_on_alerts: true  # Optional: continue even if budget alerts are detected
 ```
 
 #### Historical Onboarding
