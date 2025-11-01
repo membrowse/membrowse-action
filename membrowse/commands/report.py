@@ -11,6 +11,7 @@ from ..utils.git import detect_github_metadata
 from ..linker.parser import LinkerScriptParser
 from ..core.generator import ReportGenerator
 from ..api.client import MemBrowseUploader
+from ..core.exceptions import UploadError, BudgetAlertError
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -311,7 +312,10 @@ def generate_and_upload_report(  # pylint: disable=too-many-arguments,too-many-p
             uploader.upload_report(enriched_report, fail_on_alerts=fail_on_alerts)
             logger.info("%s: Memory report uploaded successfully", log_prefix)
             return 0
-        except Exception as upload_error:
+        except BudgetAlertError as upload_error:
+            logger.error("%s: %s", log_prefix, upload_error)
+            return 1
+        except UploadError as upload_error:
             logger.error("%s: Failed to upload report: %s", log_prefix, upload_error)
             return 1
 

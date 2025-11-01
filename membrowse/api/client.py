@@ -14,6 +14,8 @@ from typing import Dict, Any
 
 import requests
 
+from membrowse.core.exceptions import UploadError, BudgetAlertError
+
 PACKAGE_VERSION = version('membrowse')
 
 
@@ -30,7 +32,9 @@ class MemBrowseUploader:  # pylint: disable=too-few-public-methods
             'User-Agent': f'MemBrowse-Action/{PACKAGE_VERSION}'
         })
 
-    def upload_report(self, report_data: Dict[str, Any], fail_on_alerts: bool = True) -> Dict[str, Any]:
+    def upload_report(
+            self, report_data: Dict[str, Any], fail_on_alerts: bool = True
+    ) -> Dict[str, Any]:
         """
         Upload report to MemBrowse API using requests
 
@@ -42,7 +46,8 @@ class MemBrowseUploader:  # pylint: disable=too-few-public-methods
             Dict containing the parsed API response
 
         Raises:
-            Exception: On upload failure or when alerts present with fail_on_alerts=True
+            UploadError: On upload failure
+            BudgetAlertError: When alerts present with fail_on_alerts=True
         """
         try:
             print(f"Uploading report to MemBrowse: {self.api_endpoint}")
@@ -56,10 +61,10 @@ class MemBrowseUploader:  # pylint: disable=too-few-public-methods
             # Parse response
             try:
                 response_data = response.json()
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as exc:
                 error_msg = f"HTTP {response.status_code}: Invalid JSON response"
                 print(f"Failed to upload report: {error_msg}", file=sys.stderr)
-                raise Exception(error_msg)
+                raise UploadError(error_msg) from exc
 
             # Check response success field
             if response.status_code in (200, 201) and response_data.get('success'):
@@ -86,7 +91,7 @@ class MemBrowseUploader:  # pylint: disable=too-few-public-methods
 
                     # Fail if alerts present and fail_on_alerts is True
                     if fail_on_alerts:
-                        raise Exception(
+                        raise BudgetAlertError(
                             f"Budget alerts detected: {len(budget_alerts)} budget(s) exceeded. "
                             "Use --dont-fail-on-alerts to continue despite alerts."
                         )
@@ -103,20 +108,20 @@ class MemBrowseUploader:  # pylint: disable=too-few-public-methods
                 error_msg += f"\nUpgrade at: {upgrade_url}"
 
             print(f"Failed to upload report: {error_msg}", file=sys.stderr)
-            raise Exception(error_msg)
+            raise UploadError(error_msg)
 
-        except requests.exceptions.Timeout:
+        except requests.exceptions.Timeout as exc:
             error_msg = "Upload error: Request timed out"
             print(error_msg, file=sys.stderr)
-            raise Exception(error_msg)
-        except requests.exceptions.ConnectionError:
+            raise UploadError(error_msg) from exc
+        except requests.exceptions.ConnectionError as exc:
             error_msg = "Upload error: Failed to connect to MemBrowse API"
             print(error_msg, file=sys.stderr)
-            raise Exception(error_msg)
-        except requests.exceptions.RequestException as e:
-            error_msg = f"Upload error: {e}"
+            raise UploadError(error_msg) from exc
+        except requests.exceptions.RequestException as exc:
+            error_msg = f"Upload error: {exc}"
             print(error_msg, file=sys.stderr)
-            raise Exception(error_msg)
+            raise UploadError(error_msg) from exc
 
     def _display_changes_summary(self, changes_summary: Dict[str, Any]) -> None:
         """Display memory changes summary in human-readable format"""
@@ -241,7 +246,7 @@ Examples:
         uploader = MemBrowseUploader(args.api_key, args.api_endpoint)
         try:
             uploader.upload_report(enriched_report)
-        except Exception as e:
+        except UploadError as e:
             print(f"Upload failed: {e}", file=sys.stderr)
             sys.exit(1)
     except FileNotFoundError:
