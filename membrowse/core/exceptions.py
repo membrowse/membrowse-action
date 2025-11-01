@@ -33,3 +33,11 @@ class SectionAnalysisError(ELFAnalysisError):
 
 class MemoryRegionMappingError(ELFAnalysisError):
     """Exception raised when memory region mapping fails"""
+
+
+class UploadError(Exception):
+    """Base exception for upload errors"""
+
+
+class BudgetAlertError(UploadError):
+    """Exception raised when budget alerts are detected"""

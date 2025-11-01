@@ -11,6 +11,7 @@ from ..utils.git import detect_github_metadata
 from ..linker.parser import LinkerScriptParser
 from ..core.generator import ReportGenerator
 from ..api.client import MemBrowseUploader
+from ..core.exceptions import UploadError, BudgetAlertError
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -115,6 +116,14 @@ examples:
         help='Enable verbose output'
     )
 
+    # Alert handling
+    alert_group = parser.add_argument_group('alert options')
+    alert_group.add_argument(
+        '--dont-fail-on-alerts',
+        action='store_true',
+        help='Continue even if budget alerts are detected (default: fail on alerts)'
+    )
+
     return parser
 
 
@@ -134,7 +143,8 @@ def generate_and_upload_report(  # pylint: disable=too-many-arguments,too-many-p
     skip_line_program: bool = False,
     verbose: bool = False,
     upload: bool = True,
-    github: bool = False
+    github: bool = False,
+    dont_fail_on_alerts: bool = False
 ) -> int:
     """
     Generate and optionally upload a memory footprint report.
@@ -158,6 +168,7 @@ def generate_and_upload_report(  # pylint: disable=too-many-arguments,too-many-p
         verbose: Enable verbose output (optional)
         upload: Whether to upload the report (default: True)
         github: Whether to auto-detect Git metadata from GitHub Actions env (default: False)
+        dont_fail_on_alerts: Continue even if budget alerts are detected (default: False)
 
     Returns:
         Exit code (0 for success, 1 for error)
@@ -296,17 +307,20 @@ def generate_and_upload_report(  # pylint: disable=too-many-arguments,too-many-p
 
         # Upload to MemBrowse
         uploader = MemBrowseUploader(api_key, api_url)
-        success = uploader.upload_report(enriched_report)
-
-        if not success:
-            logger.error("%s: Failed to upload report", log_prefix)
+        try:
+            fail_on_alerts = not dont_fail_on_alerts
+            uploader.upload_report(enriched_report, fail_on_alerts=fail_on_alerts)
+            logger.info("%s: Memory report uploaded successfully", log_prefix)
+            return 0
+        except BudgetAlertError as upload_error:
+            logger.error("%s: %s", log_prefix, upload_error)
+            return 1
+        except UploadError as upload_error:
+            logger.error("%s: Failed to upload report: %s", log_prefix, upload_error)
             return 1
 
-        logger.info("%s: Memory report uploaded successfully", log_prefix)
-        return 0
-
     except Exception as e:  # pylint: disable=broad-exception-caught
-        logger.error("%s: Failed to upload report: %s", log_prefix, e)
+        logger.error("%s: Failed to process report: %s", log_prefix, e)
         return 1
 
     finally:
@@ -346,5 +360,6 @@ def run_report(args: argparse.Namespace) -> int:
         skip_line_program=getattr(args, 'skip_line_program', False),
         verbose=getattr(args, 'verbose', False),
         upload=getattr(args, 'upload', False),
-        github=getattr(args, 'github', False)
+        github=getattr(args, 'github', False),
+        dont_fail_on_alerts=getattr(args, 'dont_fail_on_alerts', False)
     )
