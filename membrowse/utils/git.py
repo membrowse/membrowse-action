@@ -49,7 +49,105 @@ def run_git_command(command: list) -> Optional[str]:
         return None
 
 
-def detect_github_metadata() -> GitMetadata:  # pylint: disable=too-many-locals
+def _parse_pull_request_event(event_data: Dict[str, Any]) -> tuple:
+    """Extract metadata from pull request event."""
+    pr = event_data.get('pull_request', {})
+    base_sha = pr.get('base', {}).get('sha', '')
+    branch_name = pr.get('head', {}).get('ref', '')
+    pr_number = str(pr.get('number', ''))
+    return base_sha, branch_name, pr_number
+
+
+def _parse_push_event(event_data: Dict[str, Any]) -> tuple:
+    """Extract metadata from push event."""
+    base_sha = event_data.get('before', '')
+    # Try to get branch from git, fall back to env var
+    branch_name = (
+        run_git_command(['symbolic-ref', '--short', 'HEAD']) or
+        run_git_command(['for-each-ref', '--points-at', 'HEAD',
+                         '--format=%(refname:short)', 'refs/heads/']) or
+        os.environ.get('GITHUB_REF_NAME', 'unknown')
+    )
+    return base_sha, branch_name, ''
+
+
+def _parse_github_event(event_name: str, event_path: str) -> tuple:
+    """Parse GitHub event payload."""
+    base_sha, branch_name, pr_number = '', '', ''
+
+    if not event_path or not os.path.exists(event_path):
+        return base_sha, branch_name, pr_number
+
+    try:
+        with open(event_path, 'r', encoding='utf-8') as f:
+            event_data = json.load(f)
+
+        if event_name == 'pull_request':
+            base_sha, branch_name, pr_number = _parse_pull_request_event(event_data)
+        elif event_name == 'push':
+            base_sha, branch_name, pr_number = _parse_push_event(event_data)
+    except Exception:  # pylint: disable=broad-exception-caught
+        pass
+
+    return base_sha, branch_name, pr_number
+
+
+def _get_branch_name(branch_name: str) -> str:
+    """Get branch name from git or fallback."""
+    if branch_name:
+        return branch_name
+
+    return (
+        run_git_command(['symbolic-ref', '--short', 'HEAD']) or
+        run_git_command(['for-each-ref', '--points-at', 'HEAD',
+                         '--format=%(refname:short)', 'refs/heads/']) or
+        'unknown'
+    )
+
+
+def _get_repo_name() -> str:
+    """Extract repository name from git remote URL."""
+    remote_url = run_git_command(['config', '--get', 'remote.origin.url'])
+    if not remote_url:
+        return 'unknown'
+
+    parts = remote_url.rstrip('.git').split('/')
+    return parts[-1] if parts else 'unknown'
+
+
+def _get_commit_details(commit_sha: str) -> tuple:
+    """Get commit message, timestamp, author name and email."""
+    defaults = (
+        'Unknown commit message',
+        datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
+        'Unknown',
+        'unknown@example.com'
+    )
+
+    if not commit_sha:
+        return defaults
+
+    commit_message = (
+        run_git_command(['log', '-1', '--pretty=format:%B', commit_sha]) or
+        defaults[0]
+    )
+    commit_timestamp = (
+        run_git_command(['log', '-1', '--pretty=format:%cI', commit_sha]) or
+        defaults[1]
+    )
+    author_name = (
+        run_git_command(['log', '-1', '--pretty=format:%an', commit_sha]) or
+        defaults[2]
+    )
+    author_email = (
+        run_git_command(['log', '-1', '--pretty=format:%ae', commit_sha]) or
+        defaults[3]
+    )
+
+    return commit_message, commit_timestamp, author_name, author_email
+
+
+def detect_github_metadata() -> GitMetadata:
     """
     Detect Git metadata from GitHub Actions environment.
 
@@ -64,94 +162,16 @@ def detect_github_metadata() -> GitMetadata:  # pylint: disable=too-many-locals
     commit_sha = os.environ.get('GITHUB_SHA', '')
     event_path = os.environ.get('GITHUB_EVENT_PATH', '')
 
-    base_sha = ''
-    branch_name = ''
-    pr_number = ''
-
     # Parse event payload if available
-    if event_path and os.path.exists(event_path):
-        try:
-            with open(event_path, 'r', encoding='utf-8') as f:
-                event_data = json.load(f)
-
-            if event_name == 'pull_request':
-                base_sha = event_data.get(
-                    'pull_request',
-                    {}).get(
-                    'base',
-                    {}).get(
-                    'sha',
-                    '')
-                branch_name = event_data.get(
-                    'pull_request',
-                    {}).get(
-                    'head',
-                    {}).get(
-                    'ref',
-                    '')
-                pr_number = str(
-                    event_data.get(
-                        'pull_request',
-                        {}).get(
-                        'number',
-                        ''))
-            elif event_name == 'push':
-                base_sha = event_data.get('before', '')
-                # Try to get branch from git, fall back to env var
-                branch_name = (
-                    run_git_command(['symbolic-ref', '--short', 'HEAD']) or
-                    run_git_command(['for-each-ref', '--points-at', 'HEAD',
-                                     '--format=%(refname:short)', 'refs/heads/']) or
-                    os.environ.get('GITHUB_REF_NAME', 'unknown')
-                )
-        except Exception:  # pylint: disable=broad-exception-caught
-            pass
+    base_sha, branch_name, pr_number = _parse_github_event(event_name, event_path)
 
     # Fallback: detect from git if not from GitHub env
-    if not commit_sha:
-        commit_sha = run_git_command(['rev-parse', 'HEAD']) or ''
+    commit_sha = commit_sha or run_git_command(['rev-parse', 'HEAD']) or ''
+    branch_name = _get_branch_name(branch_name)
+    repo_name = _get_repo_name()
 
-    if not branch_name:
-        branch_name = (
-            run_git_command(['symbolic-ref', '--short', 'HEAD']) or
-            run_git_command(['for-each-ref', '--points-at', 'HEAD',
-                             '--format=%(refname:short)', 'refs/heads/']) or
-            'unknown'
-        )
-
-    # Get repository name from git remote
-    repo_name = 'unknown'
-    remote_url = run_git_command(['config', '--get', 'remote.origin.url'])
-    if remote_url:
-        # Extract repo name from URL like "https://github.com/user/repo.git"
-        parts = remote_url.rstrip('.git').split('/')
-        if parts:
-            repo_name = parts[-1]
-
-    # Get commit message, author, and timestamp
-    commit_message = 'Unknown commit message'
-    commit_timestamp = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
-    author_name = 'Unknown'
-    author_email = 'unknown@example.com'
-
-    if commit_sha:
-        msg = run_git_command(['log', '-1', '--pretty=format:%B', commit_sha])
-        if msg:
-            commit_message = msg
-
-        ts = run_git_command(['log', '-1', '--pretty=format:%cI', commit_sha])
-        if ts:
-            commit_timestamp = ts
-
-        auth_name = run_git_command(
-            ['log', '-1', '--pretty=format:%an', commit_sha])
-        if auth_name:
-            author_name = auth_name
-
-        auth_email = run_git_command(
-            ['log', '-1', '--pretty=format:%ae', commit_sha])
-        if auth_email:
-            author_email = auth_email
+    # Get commit details
+    commit_message, commit_timestamp, author_name, author_email = _get_commit_details(commit_sha)
 
     return GitMetadata(
         commit_sha=commit_sha or None,
