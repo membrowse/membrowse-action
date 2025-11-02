@@ -35,11 +35,10 @@ def print_upload_response(response_data: dict, verbose: bool = False) -> None:
     else:
         print("Upload failed", file=sys.stderr)
 
-    # In verbose mode, print the full API response for debugging
+    # In verbose mode, log the full API response for debugging
     if verbose:
-        print("\n=== Full API Response ===")
-        print(json.dumps(response_data, indent=2))
-        print("=========================\n")
+        logger.debug("Full API Response:")
+        logger.debug(json.dumps(response_data, indent=2))
 
     # Display API message if present
     api_message = response_data.get('message')
@@ -72,20 +71,16 @@ def print_upload_response(response_data: dict, verbose: bool = False) -> None:
 
     # Display changes summary
     changes_summary = data.get('changes_summary', {})
-    if verbose:
-        print(f"[DEBUG] changes_summary present: {bool(changes_summary)}")
-        if changes_summary:
-            print(f"[DEBUG] changes_summary keys: {list(changes_summary.keys())}")
-
+    logger.debug("changes_summary present: %s", bool(changes_summary))
     if changes_summary:
+        logger.debug("changes_summary keys: %s", list(changes_summary.keys()))
         _display_changes_summary(changes_summary)
 
     # Display budget alerts
     alerts = data.get('alerts', {})
     budget_alerts = alerts.get('budgets', [])
-    if verbose:
-        print(f"[DEBUG] alerts present: {bool(alerts)}")
-        print(f"[DEBUG] budget_alerts count: {len(budget_alerts)}")
+    logger.debug("alerts present: %s", bool(alerts))
+    logger.debug("budget_alerts count: %d", len(budget_alerts))
 
     if budget_alerts:
         _display_budget_alerts(budget_alerts)
@@ -357,7 +352,7 @@ def generate_report(
     logger.info("Linker scripts: %s", ld_scripts)
 
     # Parse memory regions from linker scripts
-    logger.info("Parsing memory regions from linker scripts.")
+    logger.warning("Parsing memory regions from linker scripts...")
     try:
         parser = LinkerScriptParser(ld_array, elf_file=elf_path)
         memory_regions_data = parser.parse_memory_regions()
@@ -366,7 +361,7 @@ def generate_report(
         raise ValueError(f"Failed to parse memory regions: {e}") from e
 
     # Generate JSON report
-    logger.info("Generating JSON memory report...")
+    logger.warning("Generating memory report...")
     try:
         generator = ReportGenerator(
             elf_path,
@@ -378,7 +373,7 @@ def generate_report(
         logger.error("Failed to generate memory report: %s", e)
         raise ValueError(f"Failed to generate memory report: {e}") from e
 
-    logger.info("JSON report generated successfully")
+    logger.info("Memory report generated successfully")
     return report
 
 
@@ -431,7 +426,7 @@ def upload_report(
     if commit_info.get('commit_hash'):
         log_prefix = f"({commit_info.get('commit_hash')})"
 
-    logger.info("%s: Starting upload of report to MemBrowse...", log_prefix)
+    logger.warning("%s: Uploading report to MemBrowse...", log_prefix)
     logger.info("Target: %s", target_name)
 
     # Build metadata structure (commit_info is already in metadata['git'] format)
@@ -454,7 +449,6 @@ def upload_report(
         response_data = uploader.upload_report(enriched_report)
     except Exception as e:  # pylint: disable=broad-exception-caught
         logger.error("%s: Failed to upload report: %s", log_prefix, e)
-        print(f"\nUpload Failed: {e}", file=sys.stderr)
         raise RuntimeError(f"Failed to upload report: {e}") from e
 
     # Always print upload response details (success or failure)
@@ -472,16 +466,12 @@ def upload_report(
         budget_alerts = alerts.get('budgets', [])
 
         if budget_alerts:
-            logger.error(
-                "%s: Budget alerts detected: %d budget(s) exceeded",
-                log_prefix,
-                len(budget_alerts)
+            error_msg = (
+                f"Budget Alert Error: {len(budget_alerts)} budget(s) exceeded. "
+                "Use --dont-fail-on-alerts to continue despite alerts."
             )
-            print(
-                f"\nBudget Alert Error: {len(budget_alerts)} budget(s) exceeded. "
-                "Use --dont-fail-on-alerts to continue despite alerts.",
-                file=sys.stderr
-            )
+            logger.error("%s: %s", log_prefix, error_msg)
+            print(f"\n{error_msg}", file=sys.stderr)
             raise RuntimeError(
                 f"Budget alerts detected: {len(budget_alerts)} budget(s) exceeded"
             )
@@ -522,7 +512,7 @@ def run_report(args: argparse.Namespace) -> int:
 
     # If not uploading, print report to stdout and exit
     if not upload_mode:
-        logger.info("Local mode - printing report to stdout")
+        logger.info("Local mode - outputting report to stdout")
         print(json.dumps(report, indent=2))
         return 0
 

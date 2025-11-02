@@ -101,7 +101,7 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
     Returns:
         Exit code (0 for success, 1 for error)
     """
-    logger.info("Starting historical memory analysis for %s", args.target_name)
+    logger.warning("Starting historical memory analysis for %s", args.target_name)
     logger.info("Processing last %d commits", args.num_commits)
     logger.info("Build script: %s", args.build_script)
     logger.info("ELF file: %s", args.elf_path)
@@ -150,8 +150,8 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
         log_prefix = f"({commit})"
 
         logger.info("")
-        logger.info("=== Processing commit %d/%d: %s ===",
-                    commit_count, total_commits, commit)
+        logger.warning("Processing commit %d/%d: %s",
+                       commit_count, total_commits, commit[:8])
 
         # Checkout the commit
         logger.info("%s: Checking out commit...", log_prefix)
@@ -201,8 +201,8 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
         # Get commit metadata (returns old key names: commit_sha, base_sha)
         metadata = get_commit_metadata(commit)
 
-        logger.info("%s: Generating memory report (commit %d of %d)...",
-                    log_prefix, commit_count, total_commits)
+        logger.warning("%s: Generating memory report (commit %d of %d)...",
+                       log_prefix, commit_count, total_commits)
         logger.info(
             "%s: Base commit: %s",
             log_prefix,
@@ -282,10 +282,11 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
     elapsed_str = f"{minutes:02d}:{seconds:02d}"
 
     logger.info("")
-    logger.info("Historical analysis completed!")
-    logger.info("Processed %d commits", total_commits)
-    logger.info("Successful uploads: %d", successful_uploads)
-    logger.info("Failed uploads: %d", failed_uploads)
-    logger.info("Total time: %s", elapsed_str)
+    logger.warning("Historical analysis completed!")
+    logger.warning("Processed %d commits", total_commits)
+    logger.warning("Successful uploads: %d", successful_uploads)
+    if failed_uploads > 0:
+        logger.warning("Failed uploads: %d", failed_uploads)
+    logger.warning("Total time: %s", elapsed_str)
 
     return 0 if failed_uploads == 0 else 1
