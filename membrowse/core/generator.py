@@ -7,11 +7,15 @@ the generation of comprehensive memory reports from ELF files and memory regions
 """
 
 import time
+import logging
 from typing import Dict, Any
 from .models import MemoryRegion
 from .analyzer import ELFAnalyzer
 from ..analysis.mapper import MemoryMapper
 from .exceptions import ELFAnalysisError
+
+# Set up logger
+logger = logging.getLogger(__name__)
 
 
 class ReportGenerator:  # pylint: disable=too-few-public-methods
@@ -69,19 +73,17 @@ class ReportGenerator:  # pylint: disable=too-few-public-methods
             symbols_with_source = sum(1 for s in symbols if s.source_file)
 
             if verbose:
-                print("\nPerformance Summary:")
-                print(f"  Total time: {total_time:.2f}s")
-                print(f"  Symbols processed: {len(symbols)}")
-                avg_time_msg = (
-                    f"  Avg time per symbol: {total_time / len(symbols) * 1000:.2f}ms"
-                    if symbols else "  Avg time per symbol: 0ms"
-                )
-                print(avg_time_msg)
-                success_rate_msg = (
-                    f"  Source mapping success: {symbols_with_source / len(symbols) * 100:.1f}%"
-                    if symbols else "  Source mapping success: 0%"
-                )
-                print(success_rate_msg)
+                logger.info("Performance Summary:")
+                logger.info("  Total time: %.2fs", total_time)
+                logger.info("  Symbols processed: %d", len(symbols))
+                if symbols:
+                    logger.info("  Avg time per symbol: %.2fms",
+                                total_time / len(symbols) * 1000)
+                    logger.info("  Source mapping success: %.1f%%",
+                                symbols_with_source / len(symbols) * 100)
+                else:
+                    logger.info("  Avg time per symbol: 0ms")
+                    logger.info("  Source mapping success: 0%%")
 
             # Build final report
             report = {

@@ -7,32 +7,6 @@ from datetime import datetime
 from typing import Optional, Dict, Any
 
 
-class GitMetadata:  # pylint: disable=too-many-instance-attributes,too-few-public-methods
-    """Container for Git metadata."""
-
-    def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments
-        self,
-        commit_sha: Optional[str] = None,
-        base_sha: Optional[str] = None,
-        branch_name: Optional[str] = None,
-        repo_name: Optional[str] = None,
-        commit_message: Optional[str] = None,
-        commit_timestamp: Optional[str] = None,
-        author_name: Optional[str] = None,
-        author_email: Optional[str] = None,
-        pr_number: Optional[str] = None
-    ):
-        self.commit_sha = commit_sha
-        self.base_sha = base_sha
-        self.branch_name = branch_name
-        self.repo_name = repo_name
-        self.commit_message = commit_message
-        self.commit_timestamp = commit_timestamp
-        self.author_name = author_name
-        self.author_email = author_email
-        self.pr_number = pr_number
-
-
 def run_git_command(command: list) -> Optional[str]:
     """Run a git command and return stdout, or None on error."""
     try:
@@ -147,7 +121,7 @@ def _get_commit_details(commit_sha: str) -> tuple:
     return commit_message, commit_timestamp, author_name, author_email
 
 
-def detect_github_metadata() -> GitMetadata:
+def detect_github_metadata() -> Dict[str, Any]:
     """
     Detect Git metadata from GitHub Actions environment.
 
@@ -155,7 +129,18 @@ def detect_github_metadata() -> GitMetadata:
     commit SHA, branch name, PR number, etc.
 
     Returns:
-        GitMetadata object with detected information
+        Dict with metadata in metadata['git'] format:
+        {
+            'commit_hash': str,
+            'base_commit_hash': str,
+            'branch_name': str,
+            'repository': str,
+            'commit_message': str,
+            'commit_timestamp': str,
+            'author_name': str,
+            'author_email': str,
+            'pr_number': str
+        }
     """
     # Get GitHub environment variables
     event_name = os.environ.get('GITHUB_EVENT_NAME', '')
@@ -173,17 +158,18 @@ def detect_github_metadata() -> GitMetadata:
     # Get commit details
     commit_message, commit_timestamp, author_name, author_email = _get_commit_details(commit_sha)
 
-    return GitMetadata(
-        commit_sha=commit_sha or None,
-        base_sha=base_sha or None,
-        branch_name=branch_name or None,
-        repo_name=repo_name or None,
-        commit_message=commit_message or None,
-        commit_timestamp=commit_timestamp or None,
-        author_name=author_name or None,
-        author_email=author_email or None,
-        pr_number=pr_number or None
-    )
+    # Return in metadata['git'] format
+    return {
+        'commit_hash': commit_sha or None,
+        'base_commit_hash': base_sha or None,
+        'branch_name': branch_name or None,
+        'repository': repo_name or None,
+        'commit_message': commit_message or None,
+        'commit_timestamp': commit_timestamp or None,
+        'author_name': author_name or None,
+        'author_email': author_email or None,
+        'pr_number': pr_number or None
+    }
 
 
 def get_commit_metadata(commit_sha: str) -> Dict[str, Any]:
@@ -194,7 +180,8 @@ def get_commit_metadata(commit_sha: str) -> Dict[str, Any]:
         commit_sha: Git commit SHA
 
     Returns:
-        Dictionary with commit metadata
+        Dictionary with commit metadata (note: uses old key names for backwards compatibility)
+        Use commit_sha, base_sha keys (not commit_hash, base_commit_hash)
     """
     metadata = {
         'commit_sha': commit_sha,

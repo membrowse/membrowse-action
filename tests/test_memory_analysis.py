@@ -21,6 +21,7 @@ from pathlib import Path
 from membrowse.core import ReportGenerator
 from membrowse.linker.parser import parse_linker_scripts
 from tests.test_utils import validate_memory_regions
+from tests.test_helpers import run_compilation
 
 try:
     import jsonschema
@@ -113,14 +114,7 @@ class TestMemoryAnalysis(unittest.TestCase):
         ]
 
         try:
-            result = subprocess.run(
-                compile_cmd,
-                capture_output=True,
-                text=True,
-                check=True)
-            print("Compilation successful")
-            if result.stderr:
-                print(f"Compiler warnings: {result.stderr}")
+            run_compilation(compile_cmd, "Compilation successful")
         except subprocess.CalledProcessError as e:
             self.fail(f"Compilation failed: {e.stderr}")
 

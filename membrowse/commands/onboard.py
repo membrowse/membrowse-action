@@ -7,7 +7,7 @@ import logging
 from datetime import datetime
 
 from ..utils.git import run_git_command, get_commit_metadata
-from .report import generate_and_upload_report, DEFAULT_API_URL
+from .report import generate_report, upload_report, DEFAULT_API_URL
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -91,7 +91,7 @@ examples:
     return parser
 
 
-def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-locals,too-many-statements
+def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-locals,too-many-statements,too-many-return-statements
     """
     Execute the onboard subcommand.
 
@@ -101,7 +101,7 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
     Returns:
         Exit code (0 for success, 1 for error)
     """
-    logger.info("Starting historical memory analysis for %s", args.target_name)
+    logger.warning("Starting historical memory analysis for %s", args.target_name)
     logger.info("Processing last %d commits", args.num_commits)
     logger.info("Build script: %s", args.build_script)
     logger.info("ELF file: %s", args.elf_path)
@@ -145,13 +145,37 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
     failed_uploads = 0
     start_time = datetime.now()
 
+    # Helper function to restore HEAD and print summary on exit
+    def finalize_and_return(exit_code: int) -> int:
+        """Restore original HEAD, print summary, and return exit code."""
+        # Restore original HEAD
+        logger.info("")
+        logger.info("Restoring original HEAD...")
+        subprocess.run(['git', 'checkout', original_head, '--quiet'], check=False)
+
+        # Print summary
+        elapsed = datetime.now() - start_time
+        minutes = int(elapsed.total_seconds() // 60)
+        seconds = int(elapsed.total_seconds() % 60)
+        elapsed_str = f"{minutes:02d}:{seconds:02d}"
+
+        logger.info("")
+        logger.warning("Historical analysis completed!")
+        logger.warning("Processed %d commits", len(commits))
+        logger.warning("Successful uploads: %d", successful_uploads)
+        if failed_uploads > 0:
+            logger.warning("Failed uploads: %d", failed_uploads)
+        logger.warning("Total time: %s", elapsed_str)
+
+        return exit_code
+
     # Process each commit
     for commit_count, commit in enumerate(commits, 1):
         log_prefix = f"({commit})"
 
         logger.info("")
-        logger.info("=== Processing commit %d/%d: %s ===",
-                    commit_count, total_commits, commit)
+        logger.warning("Processing commit %d/%d: %s",
+                       commit_count, total_commits, commit[:8])
 
         # Checkout the commit
         logger.info("%s: Checking out commit...", log_prefix)
@@ -185,24 +209,20 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
             logger.error("%s: Build failed, stopping workflow...", log_prefix)
             failed_uploads += 1
             # Restore HEAD and exit
-            subprocess.run(
-                ['git', 'checkout', original_head, '--quiet'], check=False)
-            return 1
+            return finalize_and_return(1)
 
         # Check if ELF file was generated
         if not os.path.exists(args.elf_path):
             logger.error("%s: ELF file not found at %s, stopping workflow...",
                          log_prefix, args.elf_path)
             failed_uploads += 1
-            subprocess.run(
-                ['git', 'checkout', original_head, '--quiet'], check=False)
-            return 1
+            return finalize_and_return(1)
 
-        # Get commit metadata
+        # Get commit metadata (returns old key names: commit_sha, base_sha)
         metadata = get_commit_metadata(commit)
 
-        logger.info("%s: Generating memory report (commit %d of %d)...",
-                    log_prefix, commit_count, total_commits)
+        logger.warning("%s: Generating memory report (commit %d of %d)...",
+                       log_prefix, commit_count, total_commits)
         logger.info(
             "%s: Base commit: %s",
             log_prefix,
@@ -210,34 +230,54 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
                 'base_sha',
                 'N/A'))
 
-        # Generate and upload report using helper function
-        # For onboarding, don't fail on alerts to continue processing all commits
-        result = generate_and_upload_report(
-            elf_path=args.elf_path,
-            ld_scripts=args.ld_scripts,
-            target_name=args.target_name,
-            api_key=args.api_key,
-            api_url=args.api_url,
-            commit_sha=commit,
-            base_sha=metadata.get('base_sha'),
-            branch_name=current_branch,
-            repo_name=repo_name,
-            commit_message=metadata['commit_message'],
-            commit_timestamp=metadata['commit_timestamp'],
-            author_name=metadata.get('author_name'),
-            author_email=metadata.get('author_email'),
-            verbose=args.verbose,
-            dont_fail_on_alerts=True
-        )
-
-        if result != 0:
-            logger.error("%s: Failed to generate or upload memory report " +
+        # Generate report
+        try:
+            report = generate_report(
+                elf_path=args.elf_path,
+                ld_scripts=args.ld_scripts,
+                skip_line_program=False,
+                verbose=args.verbose
+            )
+        except ValueError as e:
+            logger.error("%s: Failed to generate memory report " +
                          "(commit %d of %d), stopping workflow...",
                          log_prefix, commit_count, total_commits)
+            logger.error("%s: Error: %s", log_prefix, e)
             failed_uploads += 1
-            subprocess.run(
-                ['git', 'checkout', original_head, '--quiet'], check=False)
-            return 1
+            return finalize_and_return(1)
+
+        # Build commit_info in metadata['git'] format (map old keys to new)
+        commit_info = {
+            'commit_hash': metadata['commit_sha'],
+            'base_commit_hash': metadata.get('base_sha'),
+            'branch_name': current_branch,
+            'repository': repo_name,
+            'commit_message': metadata['commit_message'],
+            'commit_timestamp': metadata['commit_timestamp'],
+            'author_name': metadata.get('author_name'),
+            'author_email': metadata.get('author_email'),
+            'pr_number': None
+        }
+
+        # Upload report
+        # For onboarding, don't fail on alerts to continue processing all commits
+        try:
+            upload_report(
+                report=report,
+                commit_info=commit_info,
+                target_name=args.target_name,
+                api_key=args.api_key,
+                api_url=args.api_url,
+                verbose=args.verbose,
+                dont_fail_on_alerts=True
+            )
+        except (ValueError, RuntimeError) as e:
+            logger.error("%s: Failed to upload memory report " +
+                         "(commit %d of %d), stopping workflow...",
+                         log_prefix, commit_count, total_commits)
+            logger.error("%s: Error: %s", log_prefix, e)
+            failed_uploads += 1
+            return finalize_and_return(1)
 
         logger.info(
             "%s: Memory report uploaded successfully (commit %d of %d)",
@@ -246,22 +286,5 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
             total_commits)
         successful_uploads += 1
 
-    # Restore original HEAD
-    logger.info("")
-    logger.info("Restoring original HEAD...")
-    subprocess.run(['git', 'checkout', original_head, '--quiet'], check=False)
-
-    # Print summary
-    elapsed = datetime.now() - start_time
-    minutes = int(elapsed.total_seconds() // 60)
-    seconds = int(elapsed.total_seconds() % 60)
-    elapsed_str = f"{minutes:02d}:{seconds:02d}"
-
-    logger.info("")
-    logger.info("Historical analysis completed!")
-    logger.info("Processed %d commits", total_commits)
-    logger.info("Successful uploads: %d", successful_uploads)
-    logger.info("Failed uploads: %d", failed_uploads)
-    logger.info("Total time: %s", elapsed_str)
-
-    return 0 if failed_uploads == 0 else 1
+    # Finalize with summary and restoration
+    return finalize_and_return(0 if failed_uploads == 0 else 1)

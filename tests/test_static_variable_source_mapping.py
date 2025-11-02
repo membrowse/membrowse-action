@@ -17,7 +17,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any, Dict, List
 
-from membrowse.core.cli import CLIHandler
+from membrowse.core.generator import ReportGenerator
 
 # Add shared module to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
@@ -83,7 +83,7 @@ class TestStaticVariableSourceMapping(unittest.TestCase):
 
     def _generate_memory_report(self, elf_path: Path) -> Dict[str, Any]:
         """
-        Generate memory report using the CLI module.
+        Generate memory report using the ReportGenerator.
 
         Args:
             elf_path: Path to ELF file
@@ -91,26 +91,15 @@ class TestStaticVariableSourceMapping(unittest.TestCase):
         Returns:
             Memory report as dictionary
         """
-        import argparse  # pylint: disable=import-outside-toplevel
-
-        # Create temporary output file
-        output_path = self.temp_dir / "report.json"
-
-        # Create args namespace
-        args = argparse.Namespace(
-            elf_path=str(elf_path),
-            memory_regions=None,
-            output=str(output_path),
-            verbose=False,
+        # Generate report directly using ReportGenerator
+        # No memory regions needed for these tests (only testing symbol extraction)
+        generator = ReportGenerator(
+            str(elf_path),
+            memory_regions_data=None,
             skip_line_program=False
         )
-
-        # Generate report
-        CLIHandler.run(args)
-
-        # Read and return report
-        with open(output_path, 'r', encoding='utf-8') as f:
-            return json.load(f)
+        report = generator.generate_report(verbose=False)
+        return report
 
     def _find_foo_symbols(
             self, report: Dict[str, Any]) -> List[Dict[str, Any]]:
