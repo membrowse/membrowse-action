@@ -1,7 +1,6 @@
 """Report subcommand - generates memory footprint reports from ELF files."""
 
 import os
-import sys
 import json
 import argparse
 import logging

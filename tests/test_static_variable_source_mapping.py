@@ -6,7 +6,6 @@ This module tests various scenarios where static variables are defined in differ
 locations and ensures they are correctly mapped to their source files.
 """
 
-import json
 import os
 import shutil
 import subprocess
