@@ -351,8 +351,7 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
             'commit_timestamp': metadata['commit_timestamp'],
             'author_name': metadata.get('author_name'),
             'author_email': metadata.get('author_email'),
-            'pr_number': None,
-            'build_failed': build_failed
+            'pr_number': None
         }
 
         # Upload report
@@ -365,7 +364,8 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
                 api_key=args.api_key,
                 api_url=args.api_url,
                 verbose=args.verbose,
-                dont_fail_on_alerts=True
+                dont_fail_on_alerts=True,
+                build_failed=build_failed
             )
             if build_failed:
                 logger.info(
