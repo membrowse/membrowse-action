@@ -1,7 +1,6 @@
 """Report subcommand - generates memory footprint reports from ELF files."""
 
 import os
-import sys
 import json
 import argparse
 import logging
@@ -31,9 +30,9 @@ def print_upload_response(response_data: dict, verbose: bool = False) -> None:
     success = response_data.get('success', False)
 
     if success:
-        print("Report uploaded successfully to MemBrowse")
+        logger.info("Report uploaded successfully to MemBrowse")
     else:
-        print("Upload failed", file=sys.stderr)
+        logger.error("Upload failed")
 
     # In verbose mode, log the full API response for debugging
     if verbose:
@@ -43,13 +42,13 @@ def print_upload_response(response_data: dict, verbose: bool = False) -> None:
     # Display API message if present
     api_message = response_data.get('message')
     if api_message:
-        print(f"\n{api_message}")
+        logger.info("%s", api_message)
 
     # Handle error responses
     if not success:
         error = response_data.get('error', 'Unknown error')
         error_type = response_data.get('type', 'UnknownError')
-        print(f"\nError: {error_type} - {error}", file=sys.stderr)
+        logger.error("Error: %s - %s", error_type, error)
 
         # Display upload limit details if present
         if error_type == 'UploadLimitExceededError':
@@ -58,7 +57,7 @@ def print_upload_response(response_data: dict, verbose: bool = False) -> None:
         # Display upgrade URL if present
         upgrade_url = response_data.get('upgrade_url')
         if upgrade_url:
-            print(f"\nUpgrade at: {upgrade_url}", file=sys.stderr)
+            logger.error("Upgrade at: %s", upgrade_url)
 
         return  # Don't display changes/alerts for failed uploads
 
@@ -67,7 +66,7 @@ def print_upload_response(response_data: dict, verbose: bool = False) -> None:
 
     # Display overwrite warning
     if data.get('is_overwritten', False):
-        print("\nWarning: This upload overwrote existing data")
+        logger.warning("This upload overwrote existing data")
 
     # Display changes summary
     changes_summary = data.get('changes_summary', {})
@@ -88,11 +87,11 @@ def print_upload_response(response_data: dict, verbose: bool = False) -> None:
 
 def _display_changes_summary(changes_summary: dict) -> None:
     """Display memory changes summary in human-readable format"""
-    print("\nMemory Changes Summary:")
+    logger.info("Memory Changes Summary:")
 
     # Check if changes_summary is empty or None
     if not changes_summary:
-        print("\n  No changes detected")
+        logger.info("  No changes detected")
         return
 
     # Track if we found any actual changes
@@ -112,24 +111,24 @@ def _display_changes_summary(changes_summary: dict) -> None:
 
         # We found at least one change
         has_changes = True
-        print(f"\n  {region_name}:")
+        logger.info("  %s:", region_name)
 
         if used_change != 0:
             direction = "increased" if used_change > 0 else "decreased"
-            print(f"    Used: {direction} by {abs(used_change):,} bytes")
+            logger.info("    Used: %s by %s bytes", direction, f"{abs(used_change):,}")
 
         if free_change != 0:
             direction = "increased" if free_change > 0 else "decreased"
-            print(f"    Free: {direction} by {abs(free_change):,} bytes")
+            logger.info("    Free: %s by %s bytes", direction, f"{abs(free_change):,}")
 
     # If we processed regions but found no changes
     if not has_changes:
-        print("\n  No changes detected")
+        logger.info("  No changes detected")
 
 
 def _display_budget_alerts(budget_alerts: list) -> None:
     """Display budget alerts in human-readable format"""
-    print("\nBudget Alerts:")
+    logger.warning("Budget Alerts:")
 
     for alert in budget_alerts:
         region = alert.get('region', 'Unknown')
@@ -138,15 +137,16 @@ def _display_budget_alerts(budget_alerts: list) -> None:
         current = alert.get('current', 0)
         exceeded_by = alert.get('exceeded_by', 0)
 
-        print(f"\n  {region} ({budget_type}):")
-        print(f"    Threshold: {threshold:,} bytes")
-        print(f"    Current:   {current:,} bytes")
-        print(f"    Exceeded by: {exceeded_by:,} bytes ({exceeded_by/threshold*100:.1f}%)")
+        logger.warning("  %s (%s):", region, budget_type)
+        logger.warning("    Threshold: %s bytes", f"{threshold:,}")
+        logger.warning("    Current:   %s bytes", f"{current:,}")
+        logger.warning("    Exceeded by: %s bytes (%s%%)",
+                      f"{exceeded_by:,}", f"{exceeded_by/threshold*100:.1f}")
 
 
 def _display_upload_limit_error(response_data: dict) -> None:
     """Display detailed upload limit error information"""
-    print("\nUpload Limit Details:", file=sys.stderr)
+    logger.error("Upload Limit Details:")
 
     upload_count_monthly = response_data.get('upload_count_monthly')
     monthly_limit = response_data.get('monthly_upload_limit')
@@ -155,16 +155,13 @@ def _display_upload_limit_error(response_data: dict) -> None:
     period_end = response_data.get('period_end')
 
     if upload_count_monthly is not None and monthly_limit is not None:
-        print(
-            f"  Monthly uploads: {upload_count_monthly} / {monthly_limit}",
-            file=sys.stderr
-        )
+        logger.error("  Monthly uploads: %s / %s", upload_count_monthly, monthly_limit)
 
     if upload_count_total is not None:
-        print(f"  Total uploads: {upload_count_total}", file=sys.stderr)
+        logger.error("  Total uploads: %s", upload_count_total)
 
     if period_start and period_end:
-        print(f"  Billing period: {period_start} to {period_end}", file=sys.stderr)
+        logger.error("  Billing period: %s to %s", period_start, period_end)
 
 
 def _validate_file_paths(elf_path: str, ld_script_paths: list[str]) -> tuple[bool, str]:
@@ -385,7 +382,8 @@ def upload_report(  # pylint: disable=too-many-arguments
     api_url: str = DEFAULT_API_URL,
     *,
     verbose: bool = False,
-    dont_fail_on_alerts: bool = False
+    dont_fail_on_alerts: bool = False,
+    build_failed: bool = None
 ) -> dict:
     """
     Upload a memory footprint report to MemBrowse platform.
@@ -409,6 +407,7 @@ def upload_report(  # pylint: disable=too-many-arguments
         api_url: MemBrowse API endpoint URL
         verbose: Enable verbose output (keyword-only)
         dont_fail_on_alerts: Continue even if budget alerts are detected (keyword-only)
+        build_failed: Whether the build failed (keyword-only)
 
     Returns:
         dict: API response data if upload succeeded
@@ -429,7 +428,7 @@ def upload_report(  # pylint: disable=too-many-arguments
     logger.info("Target: %s", target_name)
 
     # Build and enrich report
-    enriched_report = _build_enriched_report(report, commit_info, target_name)
+    enriched_report = _build_enriched_report(report, commit_info, target_name, build_failed)
 
     # Upload to MemBrowse
     response_data = _perform_upload(enriched_report, api_key, api_url, log_prefix)
@@ -454,7 +453,12 @@ def _get_log_prefix(commit_info: dict) -> str:
     return "MemBrowse"
 
 
-def _build_enriched_report(report: dict, commit_info: dict, target_name: str) -> dict:
+def _build_enriched_report(
+    report: dict,
+    commit_info: dict,
+    target_name: str,
+    build_failed: bool = None
+) -> dict:
     """Build enriched report with metadata."""
     metadata = {
         'git': commit_info,
@@ -462,6 +466,10 @@ def _build_enriched_report(report: dict, commit_info: dict, target_name: str) ->
         'target_name': target_name,
         'analysis_version': version('membrowse')
     }
+
+    # Add build_failed directly to metadata if provided
+    if build_failed is not None:
+        metadata['build_failed'] = build_failed
 
     return {
         'metadata': metadata,
@@ -501,7 +509,6 @@ def _check_budget_alerts(response_data: dict, dont_fail_on_alerts: bool, log_pre
             "Use --dont-fail-on-alerts to continue despite alerts."
         )
         logger.error("%s: %s", log_prefix, error_msg)
-        print(f"\n{error_msg}", file=sys.stderr)
         raise RuntimeError(
             f"Budget alerts detected: {len(budget_alerts)} budget(s) exceeded"
         )
@@ -537,10 +544,10 @@ def run_report(args: argparse.Namespace) -> int:
     # Check if upload mode is enabled
     upload_mode = getattr(args, 'upload', False) or getattr(args, 'github', False)
 
-    # If not uploading, print report to stdout and exit
+    # If not uploading, output report via logging
     if not upload_mode:
         logger.info("Local mode - outputting report to stdout")
-        print(json.dumps(report, indent=2))
+        logger.info(json.dumps(report, indent=2))
         return 0
 
     # Build commit_info dict in metadata['git'] format
