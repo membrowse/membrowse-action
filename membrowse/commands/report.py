@@ -377,12 +377,13 @@ def generate_report(
     return report
 
 
-def upload_report(
+def upload_report(  # pylint: disable=too-many-arguments
     report: dict,
     commit_info: dict,
     target_name: str,
     api_key: str,
     api_url: str = DEFAULT_API_URL,
+    *,
     verbose: bool = False,
     dont_fail_on_alerts: bool = False
 ) -> dict:
@@ -406,8 +407,8 @@ def upload_report(
         target_name: Build configuration/target (e.g., esp32, stm32, x86)
         api_key: MemBrowse API key
         api_url: MemBrowse API endpoint URL
-        verbose: Enable verbose output
-        dont_fail_on_alerts: Continue even if budget alerts are detected
+        verbose: Enable verbose output (keyword-only)
+        dont_fail_on_alerts: Continue even if budget alerts are detected (keyword-only)
 
     Returns:
         dict: API response data if upload succeeded
@@ -422,14 +423,39 @@ def upload_report(
         raise ValueError(error_message)
 
     # Set up log prefix
-    log_prefix = "MemBrowse"
-    if commit_info.get('commit_hash'):
-        log_prefix = f"({commit_info.get('commit_hash')})"
+    log_prefix = _get_log_prefix(commit_info)
 
     logger.warning("%s: Uploading report to MemBrowse...", log_prefix)
     logger.info("Target: %s", target_name)
 
-    # Build metadata structure (commit_info is already in metadata['git'] format)
+    # Build and enrich report
+    enriched_report = _build_enriched_report(report, commit_info, target_name)
+
+    # Upload to MemBrowse
+    response_data = _perform_upload(enriched_report, api_key, api_url, log_prefix)
+
+    # Always print upload response details (success or failure)
+    print_upload_response(response_data, verbose=verbose)
+
+    # Validate upload success
+    _validate_upload_success(response_data, log_prefix)
+
+    # Check for budget alerts if fail_on_alerts is enabled
+    _check_budget_alerts(response_data, dont_fail_on_alerts, log_prefix)
+
+    logger.info("%s: Memory report uploaded successfully", log_prefix)
+    return response_data
+
+
+def _get_log_prefix(commit_info: dict) -> str:
+    """Get log prefix from commit info."""
+    if commit_info.get('commit_hash'):
+        return f"({commit_info.get('commit_hash')})"
+    return "MemBrowse"
+
+
+def _build_enriched_report(report: dict, commit_info: dict, target_name: str) -> dict:
+    """Build enriched report with metadata."""
     metadata = {
         'git': commit_info,
         'repository': commit_info.get('repository'),
@@ -437,47 +463,48 @@ def upload_report(
         'analysis_version': version('membrowse')
     }
 
-    # Enrich report with metadata (work in memory)
-    enriched_report = {
+    return {
         'metadata': metadata,
         'memory_analysis': report
     }
 
-    # Upload to MemBrowse
+
+def _perform_upload(enriched_report: dict, api_key: str, api_url: str, log_prefix: str) -> dict:
+    """Perform the actual upload to MemBrowse."""
     try:
         uploader = MemBrowseUploader(api_key, api_url)
-        response_data = uploader.upload_report(enriched_report)
+        return uploader.upload_report(enriched_report)
     except Exception as e:  # pylint: disable=broad-exception-caught
         logger.error("%s: Failed to upload report: %s", log_prefix, e)
         raise RuntimeError(f"Failed to upload report: {e}") from e
 
-    # Always print upload response details (success or failure)
-    print_upload_response(response_data, verbose=verbose)
 
-    # Check if upload was successful
+def _validate_upload_success(response_data: dict, log_prefix: str) -> None:
+    """Validate that upload was successful."""
     if not response_data.get('success'):
         logger.error("%s: Upload failed - see response details above", log_prefix)
         raise RuntimeError("Upload failed - see response details above")
 
-    # Check for budget alerts if fail_on_alerts is enabled
-    if not dont_fail_on_alerts:
-        data = response_data.get('data', {})
-        alerts = data.get('alerts', {})
-        budget_alerts = alerts.get('budgets', [])
 
-        if budget_alerts:
-            error_msg = (
-                f"Budget Alert Error: {len(budget_alerts)} budget(s) exceeded. "
-                "Use --dont-fail-on-alerts to continue despite alerts."
-            )
-            logger.error("%s: %s", log_prefix, error_msg)
-            print(f"\n{error_msg}", file=sys.stderr)
-            raise RuntimeError(
-                f"Budget alerts detected: {len(budget_alerts)} budget(s) exceeded"
-            )
+def _check_budget_alerts(response_data: dict, dont_fail_on_alerts: bool, log_prefix: str) -> None:
+    """Check for budget alerts and fail if necessary."""
+    if dont_fail_on_alerts:
+        return
 
-    logger.info("%s: Memory report uploaded successfully", log_prefix)
-    return response_data
+    data = response_data.get('data', {})
+    alerts = data.get('alerts', {})
+    budget_alerts = alerts.get('budgets', [])
+
+    if budget_alerts:
+        error_msg = (
+            f"Budget Alert Error: {len(budget_alerts)} budget(s) exceeded. "
+            "Use --dont-fail-on-alerts to continue despite alerts."
+        )
+        logger.error("%s: %s", log_prefix, error_msg)
+        print(f"\n{error_msg}", file=sys.stderr)
+        raise RuntimeError(
+            f"Budget alerts detected: {len(budget_alerts)} budget(s) exceeded"
+        )
 
 
 def run_report(args: argparse.Namespace) -> int:

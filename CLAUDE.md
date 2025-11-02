@@ -86,24 +86,6 @@ membrowse onboard 25 "idf.py build" build/firmware.elf \
     "build/esp-idf/esp32/esp32.project.ld" esp32 "$API_KEY"
 ```
 
-### Python CLI (Low-level)
-
-Direct Python interface for advanced usage:
-
-```bash
-# Generate memory report with maximum coverage (default)
-python -m membrowse.core.cli --elf-path firmware.elf --output report.json
-
-# With memory regions
-python -m membrowse.core.cli --elf-path firmware.elf --memory-regions regions.json --output report.json
-
-# Fast mode: skip line program processing (88% coverage on ARM, 24% faster)
-python -m membrowse.core.cli --elf-path firmware.elf --output report.json --skip-line-program
-
-# Verbose output with performance metrics
-python -m membrowse.core.cli --elf-path firmware.elf --output report.json --verbose
-```
-
 ### Performance Options
 
 #### --skip-line-program flag
@@ -287,9 +269,6 @@ pylint membrowse/ tests/ --score=yes
 ```bash
 # Test linker script parsing
 python -m membrowse.linker.cli path/to/linker.ld
-
-# Test ELF analysis (Python CLI)
-python -m membrowse.core.cli --elf-path firmware.elf --memory-regions regions.json --output report.json
 
 # Test report command - local mode (no Git, no upload)
 membrowse report firmware.elf "linker1.ld linker2.ld" > report.json

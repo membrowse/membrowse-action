@@ -49,5 +49,3 @@ class MemBrowseUploader:  # pylint: disable=too-few-public-methods
         )
 
         return response.json()
-
-

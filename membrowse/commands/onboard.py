@@ -91,7 +91,7 @@ examples:
     return parser
 
 
-def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-locals,too-many-statements
+def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-locals,too-many-statements,too-many-return-statements
     """
     Execute the onboard subcommand.
 
@@ -145,6 +145,30 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
     failed_uploads = 0
     start_time = datetime.now()
 
+    # Helper function to restore HEAD and print summary on exit
+    def finalize_and_return(exit_code: int) -> int:
+        """Restore original HEAD, print summary, and return exit code."""
+        # Restore original HEAD
+        logger.info("")
+        logger.info("Restoring original HEAD...")
+        subprocess.run(['git', 'checkout', original_head, '--quiet'], check=False)
+
+        # Print summary
+        elapsed = datetime.now() - start_time
+        minutes = int(elapsed.total_seconds() // 60)
+        seconds = int(elapsed.total_seconds() % 60)
+        elapsed_str = f"{minutes:02d}:{seconds:02d}"
+
+        logger.info("")
+        logger.warning("Historical analysis completed!")
+        logger.warning("Processed %d commits", len(commits))
+        logger.warning("Successful uploads: %d", successful_uploads)
+        if failed_uploads > 0:
+            logger.warning("Failed uploads: %d", failed_uploads)
+        logger.warning("Total time: %s", elapsed_str)
+
+        return exit_code
+
     # Process each commit
     for commit_count, commit in enumerate(commits, 1):
         log_prefix = f"({commit})"
@@ -185,18 +209,14 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
             logger.error("%s: Build failed, stopping workflow...", log_prefix)
             failed_uploads += 1
             # Restore HEAD and exit
-            subprocess.run(
-                ['git', 'checkout', original_head, '--quiet'], check=False)
-            return 1
+            return finalize_and_return(1)
 
         # Check if ELF file was generated
         if not os.path.exists(args.elf_path):
             logger.error("%s: ELF file not found at %s, stopping workflow...",
                          log_prefix, args.elf_path)
             failed_uploads += 1
-            subprocess.run(
-                ['git', 'checkout', original_head, '--quiet'], check=False)
-            return 1
+            return finalize_and_return(1)
 
         # Get commit metadata (returns old key names: commit_sha, base_sha)
         metadata = get_commit_metadata(commit)
@@ -224,9 +244,7 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
                          log_prefix, commit_count, total_commits)
             logger.error("%s: Error: %s", log_prefix, e)
             failed_uploads += 1
-            subprocess.run(
-                ['git', 'checkout', original_head, '--quiet'], check=False)
-            return 1
+            return finalize_and_return(1)
 
         # Build commit_info in metadata['git'] format (map old keys to new)
         commit_info = {
@@ -259,9 +277,7 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
                          log_prefix, commit_count, total_commits)
             logger.error("%s: Error: %s", log_prefix, e)
             failed_uploads += 1
-            subprocess.run(
-                ['git', 'checkout', original_head, '--quiet'], check=False)
-            return 1
+            return finalize_and_return(1)
 
         logger.info(
             "%s: Memory report uploaded successfully (commit %d of %d)",
@@ -270,23 +286,5 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
             total_commits)
         successful_uploads += 1
 
-    # Restore original HEAD
-    logger.info("")
-    logger.info("Restoring original HEAD...")
-    subprocess.run(['git', 'checkout', original_head, '--quiet'], check=False)
-
-    # Print summary
-    elapsed = datetime.now() - start_time
-    minutes = int(elapsed.total_seconds() // 60)
-    seconds = int(elapsed.total_seconds() % 60)
-    elapsed_str = f"{minutes:02d}:{seconds:02d}"
-
-    logger.info("")
-    logger.warning("Historical analysis completed!")
-    logger.warning("Processed %d commits", total_commits)
-    logger.warning("Successful uploads: %d", successful_uploads)
-    if failed_uploads > 0:
-        logger.warning("Failed uploads: %d", failed_uploads)
-    logger.warning("Total time: %s", elapsed_str)
-
-    return 0 if failed_uploads == 0 else 1
+    # Finalize with summary and restoration
+    return finalize_and_return(0 if failed_uploads == 0 else 1)

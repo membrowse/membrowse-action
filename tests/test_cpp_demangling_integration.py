@@ -17,6 +17,7 @@ from pathlib import Path
 from elftools.elf.elffile import ELFFile
 from membrowse.analysis.symbols import SymbolExtractor
 from membrowse.analysis.sources import SourceFileResolver
+from tests.test_helpers import run_compilation
 
 
 class TestCppDemanglingIntegration(unittest.TestCase):
@@ -79,14 +80,7 @@ class TestCppDemanglingIntegration(unittest.TestCase):
         ]
 
         try:
-            result = subprocess.run(
-                compile_cmd,
-                capture_output=True,
-                text=True,
-                check=True)
-            print("C++ compilation successful")
-            if result.stderr:
-                print(f"Compiler warnings: {result.stderr}")
+            run_compilation(compile_cmd, "C++ compilation successful")
         except subprocess.CalledProcessError as e:
             self.fail(f"C++ compilation failed: {e.stderr}")
 
