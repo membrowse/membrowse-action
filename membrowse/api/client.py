@@ -68,7 +68,12 @@ class MemBrowseUploader:  # pylint: disable=too-few-public-methods
 
             # Check response success field
             if response.status_code in (200, 201) and response_data.get('success'):
-                print("✓ Report uploaded successfully to MemBrowse")
+                print("Report uploaded successfully to MemBrowse")
+
+                # Display message from API if present
+                api_message = response_data.get('message')
+                if api_message:
+                    print(f"\n{api_message}")
 
                 # Extract response data
                 data = response_data.get('data', {})
@@ -78,7 +83,7 @@ class MemBrowseUploader:  # pylint: disable=too-few-public-methods
 
                 # Display overwrite notification
                 if is_overwritten:
-                    print("\n⚠ Warning: This upload overwrote existing data")
+                    print("\nWarning: This upload overwrote existing data")
 
                 # Display changes summary
                 if changes_summary:
@@ -103,11 +108,39 @@ class MemBrowseUploader:  # pylint: disable=too-few-public-methods
             error_type = response_data.get('type', 'UnknownError')
             upgrade_url = response_data.get('upgrade_url')
 
+            # Build error message
             error_msg = f"HTTP {response.status_code}: {error_type} - {error}"
-            if upgrade_url:
-                error_msg += f"\nUpgrade at: {upgrade_url}"
 
-            print(f"Failed to upload report: {error_msg}", file=sys.stderr)
+            # Display detailed information for upload limit errors
+            if error_type == 'UploadLimitExceededError':
+                print(f"Failed to upload report: {error_msg}", file=sys.stderr)
+
+                # Display usage statistics
+                print("\nUpload Limit Details:", file=sys.stderr)
+
+                upload_count_monthly = response_data.get('upload_count_monthly')
+                monthly_limit = response_data.get('monthly_upload_limit')
+                upload_count_total = response_data.get('upload_count_total')
+                period_start = response_data.get('period_start')
+                period_end = response_data.get('period_end')
+
+                if upload_count_monthly is not None and monthly_limit is not None:
+                    print(f"  Monthly uploads: {upload_count_monthly} / {monthly_limit}", file=sys.stderr)
+
+                if upload_count_total is not None:
+                    print(f"  Total uploads: {upload_count_total}", file=sys.stderr)
+
+                if period_start and period_end:
+                    print(f"  Billing period: {period_start} to {period_end}", file=sys.stderr)
+
+                if upgrade_url:
+                    print(f"\nUpgrade at: {upgrade_url}", file=sys.stderr)
+            else:
+                # Standard error display for non-limit errors
+                if upgrade_url:
+                    error_msg += f"\nUpgrade at: {upgrade_url}"
+                print(f"Failed to upload report: {error_msg}", file=sys.stderr)
+
             raise UploadError(error_msg)
 
         except requests.exceptions.Timeout as exc:
@@ -125,27 +158,47 @@ class MemBrowseUploader:  # pylint: disable=too-few-public-methods
 
     def _display_changes_summary(self, changes_summary: Dict[str, Any]) -> None:
         """Display memory changes summary in human-readable format"""
-        print("\n📊 Memory Changes Summary:")
+        print("\nMemory Changes Summary:")
+
+        # Check if changes_summary is empty or None
+        if not changes_summary:
+            print("\n  No changes detected")
+            return
+
+        # Track if we found any actual changes
+        has_changes = False
 
         for region_name, changes in changes_summary.items():
-            if not changes:
+            # Skip if changes is falsy (None, empty dict, etc.)
+            if not changes or not isinstance(changes, dict):
                 continue
 
-            print(f"\n  {region_name}:")
             used_change = changes.get('used_change', 0)
             free_change = changes.get('free_change', 0)
 
+            # Skip regions with no actual changes
+            if used_change == 0 and free_change == 0:
+                continue
+
+            # We found at least one change
+            has_changes = True
+            print(f"\n  {region_name}:")
+
             if used_change != 0:
-                direction = "↑" if used_change > 0 else "↓"
-                print(f"    Used: {direction} {abs(used_change):,} bytes")
+                direction = "increased" if used_change > 0 else "decreased"
+                print(f"    Used: {direction} by {abs(used_change):,} bytes")
 
             if free_change != 0:
-                direction = "↑" if free_change > 0 else "↓"
-                print(f"    Free: {direction} {abs(free_change):,} bytes")
+                direction = "increased" if free_change > 0 else "decreased"
+                print(f"    Free: {direction} by {abs(free_change):,} bytes")
+
+        # If we processed regions but found no changes
+        if not has_changes:
+            print("\n  No changes detected")
 
     def _display_budget_alerts(self, budget_alerts: list) -> None:
         """Display budget alerts in human-readable format"""
-        print("\n⚠️  Budget Alerts:")
+        print("\nBudget Alerts:")
 
         for alert in budget_alerts:
             region = alert.get('region', 'Unknown')

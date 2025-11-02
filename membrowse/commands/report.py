@@ -1,6 +1,7 @@
 """Report subcommand - generates memory footprint reports from ELF files."""
 
 import os
+import sys
 import json
 import tempfile
 import argparse
@@ -318,9 +319,13 @@ def generate_and_upload_report(  # pylint: disable=too-many-arguments,too-many-p
             logger.info("%s: Memory report uploaded successfully", log_prefix)
             return 0
         except BudgetAlertError as upload_error:
+            # Print to stdout for visibility in GitHub Actions
+            print(f"\nBudget Alert Error: {upload_error}", file=sys.stdout)
             logger.error("%s: %s", log_prefix, upload_error)
             return 1
         except UploadError as upload_error:
+            # Print to stdout for visibility in GitHub Actions
+            print(f"\nUpload Failed: {upload_error}", file=sys.stdout)
             logger.error("%s: Failed to upload report: %s", log_prefix, upload_error)
             return 1
 

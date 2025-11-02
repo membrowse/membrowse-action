@@ -55,7 +55,8 @@ runs:
           "${{ inputs.ld }}" \
           "${{ inputs.target_name }}" \
           "${{ inputs.api_key }}" \
-          "${{ inputs.api_url }}"
+          "${{ inputs.api_url }}" \
+          --verbose
 
 branding:
   icon: 'clock'

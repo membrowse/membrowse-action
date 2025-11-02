@@ -44,6 +44,7 @@ runs:
           "${{ inputs.elf }}"
           "${{ inputs.ld }}"
           --github
+          --verbose
           --target-name "${{ inputs.target_name }}"
           --api-key "${{ inputs.api_key }}"
           --api-url "${{ inputs.api_url }}"
