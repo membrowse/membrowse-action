@@ -457,12 +457,6 @@ def upload_report(
         print(f"\nUpload Failed: {e}", file=sys.stderr)
         raise RuntimeError(f"Failed to upload report: {e}") from e
 
-    # Check for network errors (response_data is None)
-    if response_data is None:
-        logger.error("%s: Network error - failed to connect to MemBrowse API", log_prefix)
-        print("\nUpload Failed: Network error or timeout", file=sys.stderr)
-        raise RuntimeError("Network error - failed to connect to MemBrowse API")
-
     # Always print upload response details (success or failure)
     print_upload_response(response_data, verbose=verbose)
 
