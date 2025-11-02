@@ -310,15 +310,16 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
                 result, log_prefix, args, commit_count, total_commits)
             build_failed = True
 
-        # Case 2: Build succeeded but ELF/LD scripts missing (configuration error)
+        # Case 2: Build returned success but ELF missing - treat as failed build
         elif not os.path.exists(args.elf_path):
-            logger.error(
-                "%s: Build succeeded but ELF file not found at %s - "
-                "this indicates a configuration error",
+            logger.warning(
+                "%s: Build script succeeded (exit 0) but ELF file not found at %s - "
+                "treating as failed build",
                 log_prefix, args.elf_path)
-            logger.error("%s: Stopping onboard workflow...", log_prefix)
-            failed_uploads += 1
-            return finalize_and_return(1)
+
+            report = _handle_build_failure(
+                result, log_prefix, args, commit_count, total_commits)
+            build_failed = True
 
         # Case 3: Build succeeded and files exist - generate report
         else:
