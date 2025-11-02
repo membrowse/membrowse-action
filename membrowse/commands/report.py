@@ -3,7 +3,6 @@
 import os
 import sys
 import json
-import tempfile
 import argparse
 import logging
 from importlib.metadata import version
@@ -12,13 +11,208 @@ from ..utils.git import detect_github_metadata
 from ..linker.parser import LinkerScriptParser
 from ..core.generator import ReportGenerator
 from ..api.client import MemBrowseUploader
-from ..core.exceptions import UploadError, BudgetAlertError
 
 # Set up logger
 logger = logging.getLogger(__name__)
 
 # Default MemBrowse API endpoint
 DEFAULT_API_URL = 'https://www.membrowse.com/api/upload'
+
+
+def print_upload_response(response_data: dict, verbose: bool = False) -> None:
+    """
+    Print upload response details including changes summary and budget alerts.
+
+    Args:
+        response_data: The API response data from MemBrowse
+        verbose: If True, print full JSON response for debugging
+    """
+    # Check if upload was successful
+    success = response_data.get('success', False)
+
+    if success:
+        print("Report uploaded successfully to MemBrowse")
+    else:
+        print("Upload failed", file=sys.stderr)
+
+    # In verbose mode, print the full API response for debugging
+    if verbose:
+        print("\n=== Full API Response ===")
+        print(json.dumps(response_data, indent=2))
+        print("=========================\n")
+
+    # Display API message if present
+    api_message = response_data.get('message')
+    if api_message:
+        print(f"\n{api_message}")
+
+    # Handle error responses
+    if not success:
+        error = response_data.get('error', 'Unknown error')
+        error_type = response_data.get('type', 'UnknownError')
+        print(f"\nError: {error_type} - {error}", file=sys.stderr)
+
+        # Display upload limit details if present
+        if error_type == 'UploadLimitExceededError':
+            _display_upload_limit_error(response_data)
+
+        # Display upgrade URL if present
+        upgrade_url = response_data.get('upgrade_url')
+        if upgrade_url:
+            print(f"\nUpgrade at: {upgrade_url}", file=sys.stderr)
+
+        return  # Don't display changes/alerts for failed uploads
+
+    # Extract response data (only for successful uploads)
+    data = response_data.get('data', {})
+
+    # Display overwrite warning
+    if data.get('is_overwritten', False):
+        print("\nWarning: This upload overwrote existing data")
+
+    # Display changes summary
+    changes_summary = data.get('changes_summary', {})
+    if verbose:
+        print(f"[DEBUG] changes_summary present: {bool(changes_summary)}")
+        if changes_summary:
+            print(f"[DEBUG] changes_summary keys: {list(changes_summary.keys())}")
+
+    if changes_summary:
+        _display_changes_summary(changes_summary)
+
+    # Display budget alerts
+    alerts = data.get('alerts', {})
+    budget_alerts = alerts.get('budgets', [])
+    if verbose:
+        print(f"[DEBUG] alerts present: {bool(alerts)}")
+        print(f"[DEBUG] budget_alerts count: {len(budget_alerts)}")
+
+    if budget_alerts:
+        _display_budget_alerts(budget_alerts)
+
+
+def _display_changes_summary(changes_summary: dict) -> None:
+    """Display memory changes summary in human-readable format"""
+    print("\nMemory Changes Summary:")
+
+    # Check if changes_summary is empty or None
+    if not changes_summary:
+        print("\n  No changes detected")
+        return
+
+    # Track if we found any actual changes
+    has_changes = False
+
+    for region_name, changes in changes_summary.items():
+        # Skip if changes is falsy (None, empty dict, etc.)
+        if not changes or not isinstance(changes, dict):
+            continue
+
+        used_change = changes.get('used_change', 0)
+        free_change = changes.get('free_change', 0)
+
+        # Skip regions with no actual changes
+        if used_change == 0 and free_change == 0:
+            continue
+
+        # We found at least one change
+        has_changes = True
+        print(f"\n  {region_name}:")
+
+        if used_change != 0:
+            direction = "increased" if used_change > 0 else "decreased"
+            print(f"    Used: {direction} by {abs(used_change):,} bytes")
+
+        if free_change != 0:
+            direction = "increased" if free_change > 0 else "decreased"
+            print(f"    Free: {direction} by {abs(free_change):,} bytes")
+
+    # If we processed regions but found no changes
+    if not has_changes:
+        print("\n  No changes detected")
+
+
+def _display_budget_alerts(budget_alerts: list) -> None:
+    """Display budget alerts in human-readable format"""
+    print("\nBudget Alerts:")
+
+    for alert in budget_alerts:
+        region = alert.get('region', 'Unknown')
+        budget_type = alert.get('budget_type', 'unknown')
+        threshold = alert.get('threshold', 0)
+        current = alert.get('current', 0)
+        exceeded_by = alert.get('exceeded_by', 0)
+
+        print(f"\n  {region} ({budget_type}):")
+        print(f"    Threshold: {threshold:,} bytes")
+        print(f"    Current:   {current:,} bytes")
+        print(f"    Exceeded by: {exceeded_by:,} bytes ({exceeded_by/threshold*100:.1f}%)")
+
+
+def _display_upload_limit_error(response_data: dict) -> None:
+    """Display detailed upload limit error information"""
+    print("\nUpload Limit Details:", file=sys.stderr)
+
+    upload_count_monthly = response_data.get('upload_count_monthly')
+    monthly_limit = response_data.get('monthly_upload_limit')
+    upload_count_total = response_data.get('upload_count_total')
+    period_start = response_data.get('period_start')
+    period_end = response_data.get('period_end')
+
+    if upload_count_monthly is not None and monthly_limit is not None:
+        print(
+            f"  Monthly uploads: {upload_count_monthly} / {monthly_limit}",
+            file=sys.stderr
+        )
+
+    if upload_count_total is not None:
+        print(f"  Total uploads: {upload_count_total}", file=sys.stderr)
+
+    if period_start and period_end:
+        print(f"  Billing period: {period_start} to {period_end}", file=sys.stderr)
+
+
+def _validate_file_paths(elf_path: str, ld_script_paths: list[str]) -> tuple[bool, str]:
+    """
+    Validate that ELF file and linker scripts exist.
+
+    Args:
+        elf_path: Path to ELF file
+        ld_script_paths: List of linker script paths
+
+    Returns:
+        Tuple of (is_valid, error_message)
+    """
+    # Validate ELF file exists
+    if not os.path.exists(elf_path):
+        return False, f"ELF file not found: {elf_path}"
+
+    # Validate linker scripts exist
+    for ld_script in ld_script_paths:
+        if not os.path.exists(ld_script):
+            return False, f"Linker script not found: {ld_script}"
+
+    return True, ""
+
+
+def _validate_upload_arguments(api_key: str, target_name: str) -> tuple[bool, str]:
+    """
+    Validate arguments required for uploading reports.
+
+    Args:
+        api_key: API key for upload
+        target_name: Target name for upload
+
+    Returns:
+        Tuple of (is_valid, error_message)
+    """
+    if not api_key:
+        return False, "--api-key is required when using --upload or --github"
+
+    if not target_name:
+        return False, "--target-name is required when using --upload or --github"
+
+    return True, ""
 
 
 def add_report_parser(subparsers) -> argparse.ArgumentParser:
@@ -129,105 +323,50 @@ examples:
     return parser
 
 
-def generate_and_upload_report(  # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals,too-many-return-statements,too-many-branches,too-many-statements
+def generate_report(
     elf_path: str,
     ld_scripts: str,
-    target_name: str = None,
-    api_key: str = None,
-    api_url: str = None,
-    commit_sha: str = None,
-    base_sha: str = None,
-    branch_name: str = None,
-    repo_name: str = None,
-    commit_message: str = None,
-    commit_timestamp: str = None,
-    author_name: str = None,
-    author_email: str = None,
     skip_line_program: bool = False,
-    verbose: bool = False,
-    upload: bool = True,
-    github: bool = False,
-    dont_fail_on_alerts: bool = False
-) -> int:
+    verbose: bool = False
+) -> dict:
     """
-    Generate and optionally upload a memory footprint report.
-
-    This function is designed to be called programmatically from other modules.
+    Generate a memory footprint report from ELF and linker scripts.
 
     Args:
         elf_path: Path to ELF file
         ld_scripts: Space-separated linker script paths
-        target_name: Build configuration/target (e.g., esp32, stm32, x86) - required if upload=True
-        api_key: MemBrowse API key - required if upload=True
-        api_url: MemBrowse API endpoint URL
-        commit_sha: Git commit SHA (optional)
-        base_sha: Git base/parent commit SHA (optional)
-        branch_name: Git branch name (optional)
-        repo_name: Repository name (optional)
-        commit_message: Commit message (optional)
-        commit_timestamp: Commit timestamp in ISO format (optional)
-        author: Commit author (optional)
-        skip_line_program: Skip DWARF line program processing (optional)
-        verbose: Enable verbose output (optional)
-        upload: Whether to upload the report (default: True)
-        github: Whether to auto-detect Git metadata from GitHub Actions env (default: False)
-        dont_fail_on_alerts: Continue even if budget alerts are detected (default: False)
+        skip_line_program: Skip DWARF line program processing for faster analysis
+        verbose: Enable verbose output
 
     Returns:
-        Exit code (0 for success, 1 for error)
+        dict: Memory analysis report (JSON-serializable)
+
+    Raises:
+        ValueError: If file paths are invalid or parsing fails
     """
-    # Use default API URL if not provided
-    if api_url is None:
-        api_url = DEFAULT_API_URL
+    # Split linker scripts
+    ld_array = ld_scripts.split()
 
-    # Determine upload mode
-    upload_mode = upload or github
+    # Validate file paths
+    is_valid, error_message = _validate_file_paths(elf_path, ld_array)
+    if not is_valid:
+        raise ValueError(error_message)
 
-    # Validate upload requirements
-    if upload_mode:
-        if not api_key:
-            logger.error(
-                "--api-key is required when using --upload or --github")
-            return 1
-        if not target_name:
-            logger.error(
-                "--target-name is required when using --upload or --github")
-            return 1
-
-    # Set up log prefix
-    log_prefix = "MemBrowse"
-    if commit_sha:
-        log_prefix = f"({commit_sha})"
-
-    logger.info("%s: Started Memory Report generation", log_prefix)
-    if target_name:
-        logger.info("Target: %s", target_name)
+    logger.info("Started Memory Report generation")
     logger.info("ELF file: %s", elf_path)
     logger.info("Linker scripts: %s", ld_scripts)
 
-    # Validate ELF file exists
-    if not os.path.exists(elf_path):
-        logger.error("ELF file not found: %s", elf_path)
-        return 1
-
-    # Validate linker scripts exist
-    ld_array = ld_scripts.split()
-    for ld_script in ld_array:
-        if not os.path.exists(ld_script):
-            logger.error("Linker script not found: %s", ld_script)
-            return 1
-
     # Parse memory regions from linker scripts
-    logger.info("%s: Parsing memory regions from linker scripts.", log_prefix)
+    logger.info("Parsing memory regions from linker scripts.")
     try:
         parser = LinkerScriptParser(ld_array, elf_file=elf_path)
         memory_regions_data = parser.parse_memory_regions()
     except Exception as e:  # pylint: disable=broad-exception-caught
-        logger.error("%s: Failed to parse memory regions: %s", log_prefix, e)
-        return 1
+        logger.error("Failed to parse memory regions: %s", e)
+        raise ValueError(f"Failed to parse memory regions: {e}") from e
 
     # Generate JSON report
-    logger.info("%s: Generating JSON memory report...", log_prefix)
+    logger.info("Generating JSON memory report...")
     try:
         generator = ReportGenerator(
             elf_path,
@@ -236,109 +375,125 @@ def generate_and_upload_report(  # pylint: disable=too-many-arguments,too-many-p
         )
         report = generator.generate_report(verbose)
     except Exception as e:  # pylint: disable=broad-exception-caught
-        logger.error("%s: Failed to generate memory report: %s", log_prefix, e)
-        return 1
+        logger.error("Failed to generate memory report: %s", e)
+        raise ValueError(f"Failed to generate memory report: {e}") from e
 
-    logger.info("%s: JSON report generated successfully", log_prefix)
+    logger.info("JSON report generated successfully")
+    return report
 
-    # If not uploading, print report to stdout and exit
-    if not upload_mode:
-        logger.info("%s: Local mode - printing report to stdout", log_prefix)
-        print(json.dumps(report, indent=2))
-        return 0
 
-    # Upload mode - write report to temp file for upload
-    # pylint: disable=consider-using-with
-    report_file = tempfile.NamedTemporaryFile(
-        mode='w', suffix='.json', delete=False
-    )
-    report_file_name = report_file.name
+def upload_report(
+    report: dict,
+    commit_info: dict,
+    target_name: str,
+    api_key: str,
+    api_url: str = DEFAULT_API_URL,
+    verbose: bool = False,
+    dont_fail_on_alerts: bool = False
+) -> dict:
+    """
+    Upload a memory footprint report to MemBrowse platform.
 
+    Args:
+        report: Memory analysis report (from generate_report)
+        commit_info: Dict with Git metadata in metadata['git'] format
+            {
+                'commit_hash': str,
+                'base_commit_hash': str,
+                'branch_name': str,
+                'repository': str,
+                'commit_message': str,
+                'commit_timestamp': str,
+                'author_name': str,
+                'author_email': str,
+                'pr_number': str
+            }
+        target_name: Build configuration/target (e.g., esp32, stm32, x86)
+        api_key: MemBrowse API key
+        api_url: MemBrowse API endpoint URL
+        verbose: Enable verbose output
+        dont_fail_on_alerts: Continue even if budget alerts are detected
+
+    Returns:
+        dict: API response data if upload succeeded
+
+    Raises:
+        ValueError: If upload arguments are invalid
+        RuntimeError: If upload fails or budget alerts are triggered
+    """
+    # Validate upload arguments
+    is_valid, error_message = _validate_upload_arguments(api_key, target_name)
+    if not is_valid:
+        raise ValueError(error_message)
+
+    # Set up log prefix
+    log_prefix = "MemBrowse"
+    if commit_info.get('commit_hash'):
+        log_prefix = f"({commit_info.get('commit_hash')})"
+
+    logger.info("%s: Starting upload of report to MemBrowse...", log_prefix)
+    logger.info("Target: %s", target_name)
+
+    # Build metadata structure (commit_info is already in metadata['git'] format)
+    metadata = {
+        'git': commit_info,
+        'repository': commit_info.get('repository'),
+        'target_name': target_name,
+        'analysis_version': version('membrowse')
+    }
+
+    # Enrich report with metadata (work in memory)
+    enriched_report = {
+        'metadata': metadata,
+        'memory_analysis': report
+    }
+
+    # Upload to MemBrowse
     try:
-        with open(report_file.name, 'w', encoding='utf-8') as f:
-            json.dump(report, f, indent=2)
-        report_file.close()
-
-        # Upload mode - detect Git metadata if --github flag
-        if github:
-            git_metadata = detect_github_metadata()
-            # Override with detected metadata (only if not already set)
-            if not commit_sha:
-                commit_sha = git_metadata.commit_sha
-            if not base_sha:
-                base_sha = git_metadata.base_sha
-            if not branch_name:
-                branch_name = git_metadata.branch_name
-            if not repo_name:
-                repo_name = git_metadata.repo_name
-            if not commit_message:
-                commit_message = git_metadata.commit_message
-            if not commit_timestamp:
-                commit_timestamp = git_metadata.commit_timestamp
-            if not author_name:
-                author_name = git_metadata.author_name
-            if not author_email:
-                author_email = git_metadata.author_email
-
-        # Upload report
-        logger.info(
-            "%s: Starting upload of report to MemBrowse...",
-            log_prefix)
-
-        # Build metadata structure
-        metadata = {
-            'git': {
-                'commit_hash': commit_sha,
-                'commit_message': commit_message,
-                'commit_timestamp': commit_timestamp,
-                'author_name': author_name,
-                'author_email': author_email,
-                'base_commit_hash': base_sha,
-                'branch_name': branch_name,
-                'pr_number': None  # pr_number not passed as parameter
-            },
-            'repository': repo_name,
-            'target_name': target_name,
-            'analysis_version': version('membrowse')
-        }
-
-        # Load base report and enrich with metadata
-        with open(report_file.name, 'r', encoding='utf-8') as f:
-            base_report = json.load(f)
-
-        enriched_report = {
-            'metadata': metadata,
-            'memory_analysis': base_report
-        }
-
-        # Upload to MemBrowse
         uploader = MemBrowseUploader(api_key, api_url)
-        try:
-            fail_on_alerts = not dont_fail_on_alerts
-            uploader.upload_report(enriched_report, fail_on_alerts=fail_on_alerts)
-            logger.info("%s: Memory report uploaded successfully", log_prefix)
-            return 0
-        except BudgetAlertError as upload_error:
-            # Print to stdout for visibility in GitHub Actions
-            print(f"\nBudget Alert Error: {upload_error}", file=sys.stdout)
-            logger.error("%s: %s", log_prefix, upload_error)
-            return 1
-        except UploadError as upload_error:
-            # Print to stdout for visibility in GitHub Actions
-            print(f"\nUpload Failed: {upload_error}", file=sys.stdout)
-            logger.error("%s: Failed to upload report: %s", log_prefix, upload_error)
-            return 1
-
+        response_data = uploader.upload_report(enriched_report)
     except Exception as e:  # pylint: disable=broad-exception-caught
-        logger.error("%s: Failed to process report: %s", log_prefix, e)
-        return 1
+        logger.error("%s: Failed to upload report: %s", log_prefix, e)
+        print(f"\nUpload Failed: {e}", file=sys.stderr)
+        raise RuntimeError(f"Failed to upload report: {e}") from e
 
-    finally:
-        # Cleanup report temp file
-        try:
-            os.unlink(report_file_name)
-        except Exception:  # pylint: disable=broad-exception-caught
-            pass
+    # Check for network errors (response_data is None)
+    if response_data is None:
+        logger.error("%s: Network error - failed to connect to MemBrowse API", log_prefix)
+        print("\nUpload Failed: Network error or timeout", file=sys.stderr)
+        raise RuntimeError("Network error - failed to connect to MemBrowse API")
+
+    # Always print upload response details (success or failure)
+    print_upload_response(response_data, verbose=verbose)
+
+    # Check if upload was successful
+    if not response_data.get('success'):
+        logger.error("%s: Upload failed - see response details above", log_prefix)
+        raise RuntimeError("Upload failed - see response details above")
+
+    # Check for budget alerts if fail_on_alerts is enabled
+    if not dont_fail_on_alerts:
+        data = response_data.get('data', {})
+        alerts = data.get('alerts', {})
+        budget_alerts = alerts.get('budgets', [])
+
+        if budget_alerts:
+            logger.error(
+                "%s: Budget alerts detected: %d budget(s) exceeded",
+                log_prefix,
+                len(budget_alerts)
+            )
+            print(
+                f"\nBudget Alert Error: {len(budget_alerts)} budget(s) exceeded. "
+                "Use --dont-fail-on-alerts to continue despite alerts.",
+                file=sys.stderr
+            )
+            raise RuntimeError(
+                f"Budget alerts detected: {len(budget_alerts)} budget(s) exceeded"
+            )
+
+    logger.info("%s: Memory report uploaded successfully", log_prefix)
+    return response_data
 
 
 def run_report(args: argparse.Namespace) -> int:
@@ -346,7 +501,7 @@ def run_report(args: argparse.Namespace) -> int:
     Execute the report subcommand.
 
     This function converts argparse.Namespace to function parameters
-    and calls generate_and_upload_report().
+    and calls generate_report() and optionally upload_report().
 
     Args:
         args: Parsed command-line arguments
@@ -354,23 +509,66 @@ def run_report(args: argparse.Namespace) -> int:
     Returns:
         Exit code (0 for success, 1 for error)
     """
-    return generate_and_upload_report(
-        elf_path=args.elf_path,
-        ld_scripts=args.ld_scripts,
-        target_name=getattr(args, 'target_name', None),
-        api_key=getattr(args, 'api_key', None),
-        api_url=getattr(args, 'api_url', None),
-        commit_sha=getattr(args, 'commit_sha', None),
-        base_sha=getattr(args, 'base_sha', None),
-        branch_name=getattr(args, 'branch_name', None),
-        repo_name=getattr(args, 'repo_name', None),
-        commit_message=getattr(args, 'commit_message', None),
-        commit_timestamp=getattr(args, 'commit_timestamp', None),
-        author_name=getattr(args, 'author_name', None),
-        author_email=getattr(args, 'author_email', None),
-        skip_line_program=getattr(args, 'skip_line_program', False),
-        verbose=getattr(args, 'verbose', False),
-        upload=getattr(args, 'upload', False),
-        github=getattr(args, 'github', False),
-        dont_fail_on_alerts=getattr(args, 'dont_fail_on_alerts', False)
-    )
+    verbose = getattr(args, 'verbose', False)
+
+    # Generate report
+    try:
+        report = generate_report(
+            elf_path=args.elf_path,
+            ld_scripts=args.ld_scripts,
+            skip_line_program=getattr(args, 'skip_line_program', False),
+            verbose=verbose
+        )
+    except ValueError as e:
+        logger.error("Failed to generate report: %s", e)
+        return 1
+
+    # Check if upload mode is enabled
+    upload_mode = getattr(args, 'upload', False) or getattr(args, 'github', False)
+
+    # If not uploading, print report to stdout and exit
+    if not upload_mode:
+        logger.info("Local mode - printing report to stdout")
+        print(json.dumps(report, indent=2))
+        return 0
+
+    # Build commit_info dict in metadata['git'] format
+    arg_to_metadata_map = {
+        'commit_sha': 'commit_hash',
+        'base_sha': 'base_commit_hash',
+        'branch_name': 'branch_name',
+        'repo_name': 'repository',
+        'commit_message': 'commit_message',
+        'commit_timestamp': 'commit_timestamp',
+        'author_name': 'author_name',
+        'author_email': 'author_email',
+        'pr_number': 'pr_number',
+    }
+
+    commit_info = {
+        metadata_key: getattr(args, arg_key, None)
+        for arg_key, metadata_key in arg_to_metadata_map.items()
+        if getattr(args, arg_key, None) is not None
+    }
+
+    # Auto-detect Git metadata if --github flag is set
+    if getattr(args, 'github', False):
+        detected_metadata = detect_github_metadata()
+        # Update commit_info with detected metadata (only if not already set)
+        commit_info = {k: commit_info.get(k) or v for k, v in detected_metadata.items()}
+
+    # Upload report
+    try:
+        upload_report(
+            report=report,
+            commit_info=commit_info,
+            target_name=getattr(args, 'target_name', None),
+            api_key=getattr(args, 'api_key', None),
+            api_url=getattr(args, 'api_url', DEFAULT_API_URL),
+            verbose=verbose,
+            dont_fail_on_alerts=getattr(args, 'dont_fail_on_alerts', False)
+        )
+        return 0
+    except (ValueError, RuntimeError) as e:
+        logger.error("Failed to upload report: %s", e)
+        return 1
