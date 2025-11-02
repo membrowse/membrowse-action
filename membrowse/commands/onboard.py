@@ -13,6 +13,30 @@ from .report import generate_report, upload_report, DEFAULT_API_URL
 logger = logging.getLogger(__name__)
 
 
+def _create_empty_report(elf_path: str) -> dict:
+    """
+    Create a minimal empty report structure for failed builds.
+
+    Args:
+        elf_path: Path to the ELF file (used in report metadata)
+
+    Returns:
+        Empty report dictionary matching the structure of successful reports
+    """
+    return {
+        'file_path': elf_path,
+        'architecture': 'unknown',
+        'entry_point': 0,
+        'file_type': 'unknown',
+        'machine': 'unknown',
+        'symbols': [],
+        'program_headers': [],
+        'memory_layout': {}
+    }
+
+
+
+
 def add_onboard_parser(subparsers) -> argparse.ArgumentParser:
     """
     Add 'onboard' subcommand parser.
@@ -91,7 +115,94 @@ examples:
     return parser
 
 
-def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-locals,too-many-statements,too-many-return-statements
+def _get_repository_info():
+    """
+    Get repository information including branch and repo name.
+
+    Returns:
+        Tuple of (current_branch, original_head, repo_name) or (None, None, None) if not in git repo
+    """
+    # Get current branch
+    current_branch = (
+        run_git_command(['symbolic-ref', '--short', 'HEAD']) or
+        run_git_command(['for-each-ref', '--points-at', 'HEAD',
+                        '--format=%(refname:short)', 'refs/heads/']) or
+        os.environ.get('GITHUB_REF_NAME', 'unknown')
+    )
+
+    # Save current HEAD
+    original_head = run_git_command(['rev-parse', 'HEAD'])
+    if not original_head:
+        return None, None, None
+
+    # Get repository name
+    remote_url = run_git_command(['config', '--get', 'remote.origin.url'])
+    repo_name = 'unknown'
+    if remote_url:
+        parts = remote_url.rstrip('.git').split('/')
+        if parts:
+            repo_name = parts[-1]
+
+    return current_branch, original_head, repo_name
+
+
+def _get_commit_list(num_commits: int):
+    """
+    Get list of commits to process.
+
+    Args:
+        num_commits: Number of commits to retrieve
+
+    Returns:
+        List of commit hashes (oldest first) or None on error
+    """
+    logger.info("Getting commit history...")
+    commits_output = run_git_command(
+        ['log', '--format=%H', f'-n{num_commits}', '--reverse'])
+    if not commits_output:
+        return None
+
+    return [c.strip() for c in commits_output.split('\n') if c.strip()]
+
+
+def _handle_build_failure(result, log_prefix, args, commit_count, total_commits):
+    """
+    Handle build failure by logging output and creating empty report.
+
+    Args:
+        result: subprocess.CompletedProcess result
+        log_prefix: Logging prefix string
+        args: Command-line arguments
+        commit_count: Current commit number
+        total_commits: Total number of commits
+
+    Returns:
+        Empty report dictionary
+    """
+    logger.warning(
+        "%s: Build failed with exit code %d, will upload empty report",
+        log_prefix, result.returncode)
+
+    # Log build output (last 50 lines if too large)
+    if result.stdout or result.stderr:
+        logger.error("%s: Build output:", log_prefix)
+        combined_output = (result.stdout or "") + (result.stderr or "")
+        output_lines = combined_output.strip().split('\n')
+        if len(output_lines) > 50:
+            logger.error("... (showing last 50 lines) ...")
+            for line in output_lines[-50:]:
+                logger.error(line)
+        else:
+            for line in output_lines:
+                logger.error(line)
+
+    # Create empty report for failed build
+    logger.warning("%s: Creating empty report for failed build (commit %d of %d)...",
+                  log_prefix, commit_count, total_commits)
+    return _create_empty_report(args.elf_path)
+
+
+def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-locals,too-many-statements
     """
     Execute the onboard subcommand.
 
@@ -107,37 +218,18 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
     logger.info("ELF file: %s", args.elf_path)
     logger.info("Linker scripts: %s", args.ld_scripts)
 
-    # Get current branch
-    current_branch = (
-        run_git_command(['symbolic-ref', '--short', 'HEAD']) or
-        run_git_command(['for-each-ref', '--points-at', 'HEAD',
-                        '--format=%(refname:short)', 'refs/heads/']) or
-        os.environ.get('GITHUB_REF_NAME', 'unknown')
-    )
-
-    # Save current HEAD
-    original_head = run_git_command(['rev-parse', 'HEAD'])
+    # Get repository information
+    current_branch, original_head, repo_name = _get_repository_info()
     if not original_head:
         logger.error("Not in a git repository")
         return 1
 
-    # Get repository name
-    remote_url = run_git_command(['config', '--get', 'remote.origin.url'])
-    repo_name = 'unknown'
-    if remote_url:
-        parts = remote_url.rstrip('.git').split('/')
-        if parts:
-            repo_name = parts[-1]
-
-    # Get commit history (reversed to process oldest first)
-    logger.info("Getting commit history...")
-    commits_output = run_git_command(
-        ['log', '--format=%H', f'-n{args.num_commits}', '--reverse'])
-    if not commits_output:
+    # Get commit list
+    commits = _get_commit_list(args.num_commits)
+    if not commits:
         logger.error("Failed to get commit history")
         return 1
 
-    commits = [c.strip() for c in commits_output.split('\n') if c.strip()]
     total_commits = len(commits)
 
     # Progress tracking
@@ -201,50 +293,52 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
             args.build_script)
         result = subprocess.run(
             ['bash', '-c', args.build_script],
-            capture_output=False,
+            capture_output=True,
+            text=True,
             check=False
         )
-
-        if result.returncode != 0:
-            logger.error("%s: Build failed, stopping workflow...", log_prefix)
-            failed_uploads += 1
-            # Restore HEAD and exit
-            return finalize_and_return(1)
-
-        # Check if ELF file was generated
-        if not os.path.exists(args.elf_path):
-            logger.error("%s: ELF file not found at %s, stopping workflow...",
-                         log_prefix, args.elf_path)
-            failed_uploads += 1
-            return finalize_and_return(1)
 
         # Get commit metadata (returns old key names: commit_sha, base_sha)
         metadata = get_commit_metadata(commit)
 
-        logger.warning("%s: Generating memory report (commit %d of %d)...",
-                       log_prefix, commit_count, total_commits)
-        logger.info(
-            "%s: Base commit: %s",
-            log_prefix,
-            metadata.get(
-                'base_sha',
-                'N/A'))
+        # Handle build failures vs missing files after successful build
+        build_failed = False
 
-        # Generate report
-        try:
-            report = generate_report(
-                elf_path=args.elf_path,
-                ld_scripts=args.ld_scripts,
-                skip_line_program=False,
-                verbose=args.verbose
-            )
-        except ValueError as e:
-            logger.error("%s: Failed to generate memory report " +
-                         "(commit %d of %d), stopping workflow...",
-                         log_prefix, commit_count, total_commits)
-            logger.error("%s: Error: %s", log_prefix, e)
+        # Case 1: Build failed (non-zero exit code)
+        if result.returncode != 0:
+            report = _handle_build_failure(
+                result, log_prefix, args, commit_count, total_commits)
+            build_failed = True
+
+        # Case 2: Build succeeded but ELF/LD scripts missing (configuration error)
+        elif not os.path.exists(args.elf_path):
+            logger.error(
+                "%s: Build succeeded but ELF file not found at %s - "
+                "this indicates a configuration error",
+                log_prefix, args.elf_path)
+            logger.error("%s: Stopping onboard workflow...", log_prefix)
             failed_uploads += 1
             return finalize_and_return(1)
+
+        # Case 3: Build succeeded and files exist - generate report
+        else:
+            logger.warning("%s: Generating memory report (commit %d of %d)...",
+                          log_prefix, commit_count, total_commits)
+            try:
+                report = generate_report(
+                    elf_path=args.elf_path,
+                    ld_scripts=args.ld_scripts,
+                    skip_line_program=False,
+                    verbose=args.verbose
+                )
+            except ValueError as e:
+                logger.error(
+                    "%s: Failed to generate memory report (commit %d of %d) - configuration error",
+                    log_prefix, commit_count, total_commits)
+                logger.error("%s: Error: %s", log_prefix, e)
+                logger.error("%s: Stopping onboard workflow...", log_prefix)
+                failed_uploads += 1
+                return finalize_and_return(1)
 
         # Build commit_info in metadata['git'] format (map old keys to new)
         commit_info = {
@@ -256,7 +350,8 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
             'commit_timestamp': metadata['commit_timestamp'],
             'author_name': metadata.get('author_name'),
             'author_email': metadata.get('author_email'),
-            'pr_number': None
+            'pr_number': None,
+            'build_failed': build_failed
         }
 
         # Upload report
@@ -271,20 +366,26 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
                 verbose=args.verbose,
                 dont_fail_on_alerts=True
             )
+            if build_failed:
+                logger.info(
+                    "%s: Empty report uploaded successfully for failed build (commit %d of %d)",
+                    log_prefix,
+                    commit_count,
+                    total_commits)
+            else:
+                logger.info(
+                    "%s: Memory report uploaded successfully (commit %d of %d)",
+                    log_prefix,
+                    commit_count,
+                    total_commits)
+            successful_uploads += 1
         except (ValueError, RuntimeError) as e:
-            logger.error("%s: Failed to upload memory report " +
-                         "(commit %d of %d), stopping workflow...",
-                         log_prefix, commit_count, total_commits)
+            logger.error(
+                "%s: Failed to upload memory report (commit %d of %d), stopping workflow...",
+                log_prefix, commit_count, total_commits)
             logger.error("%s: Error: %s", log_prefix, e)
             failed_uploads += 1
             return finalize_and_return(1)
-
-        logger.info(
-            "%s: Memory report uploaded successfully (commit %d of %d)",
-            log_prefix,
-            commit_count,
-            total_commits)
-        successful_uploads += 1
 
     # Finalize with summary and restoration
     return finalize_and_return(0 if failed_uploads == 0 else 1)
