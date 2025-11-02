@@ -13,6 +13,84 @@ from .report import generate_report, upload_report, DEFAULT_API_URL
 logger = logging.getLogger(__name__)
 
 
+def _create_empty_report(elf_path: str) -> dict:
+    """
+    Create a minimal empty report structure for failed builds.
+
+    Args:
+        elf_path: Path to the ELF file (used in report metadata)
+
+    Returns:
+        Empty report dictionary
+    """
+    return {
+        'file_path': elf_path,
+        'architecture': 'unknown',
+        'entry_point': '0x0',
+        'file_type': 'unknown',
+        'machine': 'unknown',
+        'symbols': [],
+        'program_headers': [],
+        'memory_layout': {}
+    }
+
+
+def _generate_report_with_fallback(
+    args: argparse.Namespace,
+    log_prefix: str,
+    commit_count: int,
+    total_commits: int,
+    build_result: subprocess.CompletedProcess
+) -> tuple[dict, bool]:
+    """
+    Generate memory report or create empty report if build failed.
+
+    Args:
+        args: Command-line arguments
+        log_prefix: Log prefix for messages
+        commit_count: Current commit number
+        total_commits: Total number of commits
+        build_result: Result from build subprocess
+
+    Returns:
+        Tuple of (report dict, build_failed bool)
+
+    Raises:
+        ValueError: If report generation fails (propagated from generate_report)
+    """
+    # Check if build failed or ELF file was not generated
+    build_failed = False
+    if build_result.returncode != 0:
+        logger.warning(
+            "%s: Build failed, will upload empty report with build failure marker",
+            log_prefix)
+        build_failed = True
+    elif not os.path.exists(args.elf_path):
+        logger.warning(
+            "%s: ELF file not found at %s, "
+            "will upload empty report with build failure marker",
+            log_prefix, args.elf_path)
+        build_failed = True
+
+    # Generate report (empty if build failed, full otherwise)
+    if build_failed:
+        logger.warning("%s: Creating empty report for failed build (commit %d of %d)...",
+                       log_prefix, commit_count, total_commits)
+        return _create_empty_report(args.elf_path), True
+
+    # Generate full report (ValueError will propagate to caller)
+    logger.warning("%s: Generating memory report (commit %d of %d)...",
+                   log_prefix, commit_count, total_commits)
+
+    report = generate_report(
+        elf_path=args.elf_path,
+        ld_scripts=args.ld_scripts,
+        skip_line_program=False,
+        verbose=args.verbose
+    )
+    return report, False
+
+
 def add_onboard_parser(subparsers) -> argparse.ArgumentParser:
     """
     Add 'onboard' subcommand parser.
@@ -205,43 +283,19 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
             check=False
         )
 
-        if result.returncode != 0:
-            logger.error("%s: Build failed, stopping workflow...", log_prefix)
-            failed_uploads += 1
-            # Restore HEAD and exit
-            return finalize_and_return(1)
-
-        # Check if ELF file was generated
-        if not os.path.exists(args.elf_path):
-            logger.error("%s: ELF file not found at %s, stopping workflow...",
-                         log_prefix, args.elf_path)
-            failed_uploads += 1
-            return finalize_and_return(1)
-
         # Get commit metadata (returns old key names: commit_sha, base_sha)
         metadata = get_commit_metadata(commit)
 
-        logger.warning("%s: Generating memory report (commit %d of %d)...",
-                       log_prefix, commit_count, total_commits)
-        logger.info(
-            "%s: Base commit: %s",
-            log_prefix,
-            metadata.get(
-                'base_sha',
-                'N/A'))
-
-        # Generate report
+        # Generate report with fallback to empty report on build failure
+        # (ValueError from report generation will stop the workflow)
         try:
-            report = generate_report(
-                elf_path=args.elf_path,
-                ld_scripts=args.ld_scripts,
-                skip_line_program=False,
-                verbose=args.verbose
+            report, build_failed = _generate_report_with_fallback(
+                args, log_prefix, commit_count, total_commits, result
             )
         except ValueError as e:
-            logger.error("%s: Failed to generate memory report " +
-                         "(commit %d of %d), stopping workflow...",
-                         log_prefix, commit_count, total_commits)
+            logger.error(
+                "%s: Failed to generate memory report (commit %d of %d), stopping workflow...",
+                log_prefix, commit_count, total_commits)
             logger.error("%s: Error: %s", log_prefix, e)
             failed_uploads += 1
             return finalize_and_return(1)
@@ -256,7 +310,8 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
             'commit_timestamp': metadata['commit_timestamp'],
             'author_name': metadata.get('author_name'),
             'author_email': metadata.get('author_email'),
-            'pr_number': None
+            'pr_number': None,
+            'build_failed': build_failed
         }
 
         # Upload report
@@ -271,20 +326,26 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
                 verbose=args.verbose,
                 dont_fail_on_alerts=True
             )
+            if build_failed:
+                logger.info(
+                    "%s: Empty report uploaded successfully for failed build (commit %d of %d)",
+                    log_prefix,
+                    commit_count,
+                    total_commits)
+            else:
+                logger.info(
+                    "%s: Memory report uploaded successfully (commit %d of %d)",
+                    log_prefix,
+                    commit_count,
+                    total_commits)
+            successful_uploads += 1
         except (ValueError, RuntimeError) as e:
-            logger.error("%s: Failed to upload memory report " +
-                         "(commit %d of %d), stopping workflow...",
-                         log_prefix, commit_count, total_commits)
+            logger.error(
+                "%s: Failed to upload memory report (commit %d of %d), stopping workflow...",
+                log_prefix, commit_count, total_commits)
             logger.error("%s: Error: %s", log_prefix, e)
             failed_uploads += 1
             return finalize_and_return(1)
-
-        logger.info(
-            "%s: Memory report uploaded successfully (commit %d of %d)",
-            log_prefix,
-            commit_count,
-            total_commits)
-        successful_uploads += 1
 
     # Finalize with summary and restoration
     return finalize_and_return(0 if failed_uploads == 0 else 1)
