@@ -77,7 +77,7 @@ def print_upload_response(response_data: dict, verbose: bool = False) -> None:
         _display_changes_summary(changes_summary)
 
     # Display budget alerts
-    alerts = data.get('alerts', {})
+    alerts = data.get('alerts') or {}
     budget_alerts = alerts.get('budgets', [])
     logger.debug("alerts present: %s", bool(alerts))
     logger.debug("budget_alerts count: %d", len(budget_alerts))
@@ -492,7 +492,7 @@ def _check_budget_alerts(response_data: dict, dont_fail_on_alerts: bool, log_pre
         return
 
     data = response_data.get('data', {})
-    alerts = data.get('alerts', {})
+    alerts = data.get('alerts') or {}
     budget_alerts = alerts.get('budgets', [])
 
     if budget_alerts:
