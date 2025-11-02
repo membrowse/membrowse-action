@@ -10,7 +10,7 @@ import argparse
 import json
 import sys
 from importlib.metadata import version
-from typing import Dict, Any
+from typing import Dict, Any, NoReturn
 
 import requests
 
@@ -51,110 +51,125 @@ class MemBrowseUploader:  # pylint: disable=too-few-public-methods
         """
         try:
             print(f"Uploading report to MemBrowse: {self.api_endpoint}")
-            # Make the POST request directly with the data
             response = self.session.post(
                 self.api_endpoint,
                 json=report_data,
                 timeout=30
             )
 
-            # Parse response
-            try:
-                response_data = response.json()
-            except json.JSONDecodeError as exc:
-                error_msg = f"HTTP {response.status_code}: Invalid JSON response"
-                print(f"Failed to upload report: {error_msg}", file=sys.stderr)
-                raise UploadError(error_msg) from exc
+            response_data = self._parse_response(response)
 
-            # Check response success field
             if response.status_code in (200, 201) and response_data.get('success'):
-                print("Report uploaded successfully to MemBrowse")
+                return self._handle_success_response(response_data, fail_on_alerts)
 
-                # Display message from API if present
-                api_message = response_data.get('message')
-                if api_message:
-                    print(f"\n{api_message}")
-
-                # Extract response data
-                data = response_data.get('data', {})
-                changes_summary = data.get('changes_summary', {})
-                alerts = data.get('alerts', {})
-                is_overwritten = data.get('is_overwritten', False)
-
-                # Display overwrite notification
-                if is_overwritten:
-                    print("\nWarning: This upload overwrote existing data")
-
-                # Display changes summary
-                if changes_summary:
-                    self._display_changes_summary(changes_summary)
-
-                # Display alerts
-                budget_alerts = alerts.get('budgets', [])
-                if budget_alerts:
-                    self._display_budget_alerts(budget_alerts)
-
-                    # Fail if alerts present and fail_on_alerts is True
-                    if fail_on_alerts:
-                        raise BudgetAlertError(
-                            f"Budget alerts detected: {len(budget_alerts)} budget(s) exceeded. "
-                            "Use --dont-fail-on-alerts to continue despite alerts."
-                        )
-
-                return response_data
-
-            # Handle error response
-            error = response_data.get('error', 'Unknown error')
-            error_type = response_data.get('type', 'UnknownError')
-            upgrade_url = response_data.get('upgrade_url')
-
-            # Build error message
-            error_msg = f"HTTP {response.status_code}: {error_type} - {error}"
-
-            # Display detailed information for upload limit errors
-            if error_type == 'UploadLimitExceededError':
-                print(f"Failed to upload report: {error_msg}", file=sys.stderr)
-
-                # Display usage statistics
-                print("\nUpload Limit Details:", file=sys.stderr)
-
-                upload_count_monthly = response_data.get('upload_count_monthly')
-                monthly_limit = response_data.get('monthly_upload_limit')
-                upload_count_total = response_data.get('upload_count_total')
-                period_start = response_data.get('period_start')
-                period_end = response_data.get('period_end')
-
-                if upload_count_monthly is not None and monthly_limit is not None:
-                    print(f"  Monthly uploads: {upload_count_monthly} / {monthly_limit}", file=sys.stderr)
-
-                if upload_count_total is not None:
-                    print(f"  Total uploads: {upload_count_total}", file=sys.stderr)
-
-                if period_start and period_end:
-                    print(f"  Billing period: {period_start} to {period_end}", file=sys.stderr)
-
-                if upgrade_url:
-                    print(f"\nUpgrade at: {upgrade_url}", file=sys.stderr)
-            else:
-                # Standard error display for non-limit errors
-                if upgrade_url:
-                    error_msg += f"\nUpgrade at: {upgrade_url}"
-                print(f"Failed to upload report: {error_msg}", file=sys.stderr)
-
-            raise UploadError(error_msg)
+            # Handle error response (always raises UploadError)
+            self._handle_error_response(response, response_data)
 
         except requests.exceptions.Timeout as exc:
-            error_msg = "Upload error: Request timed out"
-            print(error_msg, file=sys.stderr)
-            raise UploadError(error_msg) from exc
+            self._raise_upload_error("Request timed out", exc)
         except requests.exceptions.ConnectionError as exc:
-            error_msg = "Upload error: Failed to connect to MemBrowse API"
-            print(error_msg, file=sys.stderr)
-            raise UploadError(error_msg) from exc
+            self._raise_upload_error("Failed to connect to MemBrowse API", exc)
         except requests.exceptions.RequestException as exc:
-            error_msg = f"Upload error: {exc}"
-            print(error_msg, file=sys.stderr)
+            self._raise_upload_error(str(exc), exc)
+
+    def _parse_response(self, response: requests.Response) -> Dict[str, Any]:
+        """Parse JSON response and handle decoding errors"""
+        try:
+            return response.json()
+        except json.JSONDecodeError as exc:
+            error_msg = f"HTTP {response.status_code}: Invalid JSON response"
+            print(f"Failed to upload report: {error_msg}", file=sys.stderr)
             raise UploadError(error_msg) from exc
+
+    def _handle_success_response(
+            self, response_data: Dict[str, Any], fail_on_alerts: bool
+    ) -> Dict[str, Any]:
+        """Handle successful API response with changes and alerts"""
+        print("Report uploaded successfully to MemBrowse")
+
+        # Display API message if present
+        api_message = response_data.get('message')
+        if api_message:
+            print(f"\n{api_message}")
+
+        # Extract response data
+        data = response_data.get('data', {})
+
+        # Display overwrite warning
+        if data.get('is_overwritten', False):
+            print("\nWarning: This upload overwrote existing data")
+
+        # Display changes summary
+        changes_summary = data.get('changes_summary', {})
+        if changes_summary:
+            self._display_changes_summary(changes_summary)
+
+        # Display and handle budget alerts
+        alerts = data.get('alerts', {})
+        budget_alerts = alerts.get('budgets', [])
+        if budget_alerts:
+            self._display_budget_alerts(budget_alerts)
+            if fail_on_alerts:
+                raise BudgetAlertError(
+                    f"Budget alerts detected: {len(budget_alerts)} budget(s) exceeded. "
+                    "Use --dont-fail-on-alerts to continue despite alerts."
+                )
+
+        return response_data
+
+    def _handle_error_response(
+            self, response: requests.Response, response_data: Dict[str, Any]
+    ) -> NoReturn:
+        """Handle API error response and raise UploadError"""
+        error = response_data.get('error', 'Unknown error')
+        error_type = response_data.get('type', 'UnknownError')
+        upgrade_url = response_data.get('upgrade_url')
+
+        error_msg = f"HTTP {response.status_code}: {error_type} - {error}"
+
+        if error_type == 'UploadLimitExceededError':
+            self._display_upload_limit_error(error_msg, response_data, upgrade_url)
+        else:
+            if upgrade_url:
+                error_msg += f"\nUpgrade at: {upgrade_url}"
+            print(f"Failed to upload report: {error_msg}", file=sys.stderr)
+
+        raise UploadError(error_msg)
+
+    def _display_upload_limit_error(
+            self, error_msg: str, response_data: Dict[str, Any], upgrade_url: str
+    ) -> None:
+        """Display detailed upload limit error information"""
+        print(f"Failed to upload report: {error_msg}", file=sys.stderr)
+        print("\nUpload Limit Details:", file=sys.stderr)
+
+        upload_count_monthly = response_data.get('upload_count_monthly')
+        monthly_limit = response_data.get('monthly_upload_limit')
+        upload_count_total = response_data.get('upload_count_total')
+        period_start = response_data.get('period_start')
+        period_end = response_data.get('period_end')
+
+        if upload_count_monthly is not None and monthly_limit is not None:
+            print(
+                f"  Monthly uploads: {upload_count_monthly} / {monthly_limit}",
+                file=sys.stderr
+            )
+
+        if upload_count_total is not None:
+            print(f"  Total uploads: {upload_count_total}", file=sys.stderr)
+
+        if period_start and period_end:
+            print(f"  Billing period: {period_start} to {period_end}", file=sys.stderr)
+
+        if upgrade_url:
+            print(f"\nUpgrade at: {upgrade_url}", file=sys.stderr)
+
+    @staticmethod
+    def _raise_upload_error(message: str, exc: Exception) -> NoReturn:
+        """Helper to raise UploadError with consistent formatting"""
+        error_msg = f"Upload error: {message}"
+        print(error_msg, file=sys.stderr)
+        raise UploadError(error_msg) from exc
 
     def _display_changes_summary(self, changes_summary: Dict[str, Any]) -> None:
         """Display memory changes summary in human-readable format"""
