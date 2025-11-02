@@ -21,12 +21,12 @@ def _create_empty_report(elf_path: str) -> dict:
         elf_path: Path to the ELF file (used in report metadata)
 
     Returns:
-        Empty report dictionary
+        Empty report dictionary matching the structure of successful reports
     """
     return {
         'file_path': elf_path,
         'architecture': 'unknown',
-        'entry_point': '0x0',
+        'entry_point': 0,
         'file_type': 'unknown',
         'machine': 'unknown',
         'symbols': [],
@@ -35,60 +35,6 @@ def _create_empty_report(elf_path: str) -> dict:
     }
 
 
-def _generate_report_with_fallback(
-    args: argparse.Namespace,
-    log_prefix: str,
-    commit_count: int,
-    total_commits: int,
-    build_result: subprocess.CompletedProcess
-) -> tuple[dict, bool]:
-    """
-    Generate memory report or create empty report if build failed.
-
-    Args:
-        args: Command-line arguments
-        log_prefix: Log prefix for messages
-        commit_count: Current commit number
-        total_commits: Total number of commits
-        build_result: Result from build subprocess
-
-    Returns:
-        Tuple of (report dict, build_failed bool)
-
-    Raises:
-        ValueError: If report generation fails (propagated from generate_report)
-    """
-    # Check if build failed or ELF file was not generated
-    build_failed = False
-    if build_result.returncode != 0:
-        logger.warning(
-            "%s: Build failed, will upload empty report with build failure marker",
-            log_prefix)
-        build_failed = True
-    elif not os.path.exists(args.elf_path):
-        logger.warning(
-            "%s: ELF file not found at %s, "
-            "will upload empty report with build failure marker",
-            log_prefix, args.elf_path)
-        build_failed = True
-
-    # Generate report (empty if build failed, full otherwise)
-    if build_failed:
-        logger.warning("%s: Creating empty report for failed build (commit %d of %d)...",
-                       log_prefix, commit_count, total_commits)
-        return _create_empty_report(args.elf_path), True
-
-    # Generate full report (ValueError will propagate to caller)
-    logger.warning("%s: Generating memory report (commit %d of %d)...",
-                   log_prefix, commit_count, total_commits)
-
-    report = generate_report(
-        elf_path=args.elf_path,
-        ld_scripts=args.ld_scripts,
-        skip_line_program=False,
-        verbose=args.verbose
-    )
-    return report, False
 
 
 def add_onboard_parser(subparsers) -> argparse.ArgumentParser:
@@ -279,26 +225,70 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
             args.build_script)
         result = subprocess.run(
             ['bash', '-c', args.build_script],
-            capture_output=False,
+            capture_output=True,
+            text=True,
             check=False
         )
 
         # Get commit metadata (returns old key names: commit_sha, base_sha)
         metadata = get_commit_metadata(commit)
 
-        # Generate report with fallback to empty report on build failure
-        # (ValueError from report generation will stop the workflow)
-        try:
-            report, build_failed = _generate_report_with_fallback(
-                args, log_prefix, commit_count, total_commits, result
-            )
-        except ValueError as e:
+        # Handle build failures vs missing files after successful build
+        build_failed = False
+
+        # Case 1: Build failed (non-zero exit code)
+        if result.returncode != 0:
+            logger.warning(
+                "%s: Build failed with exit code %d, will upload empty report",
+                log_prefix, result.returncode)
+
+            # Log build output (last 50 lines if too large)
+            if result.stdout or result.stderr:
+                logger.error("%s: Build output:", log_prefix)
+                combined_output = (result.stdout or "") + (result.stderr or "")
+                output_lines = combined_output.strip().split('\n')
+                if len(output_lines) > 50:
+                    logger.error("... (showing last 50 lines) ...")
+                    for line in output_lines[-50:]:
+                        logger.error(line)
+                else:
+                    for line in output_lines:
+                        logger.error(line)
+
+            # Create empty report for failed build
+            logger.warning("%s: Creating empty report for failed build (commit %d of %d)...",
+                          log_prefix, commit_count, total_commits)
+            report = _create_empty_report(args.elf_path)
+            build_failed = True
+
+        # Case 2: Build succeeded but ELF/LD scripts missing (configuration error)
+        elif not os.path.exists(args.elf_path):
             logger.error(
-                "%s: Failed to generate memory report (commit %d of %d), stopping workflow...",
-                log_prefix, commit_count, total_commits)
-            logger.error("%s: Error: %s", log_prefix, e)
+                "%s: Build succeeded but ELF file not found at %s - this indicates a configuration error",
+                log_prefix, args.elf_path)
+            logger.error("%s: Stopping onboard workflow...", log_prefix)
             failed_uploads += 1
             return finalize_and_return(1)
+
+        # Case 3: Build succeeded and files exist - generate report
+        else:
+            logger.warning("%s: Generating memory report (commit %d of %d)...",
+                          log_prefix, commit_count, total_commits)
+            try:
+                report = generate_report(
+                    elf_path=args.elf_path,
+                    ld_scripts=args.ld_scripts,
+                    skip_line_program=False,
+                    verbose=args.verbose
+                )
+            except ValueError as e:
+                logger.error(
+                    "%s: Failed to generate memory report (commit %d of %d) - configuration error",
+                    log_prefix, commit_count, total_commits)
+                logger.error("%s: Error: %s", log_prefix, e)
+                logger.error("%s: Stopping onboard workflow...", log_prefix)
+                failed_uploads += 1
+                return finalize_and_return(1)
 
         # Build commit_info in metadata['git'] format (map old keys to new)
         commit_info = {
