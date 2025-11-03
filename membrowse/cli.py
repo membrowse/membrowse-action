@@ -78,10 +78,10 @@ def main() -> int:
 
     # Configure logging based on verbose flag
     # Messages go to stderr to keep stdout clean for JSON output
-    # Default: WARNING level (show progress and errors)
+    # Default: INFO level (show progress, warnings, and errors)
     # Verbose: DEBUG level (show all debug information)
     log_level = logging.DEBUG if getattr(
-        args, 'verbose', False) else logging.WARNING
+        args, 'verbose', False) else logging.INFO
     logging.basicConfig(
         level=log_level,
         format='%(levelname)s: %(message)s',
