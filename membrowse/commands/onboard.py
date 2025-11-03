@@ -165,7 +165,7 @@ def _get_commit_list(num_commits: int):
     return [c.strip() for c in commits_output.split('\n') if c.strip()]
 
 
-def _handle_build_failure(result, log_prefix, args, commit_count, total_commits):
+def _handle_build_failure(result, log_prefix, args):
     """
     Handle build failure by logging output and creating empty report.
 
@@ -304,7 +304,7 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
         # Case 1: Build failed (non-zero exit code)
         if result.returncode != 0:
             report = _handle_build_failure(
-                result, log_prefix, args, commit_count, total_commits)
+                result, log_prefix, args)
             build_failed = True
 
         # Case 2: Build returned success but ELF missing - treat as failed build
@@ -315,7 +315,7 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
                 log_prefix, args.elf_path)
 
             report = _handle_build_failure(
-                result, log_prefix, args, commit_count, total_commits)
+                result, log_prefix, args)
             build_failed = True
 
         # Case 3: Build succeeded and files exist - generate report
