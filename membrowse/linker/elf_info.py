@@ -114,10 +114,10 @@ class ELFParser:  # pylint: disable=too-few-public-methods
                     is_embedded=cls._is_embedded_platform(platform)
                 )
         except (IOError, OSError) as e:
-            logger.warning("Could not read ELF file %s: %s", elf_path, e)
+            logger.error("Could not read ELF file %s: %s", elf_path, e)
             return None
         except (ELFError, ValueError) as e:
-            logger.warning("Error parsing ELF file %s: %s", elf_path, e)
+            logger.error("Error parsing ELF file %s: %s", elf_path, e)
             return None
 
     @classmethod

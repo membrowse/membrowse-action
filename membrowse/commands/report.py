@@ -128,7 +128,7 @@ def _display_changes_summary(changes_summary: dict) -> None:
 
 def _display_budget_alerts(budget_alerts: list) -> None:
     """Display budget alerts in human-readable format"""
-    logger.warning("Budget Alerts:")
+    logger.info("Budget Alerts:")
 
     for alert in budget_alerts:
         region = alert.get('region', 'Unknown')
@@ -137,10 +137,10 @@ def _display_budget_alerts(budget_alerts: list) -> None:
         current = alert.get('current', 0)
         exceeded_by = alert.get('exceeded_by', 0)
 
-        logger.warning("  %s (%s):", region, budget_type)
-        logger.warning("    Threshold: %s bytes", f"{threshold:,}")
-        logger.warning("    Current:   %s bytes", f"{current:,}")
-        logger.warning("    Exceeded by: %s bytes (%s%%)",
+        logger.info("  %s (%s):", region, budget_type)
+        logger.info("    Threshold: %s bytes", f"{threshold:,}")
+        logger.info("    Current:   %s bytes", f"{current:,}")
+        logger.info("    Exceeded by: %s bytes (%s%%)",
                       f"{exceeded_by:,}", f"{exceeded_by/threshold*100:.1f}")
 
 
@@ -349,7 +349,7 @@ def generate_report(
     logger.info("Linker scripts: %s", ld_scripts)
 
     # Parse memory regions from linker scripts
-    logger.warning("Parsing memory regions from linker scripts...")
+    logger.debug("Parsing memory regions from linker scripts...")
     try:
         parser = LinkerScriptParser(ld_array, elf_file=elf_path)
         memory_regions_data = parser.parse_memory_regions()
@@ -358,7 +358,7 @@ def generate_report(
         raise ValueError(f"Failed to parse memory regions: {e}") from e
 
     # Generate JSON report
-    logger.warning("Generating memory report...")
+    logger.debug("Generating memory report...")
     try:
         generator = ReportGenerator(
             elf_path,

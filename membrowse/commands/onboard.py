@@ -196,9 +196,6 @@ def _handle_build_failure(result, log_prefix, args, commit_count, total_commits)
             for line in output_lines:
                 logger.error(line)
 
-    # Create empty report for failed build
-    logger.warning("%s: Creating empty report for failed build (commit %d of %d)...",
-                  log_prefix, commit_count, total_commits)
     return _create_empty_report(args.elf_path)
 
 
@@ -212,7 +209,7 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
     Returns:
         Exit code (0 for success, 1 for error)
     """
-    logger.warning("Starting historical memory analysis for %s", args.target_name)
+    logger.info("Starting historical memory analysis for %s", args.target_name)
     logger.info("Processing last %d commits", args.num_commits)
     logger.info("Build script: %s", args.build_script)
     logger.info("ELF file: %s", args.elf_path)
@@ -252,12 +249,12 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
         elapsed_str = f"{minutes:02d}:{seconds:02d}"
 
         logger.info("")
-        logger.warning("Historical analysis completed!")
-        logger.warning("Processed %d commits", len(commits))
-        logger.warning("Successful uploads: %d", successful_uploads)
+        logger.info("Historical analysis completed!")
+        logger.info("Processed %d commits", len(commits))
+        logger.info("Successful uploads: %d", successful_uploads)
         if failed_uploads > 0:
-            logger.warning("Failed uploads: %d", failed_uploads)
-        logger.warning("Total time: %s", elapsed_str)
+            logger.info("Failed uploads: %d", failed_uploads)
+        logger.info("Total time: %s", elapsed_str)
 
         return exit_code
 
@@ -266,7 +263,7 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
         log_prefix = f"({commit})"
 
         logger.info("")
-        logger.warning("Processing commit %d/%d: %s",
+        logger.info("Processing commit %d/%d: %s",
                        commit_count, total_commits, commit[:8])
 
         # Checkout the commit
@@ -323,7 +320,7 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
 
         # Case 3: Build succeeded and files exist - generate report
         else:
-            logger.warning("%s: Generating memory report (commit %d of %d)...",
+            logger.info("%s: Generating memory report (commit %d of %d)...",
                           log_prefix, commit_count, total_commits)
             try:
                 report = generate_report(
