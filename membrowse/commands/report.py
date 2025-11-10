@@ -7,7 +7,7 @@ import logging
 from importlib.metadata import version
 
 from ..utils.git import detect_github_metadata
-from ..utils.url import normalize_api_url
+from ..utils.url import normalize_api_url, build_comparison_url
 from ..linker.parser import LinkerScriptParser
 from ..core.generator import ReportGenerator
 from ..api.client import MemBrowseUploader
@@ -19,19 +19,31 @@ logger = logging.getLogger(__name__)
 DEFAULT_API_URL = 'https://www.membrowse.com'
 
 
-def print_upload_response(response_data: dict, verbose: bool = False) -> None:
+def print_upload_response(
+    response_data: dict,
+    verbose: bool = False,
+    base_url: str = None,
+    target_name: str = None,
+    commit_info: dict = None
+) -> None:
     """
     Print upload response details including changes summary and budget alerts.
 
     Args:
         response_data: The API response data from MemBrowse
         verbose: If True, print full JSON response for debugging
+        base_url: Base URL of MemBrowse (for building comparison link)
+        target_name: Target name (for building comparison link)
+        commit_info: Git commit information (for building comparison link)
     """
     # Check if upload was successful
     success = response_data.get('success', False)
 
     if success:
         logger.info("Report uploaded successfully to MemBrowse")
+
+        # Display comparison link if available
+        _display_comparison_link(response_data, base_url, target_name, commit_info)
     else:
         logger.error("Upload failed")
 
@@ -163,6 +175,47 @@ def _display_upload_limit_error(response_data: dict) -> None:
 
     if period_start and period_end:
         logger.error("  Billing period: %s to %s", period_start, period_end)
+
+
+def _display_comparison_link(
+    response_data: dict,
+    base_url: str,
+    target_name: str,
+    commit_info: dict
+) -> None:
+    """
+    Display link to build comparison page if all required data is available.
+
+    Args:
+        response_data: The API response data from MemBrowse
+        base_url: Base URL of MemBrowse
+        target_name: Target name
+        commit_info: Git commit information
+    """
+    # Skip if any required parameters are missing
+    if not all([response_data, base_url, target_name, commit_info]):
+        return
+
+    # Extract data from response
+    data = response_data.get('data', {})
+    project_id = data.get('project_id')
+
+    # Extract commit hashes from commit_info
+    base_commit = commit_info.get('base_commit_hash')
+    head_commit = commit_info.get('commit_hash')
+
+    # Build comparison URL
+    comparison_url = build_comparison_url(
+        base_url,
+        project_id,
+        target_name,
+        base_commit,
+        head_commit
+    )
+
+    # Display URL if successfully built
+    if comparison_url:
+        logger.info("View build comparison: %s", comparison_url)
 
 
 def _validate_file_paths(elf_path: str, ld_script_paths: list[str]) -> tuple[bool, str]:
@@ -405,7 +458,8 @@ def upload_report(  # pylint: disable=too-many-arguments
             }
         target_name: Build configuration/target (e.g., esp32, stm32, x86)
         api_key: MemBrowse API key
-        api_url: MemBrowse API endpoint URL
+        api_url: MemBrowse API base URL (e.g., 'https://www.membrowse.com')
+                 The /api/upload endpoint suffix is added automatically
         verbose: Enable verbose output (keyword-only)
         dont_fail_on_alerts: Continue even if budget alerts are detected (keyword-only)
         build_failed: Whether the build failed (keyword-only)
@@ -435,7 +489,13 @@ def upload_report(  # pylint: disable=too-many-arguments
     response_data = _perform_upload(enriched_report, api_key, api_url, log_prefix)
 
     # Always print upload response details (success or failure)
-    print_upload_response(response_data, verbose=verbose)
+    print_upload_response(
+        response_data,
+        verbose=verbose,
+        base_url=api_url,
+        target_name=target_name,
+        commit_info=commit_info
+    )
 
     # Validate upload success
     _validate_upload_success(response_data, log_prefix)
@@ -481,7 +541,9 @@ def _build_enriched_report(
 def _perform_upload(enriched_report: dict, api_key: str, api_url: str, log_prefix: str) -> dict:
     """Perform the actual upload to MemBrowse."""
     try:
-        uploader = MemBrowseUploader(api_key, api_url)
+        # Normalize API URL (append /api/upload if needed)
+        upload_endpoint = normalize_api_url(api_url)
+        uploader = MemBrowseUploader(api_key, upload_endpoint)
         return uploader.upload_report(enriched_report)
     except Exception as e:  # pylint: disable=broad-exception-caught
         logger.error("%s: Failed to upload report: %s", log_prefix, e)
@@ -578,15 +640,12 @@ def run_report(args: argparse.Namespace) -> int:
 
     # Upload report
     try:
-        # Normalize API URL (append /api/upload if needed)
-        api_url = normalize_api_url(getattr(args, 'api_url', DEFAULT_API_URL))
-
         upload_report(
             report=report,
             commit_info=commit_info,
             target_name=getattr(args, 'target_name', None),
             api_key=getattr(args, 'api_key', None),
-            api_url=api_url,
+            api_url=getattr(args, 'api_url', DEFAULT_API_URL),
             verbose=verbose,
             dont_fail_on_alerts=getattr(args, 'dont_fail_on_alerts', False)
         )
