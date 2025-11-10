@@ -42,13 +42,13 @@ membrowse report firmware.elf "mem.ld sections.ld"
 membrowse report firmware.elf "linker.ld" --upload \
     --api-key "$API_KEY" \
     --target-name "esp32" \
-    --api-url "https://membrowse.appspot.com/api/upload"
+    --api-url "https://membrowse.com"
 
 # Upload with Git metadata (manual)
 membrowse report firmware.elf "linker.ld" --upload \
     --api-key "$API_KEY" \
     --target-name "stm32f4" \
-    --api-url "https://membrowse.appspot.com/api/upload" \
+    --api-url "https://membrowse.com" \
     --commit-sha "abc123" \
     --branch-name "main" \
     --repo-name "my-repo"
@@ -60,7 +60,7 @@ membrowse report firmware.elf "linker.ld" --upload \
 membrowse report firmware.elf "linker.ld" --github \
     --target-name "esp32" \
     --api-key "$API_KEY" \
-    --api-url "https://membrowse.appspot.com/api/upload"
+    --api-url "https://membrowse.com"
 ```
 
 **Modes:**
@@ -79,9 +79,9 @@ Analyzes memory footprints across multiple historical commits and uploads them t
 ```bash
 # Analyze last 50 commits and upload to MemBrowse
 membrowse onboard 50 "make clean && make" build/firmware.elf "linker.ld" \
-    stm32f4 "$API_KEY" https://membrowse.appspot.com/api/upload
+    stm32f4 "$API_KEY" https://membrowse.com
 
-# ESP-IDF project (API URL is optional, defaults to https://membrowse.appspot.com/api/upload)
+# ESP-IDF project (API URL is optional, defaults to https://www.membrowse.com)
 membrowse onboard 25 "idf.py build" build/firmware.elf \
     "build/esp-idf/esp32/esp32.project.ld" esp32 "$API_KEY"
 ```
@@ -277,7 +277,7 @@ membrowse report firmware.elf "linker1.ld linker2.ld" > report.json
 membrowse report firmware.elf "linker.ld" --upload \
     --api-key "$API_KEY" \
     --target-name "stm32f4" \
-    --api-url "https://membrowse.appspot.com/api/upload" \
+    --api-url "https://membrowse.com" \
     --commit-sha "$(git rev-parse HEAD)" \
     --branch-name "$(git branch --show-current)"
 
@@ -288,7 +288,7 @@ membrowse report firmware.elf "linker.ld" --github \
 
 # Test onboard command (analyzes and uploads historical commits)
 membrowse onboard 10 "make build" build/firmware.elf "src/linker.ld" \
-    stm32f4 "$API_KEY" https://membrowse.appspot.com/api/upload
+    stm32f4 "$API_KEY" https://membrowse.com
 ```
 
 ## Common Patterns

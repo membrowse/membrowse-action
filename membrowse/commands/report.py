@@ -7,6 +7,7 @@ import logging
 from importlib.metadata import version
 
 from ..utils.git import detect_github_metadata
+from ..utils.url import normalize_api_url
 from ..linker.parser import LinkerScriptParser
 from ..core.generator import ReportGenerator
 from ..api.client import MemBrowseUploader
@@ -14,8 +15,8 @@ from ..api.client import MemBrowseUploader
 # Set up logger
 logger = logging.getLogger(__name__)
 
-# Default MemBrowse API endpoint
-DEFAULT_API_URL = 'https://www.membrowse.com/api/upload'
+# Default MemBrowse API base URL (automatically appends /api/upload)
+DEFAULT_API_URL = 'https://www.membrowse.com'
 
 
 def print_upload_response(response_data: dict, verbose: bool = False) -> None:
@@ -271,7 +272,7 @@ examples:
     upload_group.add_argument(
         '--api-url',
         default=DEFAULT_API_URL,
-        help='MemBrowse API endpoint (default: %(default)s)'
+        help='MemBrowse API base URL (default: %(default)s, /api/upload appended automatically)'
     )
 
     # Optional Git metadata (for --upload mode without --github)
@@ -577,12 +578,15 @@ def run_report(args: argparse.Namespace) -> int:
 
     # Upload report
     try:
+        # Normalize API URL (append /api/upload if needed)
+        api_url = normalize_api_url(getattr(args, 'api_url', DEFAULT_API_URL))
+
         upload_report(
             report=report,
             commit_info=commit_info,
             target_name=getattr(args, 'target_name', None),
             api_key=getattr(args, 'api_key', None),
-            api_url=getattr(args, 'api_url', DEFAULT_API_URL),
+            api_url=api_url,
             verbose=verbose,
             dont_fail_on_alerts=getattr(args, 'dont_fail_on_alerts', False)
         )
