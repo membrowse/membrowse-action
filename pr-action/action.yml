@@ -23,9 +23,14 @@ inputs:
     description: 'Continue even if budget alerts are detected (default: fail on alerts)'
     required: false
     default: 'false'
-  github_token:
-    description: 'GitHub token for posting PR comments'
+  pr_comment:
+    description: 'Enable PR comment posting with memory changes (default: true)'
     required: false
+    default: 'true'
+  github_token:
+    description: 'GitHub token for posting PR comments (defaults to automatic github.token)'
+    required: false
+    default: ${{ github.token }}
 
 runs:
   using: 'composite'
@@ -57,10 +62,14 @@ runs:
           ARGS+=(--dont-fail-on-alerts)
         fi
 
+        if [ "${{ inputs.pr_comment }}" = "true" ]; then
+          ARGS+=(--pr-comment)
+        fi
+
         membrowse report "${ARGS[@]}"
 
     - name: Post PR comment
-      if: github.event_name == 'pull_request'
+      if: github.event_name == 'pull_request' && inputs.pr_comment == 'true'
       shell: bash
       env:
         GITHUB_TOKEN: ${{ inputs.github_token || github.token }}
