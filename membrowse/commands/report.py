@@ -382,7 +382,12 @@ examples:
     output_group = parser.add_argument_group('output options')
     output_group.add_argument(
         '--output-url-file',
-        help='File path to write comparison URL (for GitHub Actions integration)'
+        help='File path to write comparison URL and API response (for GitHub Actions integration)'
+    )
+    output_group.add_argument(
+        '--pr-comment',
+        action='store_true',
+        help='Enable PR comment posting (writes comparison data to output file for GitHub Actions)'
     )
 
     return parser
@@ -597,24 +602,32 @@ def _check_budget_alerts(response_data: dict, dont_fail_on_alerts: bool, log_pre
         )
 
 
-def _write_comparison_url_to_file(comparison_url: str, file_path: str) -> None:
+def _write_comparison_url_to_file(
+    comparison_url: str,
+    file_path: str,
+    api_response: dict = None
+) -> None:
     """
-    Write comparison URL to a file for GitHub Actions integration.
+    Write comparison URL and API response data to a file for GitHub Actions integration.
 
     Args:
         comparison_url: Comparison URL to write (can be None)
         file_path: Path to output file
+        api_response: Full API response data including changes and alerts (optional)
     """
     try:
+        # Write JSON format with both URL and API response
+        output_data = {
+            'comparison_url': comparison_url or '',
+            'api_response': api_response or {}
+        }
+
         with open(file_path, 'w', encoding='utf-8') as f:
-            if comparison_url:
-                f.write(comparison_url)
-            else:
-                # Write empty string if no URL available
-                f.write('')
-        logger.debug("Wrote comparison URL to %s", file_path)
+            json.dump(output_data, f, indent=2)
+
+        logger.debug("Wrote comparison URL and API response to %s", file_path)
     except Exception as e:  # pylint: disable=broad-exception-caught
-        logger.warning("Failed to write comparison URL to file: %s", e)
+        logger.warning("Failed to write comparison data to file: %s", e)
 
 
 def run_report(args: argparse.Namespace) -> int:
@@ -681,7 +694,7 @@ def run_report(args: argparse.Namespace) -> int:
 
     # Upload report
     try:
-        _response_data, comparison_url = upload_report(
+        response_data, comparison_url = upload_report(
             report=report,
             commit_info=commit_info,
             target_name=getattr(args, 'target_name', None),
@@ -691,10 +704,16 @@ def run_report(args: argparse.Namespace) -> int:
             dont_fail_on_alerts=getattr(args, 'dont_fail_on_alerts', False)
         )
 
-        # Write comparison URL to file if requested
+        # Write comparison URL and API response to file if PR comment is enabled
+        pr_comment_enabled = getattr(args, 'pr_comment', False)
         output_url_file = getattr(args, 'output_url_file', None)
-        if output_url_file:
-            _write_comparison_url_to_file(comparison_url, output_url_file)
+        if pr_comment_enabled and output_url_file:
+            _write_comparison_url_to_file(
+                comparison_url,
+                output_url_file,
+                api_response=response_data
+            )
+            logger.debug("Wrote comparison data for PR comment to %s", output_url_file)
 
         return 0
     except (ValueError, RuntimeError) as e:
