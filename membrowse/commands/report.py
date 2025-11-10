@@ -25,7 +25,7 @@ def print_upload_response(
     base_url: str = None,
     target_name: str = None,
     commit_info: dict = None
-) -> None:
+) -> str:
     """
     Print upload response details including changes summary and budget alerts.
 
@@ -35,15 +35,19 @@ def print_upload_response(
         base_url: Base URL of MemBrowse (for building comparison link)
         target_name: Target name (for building comparison link)
         commit_info: Git commit information (for building comparison link)
+
+    Returns:
+        str: Comparison URL if available, None otherwise
     """
     # Check if upload was successful
     success = response_data.get('success', False)
+    comparison_url = None
 
     if success:
         logger.info("Report uploaded successfully to MemBrowse")
 
-        # Display comparison link if available
-        _display_comparison_link(response_data, base_url, target_name, commit_info)
+        # Display comparison link if available and capture URL
+        comparison_url = _display_comparison_link(response_data, base_url, target_name, commit_info)
     else:
         logger.error("Upload failed")
 
@@ -72,7 +76,7 @@ def print_upload_response(
         if upgrade_url:
             logger.error("Upgrade at: %s", upgrade_url)
 
-        return  # Don't display changes/alerts for failed uploads
+        return None  # Don't display changes/alerts for failed uploads
 
     # Extract response data (only for successful uploads)
     data = response_data.get('data', {})
@@ -96,6 +100,8 @@ def print_upload_response(
 
     if budget_alerts:
         _display_budget_alerts(budget_alerts)
+
+    return comparison_url
 
 
 def _display_changes_summary(changes_summary: dict) -> None:
@@ -182,7 +188,7 @@ def _display_comparison_link(
     base_url: str,
     target_name: str,
     commit_info: dict
-) -> None:
+) -> str:
     """
     Display link to build comparison page if all required data is available.
 
@@ -191,10 +197,13 @@ def _display_comparison_link(
         base_url: Base URL of MemBrowse
         target_name: Target name
         commit_info: Git commit information
+
+    Returns:
+        str: Comparison URL if successfully built, None otherwise
     """
     # Skip if any required parameters are missing
     if not all([response_data, base_url, target_name, commit_info]):
-        return
+        return None
 
     # Extract data from response
     data = response_data.get('data', {})
@@ -216,6 +225,8 @@ def _display_comparison_link(
     # Display URL if successfully built
     if comparison_url:
         logger.info("View build comparison: %s", comparison_url)
+
+    return comparison_url
 
 
 def _validate_file_paths(elf_path: str, ld_script_paths: list[str]) -> tuple[bool, str]:
@@ -367,6 +378,13 @@ examples:
         help='Continue even if budget alerts are detected (default: fail on alerts)'
     )
 
+    # Output options
+    output_group = parser.add_argument_group('output options')
+    output_group.add_argument(
+        '--output-url-file',
+        help='File path to write comparison URL (for GitHub Actions integration)'
+    )
+
     return parser
 
 
@@ -439,7 +457,7 @@ def upload_report(  # pylint: disable=too-many-arguments
     verbose: bool = False,
     dont_fail_on_alerts: bool = False,
     build_failed: bool = None
-) -> dict:
+) -> tuple[dict, str]:
     """
     Upload a memory footprint report to MemBrowse platform.
 
@@ -466,7 +484,7 @@ def upload_report(  # pylint: disable=too-many-arguments
         build_failed: Whether the build failed (keyword-only)
 
     Returns:
-        dict: API response data if upload succeeded
+        tuple[dict, str]: (API response data, comparison URL if available)
 
     Raises:
         ValueError: If upload arguments are invalid
@@ -490,7 +508,7 @@ def upload_report(  # pylint: disable=too-many-arguments
     response_data = _perform_upload(enriched_report, api_key, api_url, log_prefix)
 
     # Always print upload response details (success or failure)
-    print_upload_response(
+    comparison_url = print_upload_response(
         response_data,
         verbose=verbose,
         base_url=api_url,
@@ -505,7 +523,7 @@ def upload_report(  # pylint: disable=too-many-arguments
     _check_budget_alerts(response_data, dont_fail_on_alerts, log_prefix)
 
     logger.info("%s: Memory report uploaded successfully", log_prefix)
-    return response_data
+    return response_data, comparison_url
 
 
 def _get_log_prefix(commit_info: dict) -> str:
@@ -578,6 +596,26 @@ def _check_budget_alerts(response_data: dict, dont_fail_on_alerts: bool, log_pre
         )
 
 
+def _write_comparison_url_to_file(comparison_url: str, file_path: str) -> None:
+    """
+    Write comparison URL to a file for GitHub Actions integration.
+
+    Args:
+        comparison_url: Comparison URL to write (can be None)
+        file_path: Path to output file
+    """
+    try:
+        with open(file_path, 'w', encoding='utf-8') as f:
+            if comparison_url:
+                f.write(comparison_url)
+            else:
+                # Write empty string if no URL available
+                f.write('')
+        logger.debug("Wrote comparison URL to %s", file_path)
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        logger.warning("Failed to write comparison URL to file: %s", e)
+
+
 def run_report(args: argparse.Namespace) -> int:
     """
     Execute the report subcommand.
@@ -642,7 +680,7 @@ def run_report(args: argparse.Namespace) -> int:
 
     # Upload report
     try:
-        upload_report(
+        _response_data, comparison_url = upload_report(
             report=report,
             commit_info=commit_info,
             target_name=getattr(args, 'target_name', None),
@@ -651,6 +689,12 @@ def run_report(args: argparse.Namespace) -> int:
             verbose=verbose,
             dont_fail_on_alerts=getattr(args, 'dont_fail_on_alerts', False)
         )
+
+        # Write comparison URL to file if requested
+        output_url_file = getattr(args, 'output_url_file', None)
+        if output_url_file:
+            _write_comparison_url_to_file(comparison_url, output_url_file)
+
         return 0
     except (ValueError, RuntimeError) as e:
         logger.error("Failed to upload report: %s", e)

@@ -358,7 +358,7 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
             # Normalize API URL (append /api/upload if needed)
             api_url = normalize_api_url(args.api_url)
 
-            upload_report(
+            _response_data, _comparison_url = upload_report(
                 report=report,
                 commit_info=commit_info,
                 target_name=args.target_name,
