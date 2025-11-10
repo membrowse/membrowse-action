@@ -16,9 +16,9 @@ inputs:
     description: 'API key for MemBrowse'
     required: false
   api_url:
-    description: 'MemBrowse API endpoint URL'
+    description: 'MemBrowse API base URL (/api/upload appended automatically)'
     required: false
-    default: 'https://www.membrowse.com/api/upload'
+    default: 'https://www.membrowse.com'
   dont_fail_on_alerts:
     description: 'Continue even if budget alerts are detected (default: fail on alerts)'
     required: false
