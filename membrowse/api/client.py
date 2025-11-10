@@ -42,10 +42,33 @@ class MemBrowseUploader:  # pylint: disable=too-few-public-methods
             requests.exceptions.RequestException: For other request errors
             json.JSONDecodeError: If response cannot be parsed as JSON
         """
-        response = self.session.post(
-            self.api_endpoint,
-            json=report_data,
-            timeout=30
-        )
+        try:
+            response = self.session.post(
+                self.api_endpoint,
+                json=report_data,
+                timeout=30
+            )
+            response.raise_for_status()
+        except requests.exceptions.Timeout as e:
+            raise requests.exceptions.Timeout(
+                f"Request to {self.api_endpoint} timed out after 30 seconds"
+            ) from e
+        except requests.exceptions.ConnectionError as e:
+            raise requests.exceptions.ConnectionError(
+                f"Failed to connect to {self.api_endpoint}: {e}"
+            ) from e
+        except requests.exceptions.HTTPError as e:
+            raise requests.exceptions.HTTPError(
+                f"HTTP error from {self.api_endpoint}: {e}"
+            ) from e
+        except requests.exceptions.RequestException as e:
+            raise requests.exceptions.RequestException(
+                f"Request to {self.api_endpoint} failed: {e}"
+            ) from e
 
-        return response.json()
+        try:
+            return response.json()
+        except ValueError as e:
+            raise ValueError(
+                f"Failed to parse JSON response from {self.api_endpoint}: {e}"
+            ) from e

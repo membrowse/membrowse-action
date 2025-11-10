@@ -559,14 +559,15 @@ def _build_enriched_report(
 
 def _perform_upload(enriched_report: dict, api_key: str, api_url: str, log_prefix: str) -> dict:
     """Perform the actual upload to MemBrowse."""
+    # Normalize API URL (append /api/upload)
+    upload_endpoint = normalize_api_url(api_url)
+
     try:
-        # Normalize API URL (append /api/upload if needed)
-        upload_endpoint = normalize_api_url(api_url)
         uploader = MemBrowseUploader(api_key, upload_endpoint)
         return uploader.upload_report(enriched_report)
     except Exception as e:  # pylint: disable=broad-exception-caught
-        logger.error("%s: Failed to upload report: %s", log_prefix, e)
-        raise RuntimeError(f"Failed to upload report: {e}") from e
+        logger.error("%s: Failed to upload report to %s: %s", log_prefix, upload_endpoint, e)
+        raise RuntimeError(f"Failed to upload report to {upload_endpoint}: {e}") from e
 
 
 def _validate_upload_success(response_data: dict, log_prefix: str) -> None:
