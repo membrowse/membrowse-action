@@ -23,6 +23,9 @@ inputs:
     description: 'Continue even if budget alerts are detected (default: fail on alerts)'
     required: false
     default: 'false'
+  github_token:
+    description: 'GitHub token for posting PR comments'
+    required: false
 
 runs:
   using: 'composite'
@@ -47,6 +50,7 @@ runs:
           --target-name "${{ inputs.target_name }}"
           --api-key "${{ inputs.api_key }}"
           --api-url "${{ inputs.api_url }}"
+          --output-url-file "${{ runner.temp }}/membrowse_url.txt"
         )
 
         if [ "${{ inputs.dont_fail_on_alerts }}" = "true" ]; then
@@ -54,6 +58,14 @@ runs:
         fi
 
         membrowse report "${ARGS[@]}"
+
+    - name: Post PR comment
+      if: github.event_name == 'pull_request'
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github_token || github.token }}
+      run: |
+        python -m membrowse.utils.github_comment --url-file "${{ runner.temp }}/membrowse_url.txt"
 
 branding:
   icon: 'bar-chart-2'
