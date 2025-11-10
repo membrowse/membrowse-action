@@ -7,7 +7,6 @@ import logging
 from datetime import datetime
 
 from ..utils.git import run_git_command, get_commit_metadata
-from ..utils.url import normalize_api_url
 from .report import generate_report, upload_report, DEFAULT_API_URL
 
 # Set up logger
@@ -355,15 +354,12 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
         # Upload report
         # For onboarding, don't fail on alerts to continue processing all commits
         try:
-            # Normalize API URL (append /api/upload if needed)
-            api_url = normalize_api_url(args.api_url)
-
             _response_data, _comparison_url = upload_report(
                 report=report,
                 commit_info=commit_info,
                 target_name=args.target_name,
                 api_key=args.api_key,
-                api_url=api_url,
+                api_url=args.api_url,
                 verbose=args.verbose,
                 dont_fail_on_alerts=True,
                 build_failed=build_failed
