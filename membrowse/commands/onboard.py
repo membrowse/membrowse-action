@@ -79,7 +79,7 @@ examples:
   # ESP-IDF project with custom API URL
   membrowse onboard 25 "idf.py build" build/firmware.elf \\
       "build/esp-idf/esp32/esp32.project.ld" esp32 "$API_KEY" \\
-      https://custom-api.example.com/api/upload
+      https://custom-api.example.com
         """)
 
     # Required arguments

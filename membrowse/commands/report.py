@@ -297,7 +297,7 @@ examples:
   # Upload to MemBrowse
   membrowse report firmware.elf "linker.ld" --upload \\
       --api-key "$API_KEY" --target-name esp32 \\
-      --api-url https://www.membrowse.com/api/upload
+      --api-url https://www.membrowse.com
 
   # GitHub Actions mode (auto-detects Git metadata)
   membrowse report firmware.elf "linker.ld" --github \\
