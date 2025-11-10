@@ -76,7 +76,7 @@ def print_upload_response(
         if upgrade_url:
             logger.error("Upgrade at: %s", upgrade_url)
 
-        return  # Don't display changes/alerts for failed uploads
+        return None  # Don't display changes/alerts for failed uploads
 
     # Extract response data (only for successful uploads)
     data = response_data.get('data', {})
@@ -680,7 +680,7 @@ def run_report(args: argparse.Namespace) -> int:
 
     # Upload report
     try:
-        response_data, comparison_url = upload_report(
+        _response_data, comparison_url = upload_report(
             report=report,
             commit_info=commit_info,
             target_name=getattr(args, 'target_name', None),
