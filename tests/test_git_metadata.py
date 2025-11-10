@@ -74,7 +74,9 @@ class TestPullRequestMetadata:
                             "['log', '-1', '--pretty=format:%ae', 'real-commit-sha-123']":
                                 'author@example.com',
                             "['config', '--get', 'remote.origin.url']":
-                                'https://github.com/user/repo.git'
+                                'https://github.com/user/repo.git',
+                            "['rev-parse', 'HEAD~1']":
+                                'parent-commit-sha-999'
                         }
                         cmd_str = str(cmd)
                         if cmd_str in responses:
@@ -90,6 +92,8 @@ class TestPullRequestMetadata:
                     # Verify the commit_hash is the PR head SHA, not the merge commit SHA
                     assert metadata['commit_hash'] == 'real-commit-sha-123'
                     assert metadata['commit_message'] == 'added very cool buffer'
+                    # For PR events: parent is HEAD~1, base is target branch tip
+                    assert metadata['parent_commit_hash'] == 'parent-commit-sha-999'
                     assert metadata['base_commit_hash'] == 'base-commit-sha-456'
                     assert metadata['branch_name'] == 'feature-branch'
                     assert metadata['pr_number'] == '456'
@@ -128,7 +132,9 @@ class TestPullRequestMetadata:
                             "['log', '-1', '--pretty=format:%ae', 'push-commit-sha']":
                                 'push@example.com',
                             "['config', '--get', 'remote.origin.url']":
-                                'https://github.com/user/repo.git'
+                                'https://github.com/user/repo.git',
+                            "['rev-parse', 'HEAD~1']":
+                                'actual-parent-sha-777'
                         }
                         cmd_str = str(cmd)
                         if cmd_str in responses:
@@ -144,7 +150,9 @@ class TestPullRequestMetadata:
                     # Verify push events use GITHUB_SHA
                     assert metadata['commit_hash'] == 'push-commit-sha'
                     assert metadata['commit_message'] == 'Push commit message'
-                    assert metadata['base_commit_hash'] == 'parent-commit-sha'
+                    # For push events: both parent and base should be HEAD~1
+                    assert metadata['parent_commit_hash'] == 'actual-parent-sha-777'
+                    assert metadata['base_commit_hash'] == 'actual-parent-sha-777'
         finally:
             # Clean up temp file
             os.unlink(event_path)

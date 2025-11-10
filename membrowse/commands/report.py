@@ -334,7 +334,8 @@ examples:
         'Optional Git metadata (auto-detected in --github mode)'
     )
     git_group.add_argument('--commit-sha', help='Git commit SHA')
-    git_group.add_argument('--base-sha', help='Git base/parent commit SHA')
+    git_group.add_argument('--base-sha', help='Git base commit SHA (for comparison URLs)')
+    git_group.add_argument('--parent-sha', help='Git parent commit SHA (actual git parent)')
     git_group.add_argument('--branch-name', help='Git branch name')
     git_group.add_argument('--repo-name', help='Repository name')
     git_group.add_argument('--commit-message', help='Commit message')
@@ -616,6 +617,7 @@ def run_report(args: argparse.Namespace) -> int:
     # Build commit_info dict in metadata['git'] format
     arg_to_metadata_map = {
         'commit_sha': 'commit_hash',
+        'parent_sha': 'parent_commit_hash',
         'base_sha': 'base_commit_hash',
         'branch_name': 'branch_name',
         'repo_name': 'repository',

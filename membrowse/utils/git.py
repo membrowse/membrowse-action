@@ -23,6 +23,16 @@ def run_git_command(command: list) -> Optional[str]:
         return None
 
 
+def get_parent_commit() -> Optional[str]:
+    """
+    Get the parent commit SHA of the current HEAD.
+
+    Returns:
+        Parent commit SHA (HEAD~1), or None if no parent exists (first commit).
+    """
+    return run_git_command(['rev-parse', 'HEAD~1'])
+
+
 def _parse_pull_request_event(event_data: Dict[str, Any]) -> tuple:
     """Extract metadata from pull request event."""
     pr = event_data.get('pull_request', {})
@@ -133,7 +143,8 @@ def detect_github_metadata() -> Dict[str, Any]:
         Dict with metadata in metadata['git'] format:
         {
             'commit_hash': str,
-            'base_commit_hash': str,
+            'parent_commit_hash': str,  # Actual git parent (HEAD~1)
+            'base_commit_hash': str,    # For comparison (target branch in PRs, parent in pushes)
             'branch_name': str,
             'repository': str,
             'commit_message': str,
@@ -164,9 +175,18 @@ def detect_github_metadata() -> Dict[str, Any]:
     # Get commit details
     commit_message, commit_timestamp, author_name, author_email = _get_commit_details(commit_sha)
 
+    # Get parent commit (actual git parent)
+    parent_sha = get_parent_commit()
+
+    # For push events, use parent commit as comparison base
+    # For PR events, base_sha is already set to target branch tip
+    if event_name == 'push' and parent_sha:
+        base_sha = parent_sha
+
     # Return in metadata['git'] format
     return {
         'commit_hash': commit_sha or None,
+        'parent_commit_hash': parent_sha or None,
         'base_commit_hash': base_sha or None,
         'branch_name': branch_name or None,
         'repository': repo_name or None,
