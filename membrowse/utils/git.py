@@ -29,7 +29,8 @@ def _parse_pull_request_event(event_data: Dict[str, Any]) -> tuple:
     base_sha = pr.get('base', {}).get('sha', '')
     branch_name = pr.get('head', {}).get('ref', '')
     pr_number = str(pr.get('number', ''))
-    return base_sha, branch_name, pr_number
+    head_sha = pr.get('head', {}).get('sha', '')
+    return base_sha, branch_name, pr_number, head_sha
 
 
 def _parse_push_event(event_data: Dict[str, Any]) -> tuple:
@@ -42,28 +43,28 @@ def _parse_push_event(event_data: Dict[str, Any]) -> tuple:
                          '--format=%(refname:short)', 'refs/heads/']) or
         os.environ.get('GITHUB_REF_NAME', 'unknown')
     )
-    return base_sha, branch_name, ''
+    return base_sha, branch_name, '', ''
 
 
 def _parse_github_event(event_name: str, event_path: str) -> tuple:
     """Parse GitHub event payload."""
-    base_sha, branch_name, pr_number = '', '', ''
+    base_sha, branch_name, pr_number, head_sha = '', '', '', ''
 
     if not event_path or not os.path.exists(event_path):
-        return base_sha, branch_name, pr_number
+        return base_sha, branch_name, pr_number, head_sha
 
     try:
         with open(event_path, 'r', encoding='utf-8') as f:
             event_data = json.load(f)
 
         if event_name == 'pull_request':
-            base_sha, branch_name, pr_number = _parse_pull_request_event(event_data)
+            base_sha, branch_name, pr_number, head_sha = _parse_pull_request_event(event_data)
         elif event_name == 'push':
-            base_sha, branch_name, pr_number = _parse_push_event(event_data)
+            base_sha, branch_name, pr_number, head_sha = _parse_push_event(event_data)
     except Exception:  # pylint: disable=broad-exception-caught
         pass
 
-    return base_sha, branch_name, pr_number
+    return base_sha, branch_name, pr_number, head_sha
 
 
 def _get_branch_name(branch_name: str) -> str:
@@ -148,7 +149,12 @@ def detect_github_metadata() -> Dict[str, Any]:
     event_path = os.environ.get('GITHUB_EVENT_PATH', '')
 
     # Parse event payload if available
-    base_sha, branch_name, pr_number = _parse_github_event(event_name, event_path)
+    base_sha, branch_name, pr_number, head_sha = _parse_github_event(event_name, event_path)
+
+    # For pull_request events, use the PR head SHA instead of the merge commit SHA
+    # GITHUB_SHA points to a temporary merge commit in PR events, not the actual commit
+    if event_name == 'pull_request' and head_sha:
+        commit_sha = head_sha
 
     # Fallback: detect from git if not from GitHub env
     commit_sha = commit_sha or run_git_command(['rev-parse', 'HEAD']) or ''
