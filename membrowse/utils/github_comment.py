@@ -96,18 +96,21 @@ def _build_memory_change_row(region: dict) -> dict:
     delta_str = f"+{delta:,}" if delta >= 0 else f"{delta:,}"
     delta_pct_str = f"+{delta_pct:.1f}%" if delta >= 0 else f"{delta_pct:.1f}%"
 
-    # Calculate utilization and include in used field if limit_size available
+    # Build usage string: delta (current used [out of limit, utilization%])
     limit_size = region.get('limit_size', 0)
     if limit_size > 0:
         util_pct = current_used / limit_size * 100
-        used_str = f"{current_used:,} B ({util_pct:.1f}%)"
+        usage_str = (
+            f"{delta_str} B ({delta_pct_str}, "
+            f"{current_used:,} B used out of {limit_size:,} B, {util_pct:.1f}%)"
+        )
     else:
-        used_str = f"{current_used:,} B"
+        usage_str = f"{delta_str} B ({delta_pct_str}, {current_used:,} B used)"
 
     return {
-        'name': region.get('name', 'Unknown'),
-        'used': used_str,
-        'change': f"{delta_str} B ({delta_pct_str})"
+        'region': region.get('name', 'Unknown'),
+        'section': '',
+        'usage': usage_str
     }
 
 
@@ -116,36 +119,36 @@ def _format_table_with_alignment(rows: list) -> str:
     Format rows into aligned markdown table.
 
     Args:
-        rows: List of row dictionaries with name, used, change
+        rows: List of row dictionaries with region, section, usage
 
     Returns:
         str: Formatted markdown table
     """
     # Calculate column widths
-    max_name = max(max(len(row['name']) for row in rows), len("Region"))
-    max_used = max(max(len(row['used']) for row in rows), len("Used"))
-    max_change = max(max(len(row['change']) for row in rows), len("Change"))
+    max_region = max(max(len(row['region']) for row in rows), len("Region"))
+    max_section = max(max(len(row['section']) for row in rows), len("Section"))
+    max_usage = max(max(len(row['usage']) for row in rows), len("Changes"))
 
     lines = []
     # Header row
     header = (
-        f"| {'Region'.ljust(max_name)} | {'Used'.rjust(max_used)} | "
-        f"{'Change'.rjust(max_change)} |"
+        f"| {'Region'.ljust(max_region)} | {'Section'.ljust(max_section)} | "
+        f"{'Changes'.ljust(max_usage)} |"
     )
     lines.append(header)
     # Separator row
     separator = (
-        f"|{'-' * (max_name + 2)}|{'-' * (max_used + 2)}:|"
-        f"{'-' * (max_change + 2)}:|"
+        f"|{'-' * (max_region + 2)}|{'-' * (max_section + 2)}|"
+        f"{'-' * (max_usage + 2)}|"
     )
     lines.append(separator)
 
     # Data rows
     for row in rows:
         lines.append(
-            f"| {row['name'].ljust(max_name)} | "
-            f"{row['used'].rjust(max_used)} | "
-            f"{row['change'].rjust(max_change)} |"
+            f"| {row['region'].ljust(max_region)} | "
+            f"{row['section'].ljust(max_section)} | "
+            f"{row['usage'].ljust(max_usage)} |"
         )
 
     return "\n".join(lines)
@@ -184,17 +187,18 @@ def _get_sections_for_region(section_changes: dict, region_name: str) -> list:
 
         # Calculate delta
         delta = current_size - old_size
-        delta_pct = (delta / old_size * 100) if old_size > 0 else 0
 
         # Format delta with sign
         delta_str = f"+{delta:,}" if delta >= 0 else f"{delta:,}"
-        delta_pct_str = f"+{delta_pct:.1f}%" if delta >= 0 else f"{delta_pct:.1f}%"
 
-        # Create row with indentation to show it's nested under region
+        # Build usage string: delta (current used)
+        usage_str = f"{delta_str} B ({current_size:,} B used)"
+
+        # Create row with section in its own column
         section_rows.append({
-            'name': f"  ↳ {section_name}",  # Indent with arrow for visual nesting
-            'used': f"{current_size:,} B",
-            'change': f"{delta_str} B ({delta_pct_str})"
+            'region': '',
+            'section': section_name,
+            'usage': usage_str
         })
 
     return section_rows
