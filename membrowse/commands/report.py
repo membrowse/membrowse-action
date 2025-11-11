@@ -605,7 +605,8 @@ def _check_budget_alerts(response_data: dict, dont_fail_on_alerts: bool, log_pre
 def _write_comparison_url_to_file(
     comparison_url: str,
     file_path: str,
-    api_response: dict = None
+    api_response: dict = None,
+    target_name: str = None
 ) -> None:
     """
     Write comparison URL and API response data to a file for GitHub Actions integration.
@@ -614,12 +615,14 @@ def _write_comparison_url_to_file(
         comparison_url: Comparison URL to write (can be None)
         file_path: Path to output file
         api_response: Full API response data including changes and alerts (optional)
+        target_name: Target name (e.g., esp32, stm32f4) (optional)
     """
     try:
         # Write JSON format with both URL and API response
         output_data = {
             'comparison_url': comparison_url or '',
-            'api_response': api_response or {}
+            'api_response': api_response or {},
+            'target_name': target_name or ''
         }
 
         with open(file_path, 'w', encoding='utf-8') as f:
@@ -711,7 +714,8 @@ def run_report(args: argparse.Namespace) -> int:
             _write_comparison_url_to_file(
                 comparison_url,
                 output_url_file,
-                api_response=response_data
+                api_response=response_data,
+                target_name=getattr(args, 'target_name', None)
             )
             logger.debug("Wrote comparison data for PR comment to %s", output_url_file)
 
