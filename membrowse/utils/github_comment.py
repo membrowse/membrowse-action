@@ -12,18 +12,15 @@ logger = logging.getLogger(__name__)
 COMMENT_MARKER = "<!-- membrowse-pr-comment -->"
 
 
-def post_or_update_pr_comment(
+def post_pr_comment(
     comparison_url: str = None,
     api_response: dict = None,
     target_name: str = None
 ) -> None:
     """
-    Post or update a PR comment with memory analysis results.
+    Post a PR comment with memory analysis results.
 
-    This function will:
-    - Find an existing MemBrowse comment and update it (if found)
-    - Create a new comment if no existing comment is found
-    - Handle cases where no comparison URL is available
+    This function will create a new comment on each run.
 
     Args:
         comparison_url: URL to build comparison page (can be None)
@@ -44,15 +41,10 @@ def post_or_update_pr_comment(
     # Build comment body
     comment_body = _build_comment_body(comparison_url, api_response, target_name)
 
-    # Try to find and update existing comment, or create new one
+    # Create new PR comment
     try:
-        existing_comment_id = _find_existing_comment()
-        if existing_comment_id:
-            _update_comment(existing_comment_id, comment_body)
-            logger.info("Updated existing PR comment")
-        else:
-            _create_comment(comment_body)
-            logger.info("Created new PR comment")
+        _create_comment(comment_body)
+        logger.info("Created PR comment")
     except subprocess.CalledProcessError as e:
         # Include stderr output from gh command for debugging
         error_msg = f"Failed to post PR comment: {e}"
@@ -104,19 +96,18 @@ def _build_memory_change_row(region: dict) -> dict:
     delta_str = f"+{delta:,}" if delta >= 0 else f"{delta:,}"
     delta_pct_str = f"+{delta_pct:.1f}%" if delta >= 0 else f"{delta_pct:.1f}%"
 
-    # Calculate utilization if limit_size available
+    # Calculate utilization and include in used field if limit_size available
     limit_size = region.get('limit_size', 0)
     if limit_size > 0:
         util_pct = current_used / limit_size * 100
-        util_str = f"{util_pct:.1f}%"
+        used_str = f"{current_used:,} B ({util_pct:.1f}%)"
     else:
-        util_str = "N/A"
+        used_str = f"{current_used:,} B"
 
     return {
         'name': region.get('name', 'Unknown'),
-        'used': f"{current_used:,} B",
-        'change': f"{delta_str} B ({delta_pct_str})",
-        'utilization': util_str
+        'used': used_str,
+        'change': f"{delta_str} B ({delta_pct_str})"
     }
 
 
@@ -125,7 +116,7 @@ def _format_table_with_alignment(rows: list) -> str:
     Format rows into aligned markdown table.
 
     Args:
-        rows: List of row dictionaries with name, used, change, utilization
+        rows: List of row dictionaries with name, used, change
 
     Returns:
         str: Formatted markdown table
@@ -134,19 +125,18 @@ def _format_table_with_alignment(rows: list) -> str:
     max_name = max(max(len(row['name']) for row in rows), len("Region"))
     max_used = max(max(len(row['used']) for row in rows), len("Used"))
     max_change = max(max(len(row['change']) for row in rows), len("Change"))
-    max_util = max(max(len(row['utilization']) for row in rows), len("Utilization"))
 
     lines = []
     # Header row
     header = (
         f"| {'Region'.ljust(max_name)} | {'Used'.rjust(max_used)} | "
-        f"{'Change'.rjust(max_change)} | {'Utilization'.rjust(max_util)} |"
+        f"{'Change'.rjust(max_change)} |"
     )
     lines.append(header)
     # Separator row
     separator = (
         f"|{'-' * (max_name + 2)}|{'-' * (max_used + 2)}:|"
-        f"{'-' * (max_change + 2)}:|{'-' * (max_util + 2)}:|"
+        f"{'-' * (max_change + 2)}:|"
     )
     lines.append(separator)
 
@@ -155,8 +145,7 @@ def _format_table_with_alignment(rows: list) -> str:
         lines.append(
             f"| {row['name'].ljust(max_name)} | "
             f"{row['used'].rjust(max_used)} | "
-            f"{row['change'].rjust(max_change)} | "
-            f"{row['utilization'].rjust(max_util)} |"
+            f"{row['change'].rjust(max_change)} |"
         )
 
     return "\n".join(lines)
@@ -205,8 +194,7 @@ def _get_sections_for_region(section_changes: dict, region_name: str) -> list:
         section_rows.append({
             'name': f"  ↳ {section_name}",  # Indent with arrow for visual nesting
             'used': f"{current_size:,} B",
-            'change': f"{delta_str} B ({delta_pct_str})",
-            'utilization': f"({region_name})"  # Show parent region
+            'change': f"{delta_str} B ({delta_pct_str})"
         })
 
     return section_rows
@@ -252,7 +240,7 @@ def _format_memory_changes(changes: dict) -> str:
 
     # Build and return formatted table
     table = _format_table_with_alignment(rows)
-    return f"### Memory Changes\n\n{table}\n"
+    return f"{table}\n"
 
 
 def _format_budget_alerts(alerts: dict) -> str:
@@ -362,50 +350,6 @@ def _build_comment_body(
     return "\n".join(body_parts)
 
 
-def _find_existing_comment() -> str:
-    """
-    Find the ID of an existing MemBrowse comment on the current PR.
-
-    Returns:
-        str: Comment ID if found, None otherwise
-    """
-    try:
-        # List all comments on the PR and search for our marker
-        result = subprocess.run(
-            ['gh', 'pr', 'view', '--json', 'comments', '--jq',
-             f'.comments[] | select(.body | contains("{COMMENT_MARKER}")) | .id'],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=30
-        )
-
-        comment_id = result.stdout.strip()
-        return comment_id if comment_id else None
-
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
-        logger.debug("Failed to find existing comment: %s", e)
-        return None
-
-
-def _update_comment(comment_id: str, body: str) -> None:
-    """
-    Update an existing PR comment.
-
-    Args:
-        comment_id: ID of the comment to update
-        body: New comment body
-    """
-    subprocess.run(
-        ['gh', 'api', '-X', 'PATCH',
-         f'repos/{{owner}}/{{repo}}/issues/comments/{comment_id}',
-         '-f', f'body={body}'],
-        check=True,
-        capture_output=True,
-        timeout=30
-    )
-
-
 def _get_pr_number() -> str:
     """
     Extract PR number from GITHUB_REF environment variable.
@@ -495,8 +439,8 @@ def main():
     except Exception as e:  # pylint: disable=broad-exception-caught
         logger.warning("Failed to read URL file: %s", e)
 
-    # Post or update PR comment
-    post_or_update_pr_comment(comparison_url, api_response, target_name)
+    # Post PR comment
+    post_pr_comment(comparison_url, api_response, target_name)
 
 
 if __name__ == '__main__':
