@@ -12,7 +12,11 @@ logger = logging.getLogger(__name__)
 COMMENT_MARKER = "<!-- membrowse-pr-comment -->"
 
 
-def post_or_update_pr_comment(comparison_url: str = None, api_response: dict = None) -> None:
+def post_or_update_pr_comment(
+    comparison_url: str = None,
+    api_response: dict = None,
+    target_name: str = None
+) -> None:
     """
     Post or update a PR comment with memory analysis results.
 
@@ -24,6 +28,7 @@ def post_or_update_pr_comment(comparison_url: str = None, api_response: dict = N
     Args:
         comparison_url: URL to build comparison page (can be None)
         api_response: Full API response data including changes and alerts (optional)
+        target_name: Target name (e.g., esp32, stm32f4) (optional)
     """
     # Verify we're running in a PR context
     event_name = os.environ.get('GITHUB_EVENT_NAME', '')
@@ -37,7 +42,7 @@ def post_or_update_pr_comment(comparison_url: str = None, api_response: dict = N
         return
 
     # Build comment body
-    comment_body = _build_comment_body(comparison_url, api_response)
+    comment_body = _build_comment_body(comparison_url, api_response, target_name)
 
     # Try to find and update existing comment, or create new one
     try:
@@ -157,12 +162,62 @@ def _format_table_with_alignment(rows: list) -> str:
     return "\n".join(lines)
 
 
+def _get_sections_for_region(section_changes: dict, region_name: str) -> list:
+    """
+    Get modified sections that belong to a specific region.
+
+    Args:
+        section_changes: Section changes data with 'modified' key
+        region_name: Name of the parent region to filter by
+
+    Returns:
+        list: List of formatted row dictionaries for sections in this region
+    """
+    if not section_changes:
+        return []
+
+    modified_sections = section_changes.get('modified', [])
+    section_rows = []
+
+    for section in modified_sections:
+        # Only include sections that belong to this region
+        if section.get('region') != region_name:
+            continue
+
+        section_name = section.get('name', 'Unknown')
+        current_size = section.get('size', 0)
+        old_data = section.get('old', {})
+        old_size = old_data.get('size')
+
+        # Skip if no size change (shouldn't happen in modified, but be safe)
+        if old_size is None or old_size == current_size:
+            continue
+
+        # Calculate delta
+        delta = current_size - old_size
+        delta_pct = (delta / old_size * 100) if old_size > 0 else 0
+
+        # Format delta with sign
+        delta_str = f"+{delta:,}" if delta >= 0 else f"{delta:,}"
+        delta_pct_str = f"+{delta_pct:.1f}%" if delta >= 0 else f"{delta_pct:.1f}%"
+
+        # Create row with indentation to show it's nested under region
+        section_rows.append({
+            'name': f"  ↳ {section_name}",  # Indent with arrow for visual nesting
+            'used': f"{current_size:,} B",
+            'change': f"{delta_str} B ({delta_pct_str})",
+            'utilization': f"({region_name})"  # Show parent region
+        })
+
+    return section_rows
+
+
 def _format_memory_changes(changes: dict) -> str:
     """
     Format memory changes into a markdown table.
 
     Args:
-        changes: Changes data from API response with 'regions' key
+        changes: Changes data from API response with 'regions' and 'sections' keys
 
     Returns:
         str: Markdown formatted table of memory changes
@@ -176,12 +231,21 @@ def _format_memory_changes(changes: dict) -> str:
     if not modified_regions:
         return ""
 
-    # Build table rows
+    # Get section changes for matching sections to regions
+    section_changes = changes.get('sections', {})
+
+    # Build table rows (regions and their sections)
     rows = []
     for region in modified_regions:
+        # Add region row
         row = _build_memory_change_row(region)
         if row:
             rows.append(row)
+
+            # Add section rows nested under this region
+            region_name = region.get('name', 'Unknown')
+            section_rows = _get_sections_for_region(section_changes, region_name)
+            rows.extend(section_rows)
 
     if not rows:
         return ""
@@ -238,13 +302,18 @@ def _format_budget_alerts(alerts: dict) -> str:
     return "\n".join(lines)
 
 
-def _build_comment_body(comparison_url: str = None, api_response: dict = None) -> str:
+def _build_comment_body(
+    comparison_url: str = None,
+    api_response: dict = None,
+    target_name: str = None
+) -> str:
     """
     Build the PR comment body with memory analysis results.
 
     Args:
         comparison_url: URL to build comparison page (can be None)
         api_response: Full API response data including changes and alerts (optional)
+        target_name: Target name (e.g., esp32, stm32f4) (optional)
 
     Returns:
         str: Markdown-formatted comment body
@@ -252,7 +321,7 @@ def _build_comment_body(comparison_url: str = None, api_response: dict = None) -
     # Start with header and marker
     body_parts = [
         COMMENT_MARKER,
-        "## MemBrowse Memory Analysis",
+        "## MemBrowse Memory Report",
         ""
     ]
 
@@ -260,6 +329,13 @@ def _build_comment_body(comparison_url: str = None, api_response: dict = None) -
     data = api_response.get('data', {}) if api_response else {}
     changes = data.get('changes', {})
     alerts = data.get('alerts')
+
+    # Display target name if available
+    if target_name:
+        body_parts.extend([
+            f"**Target:** {target_name}",
+            ""
+        ])
 
     # Add memory changes table if available
     memory_changes_text = _format_memory_changes(changes)
@@ -398,6 +474,7 @@ def main():
     # Read comparison URL and API response from file
     comparison_url = None
     api_response = None
+    target_name = None
     try:
         with open(args.url_file, 'r', encoding='utf-8') as f:
             # Try to read as JSON first
@@ -405,6 +482,7 @@ def main():
                 data = json.load(f)
                 comparison_url = data.get('comparison_url')
                 api_response = data.get('api_response')
+                target_name = data.get('target_name')
             except json.JSONDecodeError:
                 # Fall back to plain text for backwards compatibility
                 f.seek(0)
@@ -418,7 +496,7 @@ def main():
         logger.warning("Failed to read URL file: %s", e)
 
     # Post or update PR comment
-    post_or_update_pr_comment(comparison_url, api_response)
+    post_or_update_pr_comment(comparison_url, api_response, target_name)
 
 
 if __name__ == '__main__':
