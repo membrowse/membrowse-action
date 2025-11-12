@@ -76,14 +76,13 @@ class MemBrowseUploader:  # pylint: disable=too-few-public-methods
                     )
                     time.sleep(retry_delay)
                     continue
-                else:
-                    logger.error(
-                        "Upload failed after %d attempts due to timeout", max_attempts
-                    )
-                    raise requests.exceptions.Timeout(
-                        f"Request to {self.api_endpoint} timed out after {timeout_seconds} "
-                        f"seconds ({max_attempts} attempts)"
-                    ) from e
+                logger.error(
+                    "Upload failed after %d attempts due to timeout", max_attempts
+                )
+                raise requests.exceptions.Timeout(
+                    f"Request to {self.api_endpoint} timed out after {timeout_seconds} "
+                    f"seconds ({max_attempts} attempts)"
+                ) from e
 
             except requests.exceptions.ConnectionError as e:
                 raise requests.exceptions.ConnectionError(
@@ -100,5 +99,5 @@ class MemBrowseUploader:  # pylint: disable=too-few-public-methods
 
         # This should never be reached, but added for safety
         raise requests.exceptions.RequestException(
-            f"Unexpected error: reached end of retry loop without success or exception"
+            "Unexpected error: reached end of retry loop without success or exception"
         )
