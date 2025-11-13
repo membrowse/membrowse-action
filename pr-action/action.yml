@@ -31,6 +31,10 @@ inputs:
     description: 'GitHub token for posting PR comments (defaults to automatic github.token)'
     required: false
     default: ${{ github.token }}
+  linker_vars:
+    description: 'Space-separated linker variable definitions (e.g., "__micropy_flash_size__=4096K RAM_START=0x20000000")'
+    required: false
+    default: ''
 
 runs:
   using: 'composite'
@@ -64,6 +68,13 @@ runs:
 
         if [ "${{ inputs.pr_comment }}" = "true" ]; then
           ARGS+=(--pr-comment)
+        fi
+
+        # Add linker variable definitions
+        if [ -n "${{ inputs.linker_vars }}" ]; then
+          for var in ${{ inputs.linker_vars }}; do
+            ARGS+=(--def "$var")
+          done
         fi
 
         membrowse report "${ARGS[@]}"

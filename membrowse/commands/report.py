@@ -5,6 +5,7 @@ import json
 import argparse
 import logging
 from importlib.metadata import version
+from typing import Dict, Any, Optional
 
 from ..utils.git import detect_github_metadata
 from ..utils.url import normalize_api_url, build_comparison_url
@@ -369,6 +370,14 @@ examples:
         action='store_true',
         help='Enable verbose output'
     )
+    perf_group.add_argument(
+        '--def',
+        dest='linker_defs',
+        action='append',
+        metavar='VAR=VALUE',
+        help='Define linker script variable (can be specified multiple times, '
+             'e.g., --def __flash_size__=4096K)'
+    )
 
     # Alert handling
     alert_group = parser.add_argument_group('alert options')
@@ -397,7 +406,8 @@ def generate_report(
     elf_path: str,
     ld_scripts: str,
     skip_line_program: bool = False,
-    verbose: bool = False
+    verbose: bool = False,
+    linker_variables: Optional[Dict[str, Any]] = None
 ) -> dict:
     """
     Generate a memory footprint report from ELF and linker scripts.
@@ -407,6 +417,7 @@ def generate_report(
         ld_scripts: Space-separated linker script paths
         skip_line_program: Skip DWARF line program processing for faster analysis
         verbose: Enable verbose output
+        linker_variables: Optional dict of user-defined linker script variables
 
     Returns:
         dict: Memory analysis report (JSON-serializable)
@@ -429,7 +440,8 @@ def generate_report(
     # Parse memory regions from linker scripts
     logger.debug("Parsing memory regions from linker scripts...")
     try:
-        parser = LinkerScriptParser(ld_array, elf_file=elf_path)
+        parser = LinkerScriptParser(ld_array, elf_file=elf_path,
+                                     user_variables=linker_variables)
         memory_regions_data = parser.parse_memory_regions()
     except Exception as e:  # pylint: disable=broad-exception-caught
         logger.error("Failed to parse memory regions: %s", e)
@@ -633,6 +645,36 @@ def _write_comparison_url_to_file(
         logger.warning("Failed to write comparison data to file: %s", e)
 
 
+def _parse_linker_definitions(linker_defs: list) -> Optional[Dict[str, str]]:
+    """
+    Parse --def linker variable definitions from command line.
+
+    Args:
+        linker_defs: List of KEY=VALUE strings from --def arguments
+
+    Returns:
+        Dictionary of parsed variables, or None if no valid definitions
+    """
+    if not linker_defs:
+        return None
+
+    linker_variables = {}
+    for def_str in linker_defs:
+        if '=' not in def_str:
+            logger.warning("Ignoring invalid --def argument (missing '='): %s", def_str)
+            continue
+        key, value = def_str.split('=', 1)
+        key = key.strip()
+        value = value.strip()
+        if not key:
+            logger.warning("Ignoring invalid --def argument (empty key): %s", def_str)
+            continue
+        linker_variables[key] = value
+        logger.debug("User-defined linker variable: %s = %s", key, value)
+
+    return linker_variables if linker_variables else None
+
+
 def run_report(args: argparse.Namespace) -> int:
     """
     Execute the report subcommand.
@@ -648,13 +690,17 @@ def run_report(args: argparse.Namespace) -> int:
     """
     verbose = getattr(args, 'verbose', False)
 
+    # Parse linker variable definitions
+    linker_variables = _parse_linker_definitions(getattr(args, 'linker_defs', None))
+
     # Generate report
     try:
         report = generate_report(
             elf_path=args.elf_path,
             ld_scripts=args.ld_scripts,
             skip_line_program=getattr(args, 'skip_line_program', False),
-            verbose=verbose
+            verbose=verbose,
+            linker_variables=linker_variables
         )
     except ValueError as e:
         logger.error("Failed to generate report: %s", e)

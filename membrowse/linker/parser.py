@@ -776,12 +776,15 @@ class MemoryRegionBuilder:  # pylint: disable=too-few-public-methods
 class LinkerScriptParser:  # pylint: disable=too-few-public-methods
     """Main parser orchestrator for linker script files"""
 
-    def __init__(self, ld_scripts: List[str], elf_file: Optional[str] = None):
+    def __init__(self, ld_scripts: List[str], elf_file: Optional[str] = None,
+                 user_variables: Optional[Dict[str, Any]] = None):
         """Initialize the parser with linker script paths and optional ELF file
 
         Args:
             ld_scripts: List of linker script file paths
             elf_file: Optional path to ELF file for architecture detection
+            user_variables: Optional dict of user-defined variables to use during parsing
+                          (e.g., {'__micropy_flash_size__': '4096K', 'RAM_START': '0x20000000'})
         """
         self.ld_scripts = [str(Path(script).resolve())
                            for script in ld_scripts]
@@ -813,6 +816,10 @@ class LinkerScriptParser:  # pylint: disable=too-few-public-methods
         if self.parsing_strategy.get('default_variables'):
             self.evaluator.add_variables(
                 self.parsing_strategy['default_variables'])
+
+        # Apply user-defined variables (override architecture defaults)
+        if user_variables:
+            self.evaluator.add_variables(user_variables)
 
     def _validate_scripts(self) -> None:
         """Validate that all linker scripts exist"""

@@ -25,6 +25,10 @@ inputs:
     description: 'MemBrowse API base URL (/api/upload appended automatically)'
     required: false
     default: 'https://www.membrowse.com'
+  linker_vars:
+    description: 'Space-separated linker variable definitions (e.g., "__micropy_flash_size__=4096K RAM_START=0x20000000")'
+    required: false
+    default: ''
 
 runs:
   using: 'composite'
@@ -48,14 +52,24 @@ runs:
     - name: Run historical analysis
       shell: bash
       run: |
-        membrowse onboard \
-          "${{ inputs.num_commits }}" \
-          "${{ inputs.build_script }}" \
-          "${{ inputs.elf }}" \
-          "${{ inputs.ld }}" \
-          "${{ inputs.target_name }}" \
-          "${{ inputs.api_key }}" \
-          "${{ inputs.api_url }}" \
+        ONBOARD_ARGS=(
+          "${{ inputs.num_commits }}"
+          "${{ inputs.build_script }}"
+          "${{ inputs.elf }}"
+          "${{ inputs.ld }}"
+          "${{ inputs.target_name }}"
+          "${{ inputs.api_key }}"
+          "${{ inputs.api_url }}"
+        )
+
+        # Add linker variable definitions
+        if [ -n "${{ inputs.linker_vars }}" ]; then
+          for var in ${{ inputs.linker_vars }}; do
+            ONBOARD_ARGS+=(--def "$var")
+          done
+        fi
+
+        membrowse onboard "${ONBOARD_ARGS[@]}"
 
 branding:
   icon: 'clock'
