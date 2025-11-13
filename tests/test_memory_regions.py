@@ -17,7 +17,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from membrowse.linker.parser import parse_linker_scripts
+from membrowse.linker.parser import parse_linker_scripts, LinkerScriptParser
 from tests.test_utils import validate_memory_regions
 
 # Add shared directory to path so we can import our modules
@@ -598,6 +598,218 @@ class TestAdvancedLinkerFeatures(unittest.TestCase):
         self.assertEqual(regions['RAM']['limit_size'], 256 * 1024)
         self.assertEqual(regions['SRAM2']['address'], 0x20000000 + 256 * 1024)
         self.assertEqual(regions['SRAM2']['limit_size'], 64 * 1024)
+
+
+class TestUserVariablesIntegration(unittest.TestCase):
+    """Integration tests for user-defined variables (--def feature)"""
+
+    def setUp(self):
+        """Set up test environment"""
+        self.temp_dir = Path(tempfile.mkdtemp())
+        self.test_files = []
+
+    def tearDown(self):
+        """Clean up test files"""
+        for file_path in self.test_files:
+            if file_path.exists():
+                file_path.unlink()
+        if self.temp_dir.exists():
+            self.temp_dir.rmdir()
+
+    def create_test_file(self, content: str, filename: str = None) -> Path:
+        """Create a temporary test file with given content"""
+        if filename is None:
+            filename = f"test_{len(self.test_files)}.ld"
+
+        file_path = self.temp_dir / filename
+        with open(file_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+
+        self.test_files.append(file_path)
+        return file_path
+
+    def test_makefile_scenario_with_user_variables(self):
+        """Test real-world scenario: Makefile passing variables to linker"""
+        # Simulates a Makefile that defines memory sizes and passes them
+        # to the linker via -defsym or similar mechanism
+        content = '''
+        /* Linker script that expects external variables */
+        MEMORY
+        {
+            BOOTLOADER (rx) : ORIGIN = 0x00000000, LENGTH = BOOTLOADER_SIZE
+            APPLICATION (rx) : ORIGIN = BOOTLOADER_SIZE, LENGTH = APP_SIZE
+            RAM (rwx)        : ORIGIN = 0x20000000, LENGTH = RAM_SIZE
+        }
+        '''
+
+        file_path = self.create_test_file(content)
+
+        # User variables simulate Makefile definitions:
+        # make BOOTLOADER_SIZE=32K APP_SIZE=480K RAM_SIZE=128K
+        user_vars = {
+            'BOOTLOADER_SIZE': '32K',
+            'APP_SIZE': '480K',
+            'RAM_SIZE': '128K'
+        }
+
+        parser = LinkerScriptParser([str(file_path)], user_variables=user_vars)
+        regions = parser.parse_memory_regions()
+
+        self.assertEqual(len(regions), 3)
+        self.assertEqual(regions['BOOTLOADER']['address'], 0x00000000)
+        self.assertEqual(regions['BOOTLOADER']['limit_size'], 32 * 1024)
+        self.assertEqual(regions['APPLICATION']['address'], 32 * 1024)
+        self.assertEqual(regions['APPLICATION']['limit_size'], 480 * 1024)
+        self.assertEqual(regions['RAM']['address'], 0x20000000)
+        self.assertEqual(regions['RAM']['limit_size'], 128 * 1024)
+
+    def test_esp_idf_scenario(self):
+        """Test ESP-IDF scenario with partition table variables"""
+        # ESP-IDF often uses variables for partition boundaries
+        content = '''
+        /* ESP32 partition-aware linker script */
+        MEMORY
+        {
+            irom_seg (RX) : ORIGIN = IROM_START, LENGTH = IROM_SIZE
+            drom_seg (R)  : ORIGIN = DROM_START, LENGTH = DROM_SIZE
+            iram_seg (RWX): ORIGIN = 0x40080000, LENGTH = IRAM_SIZE
+            dram_seg (RW) : ORIGIN = 0x3FFB0000, LENGTH = DRAM_SIZE
+        }
+        '''
+
+        file_path = self.create_test_file(content)
+
+        # Variables from partition table
+        user_vars = {
+            'IROM_START': '0x400D0000',
+            'IROM_SIZE': '3M',
+            'DROM_START': '0x3F400000',
+            'DROM_SIZE': '4M',
+            'IRAM_SIZE': '128K',
+            'DRAM_SIZE': '176K'
+        }
+
+        parser = LinkerScriptParser([str(file_path)], user_variables=user_vars)
+        regions = parser.parse_memory_regions()
+
+        self.assertEqual(regions['irom_seg']['address'], 0x400D0000)
+        self.assertEqual(regions['irom_seg']['limit_size'], 3 * 1024 * 1024)
+        self.assertEqual(regions['drom_seg']['address'], 0x3F400000)
+        self.assertEqual(regions['drom_seg']['limit_size'], 4 * 1024 * 1024)
+
+    def test_multi_variant_build(self):
+        """Test multi-variant builds with different memory configurations"""
+        # Single linker script used for multiple board variants
+        content = '''
+        /* Generic linker script for multiple board variants */
+        MEMORY
+        {
+            FLASH (rx) : ORIGIN = FLASH_ORIGIN, LENGTH = FLASH_LENGTH
+            RAM (rwx)  : ORIGIN = RAM_ORIGIN, LENGTH = RAM_LENGTH
+        }
+        '''
+
+        file_path = self.create_test_file(content)
+
+        # Test "small" variant
+        small_vars = {
+            'FLASH_ORIGIN': '0x08000000',
+            'FLASH_LENGTH': '256K',
+            'RAM_ORIGIN': '0x20000000',
+            'RAM_LENGTH': '64K'
+        }
+
+        parser_small = LinkerScriptParser([str(file_path)], user_variables=small_vars)
+        regions_small = parser_small.parse_memory_regions()
+
+        self.assertEqual(regions_small['FLASH']['limit_size'], 256 * 1024)
+        self.assertEqual(regions_small['RAM']['limit_size'], 64 * 1024)
+
+        # Test "large" variant
+        large_vars = {
+            'FLASH_ORIGIN': '0x08000000',
+            'FLASH_LENGTH': '2M',
+            'RAM_ORIGIN': '0x20000000',
+            'RAM_LENGTH': '512K'
+        }
+
+        parser_large = LinkerScriptParser([str(file_path)], user_variables=large_vars)
+        regions_large = parser_large.parse_memory_regions()
+
+        self.assertEqual(regions_large['FLASH']['limit_size'], 2 * 1024 * 1024)
+        self.assertEqual(regions_large['RAM']['limit_size'], 512 * 1024)
+
+    def test_user_vars_with_script_expressions(self):
+        """Test user variables combined with script expressions"""
+        content = '''
+        /* Calculated memory layout using user-provided base values */
+        _boot_size = 64K;
+        _reserved = 16K;
+
+        MEMORY
+        {
+            BOOT (rx)  : ORIGIN = FLASH_BASE, LENGTH = _boot_size
+            APP (rx)   : ORIGIN = FLASH_BASE + _boot_size,
+                         LENGTH = FLASH_TOTAL - _boot_size - _reserved
+            RESERVE(r) : ORIGIN = FLASH_BASE + FLASH_TOTAL - _reserved,
+                         LENGTH = _reserved
+            RAM (rwx)  : ORIGIN = RAM_BASE, LENGTH = RAM_TOTAL
+        }
+        '''
+
+        file_path = self.create_test_file(content)
+
+        user_vars = {
+            'FLASH_BASE': '0x08000000',
+            'FLASH_TOTAL': '1M',
+            'RAM_BASE': '0x20000000',
+            'RAM_TOTAL': '256K'
+        }
+
+        parser = LinkerScriptParser([str(file_path)], user_variables=user_vars)
+        regions = parser.parse_memory_regions()
+
+        # Verify calculated values
+        flash_base = 0x08000000
+        flash_total = 1024 * 1024
+        boot_size = 64 * 1024
+        reserved = 16 * 1024
+
+        self.assertEqual(regions['BOOT']['address'], flash_base)
+        self.assertEqual(regions['BOOT']['limit_size'], boot_size)
+        self.assertEqual(regions['APP']['address'], flash_base + boot_size)
+        self.assertEqual(regions['APP']['limit_size'], flash_total - boot_size - reserved)
+        self.assertEqual(regions['RESERVE']['address'], flash_base + flash_total - reserved)
+        self.assertEqual(regions['RESERVE']['limit_size'], reserved)
+
+    def test_conditional_with_user_variables(self):
+        """Test DEFINED() conditional with user variables"""
+        content = '''
+        /* Linker script with conditional defaults */
+        __flash_size = DEFINED(__flash_size) ? __flash_size : 512K;
+        __ram_size = DEFINED(__ram_size) ? __ram_size : 128K;
+
+        MEMORY
+        {
+            FLASH (rx) : ORIGIN = 0x08000000, LENGTH = __flash_size
+            RAM (rwx)  : ORIGIN = 0x20000000, LENGTH = __ram_size
+        }
+        '''
+
+        file_path = self.create_test_file(content)
+
+        # Provide custom values via user variables
+        user_vars = {
+            '__flash_size': '2M',
+            '__ram_size': '256K'
+        }
+
+        parser = LinkerScriptParser([str(file_path)], user_variables=user_vars)
+        regions = parser.parse_memory_regions()
+
+        # User values should override defaults
+        self.assertEqual(regions['FLASH']['limit_size'], 2 * 1024 * 1024)
+        self.assertEqual(regions['RAM']['limit_size'], 256 * 1024)
 
 
 if __name__ == '__main__':

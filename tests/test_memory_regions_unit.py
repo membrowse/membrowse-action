@@ -7,6 +7,7 @@ This module contains focused unit tests for the LinkerScriptParser class,
 testing specific functionality with controlled linker script examples
 based on real MicroPython linker scripts.
 """
+# pylint: disable=too-many-lines
 
 import os
 import sys
@@ -751,6 +752,315 @@ class TestRealWorldScriptPatterns(unittest.TestCase):
         expected_origin = 0x60100000 + 0x700000  # vfs_start + vfs_size
         self.assertEqual(reserved['address'], expected_origin)
         self.assertEqual(reserved['limit_size'], 0x1000)
+
+
+class TestUserVariables(unittest.TestCase):
+    """Test user-provided variable support via user_variables parameter"""
+
+    def setUp(self):
+        """Set up test environment"""
+        self.temp_dir = tempfile.mkdtemp()
+        self.temp_files = []
+
+    def tearDown(self):
+        """Clean up temporary files"""
+        for temp_file in self.temp_files:
+            try:
+                os.unlink(temp_file)
+            except OSError:
+                pass
+        try:
+            os.rmdir(self.temp_dir)
+        except OSError:
+            pass
+
+    def create_temp_linker_script(self, content: str) -> str:
+        """Create a temporary linker script file with given content"""
+        temp_file = os.path.join(
+            self.temp_dir,
+            f"test_{len(self.temp_files)}.ld")
+        with open(temp_file, 'w', encoding='utf-8') as f:
+            f.write(content)
+        self.temp_files.append(temp_file)
+        return temp_file
+
+    def test_user_variable_basic(self):
+        """Test basic user variable substitution"""
+        script_content = """
+        MEMORY
+        {
+            FLASH (rx) : ORIGIN = flash_start, LENGTH = flash_size
+            RAM (rwx)  : ORIGIN = ram_start, LENGTH = ram_size
+        }
+        """
+
+        script_path = self.create_temp_linker_script(script_content)
+        user_vars = {
+            'flash_start': '0x08000000',
+            'flash_size': '512K',
+            'ram_start': '0x20000000',
+            'ram_size': '128K'
+        }
+        parser = LinkerScriptParser([script_path], user_variables=user_vars)
+        regions = parser.parse_memory_regions()
+
+        self.assertEqual(len(regions), 2)
+        self.assertEqual(regions['FLASH']['address'], 0x08000000)
+        self.assertEqual(regions['FLASH']['limit_size'], 512 * 1024)
+        self.assertEqual(regions['RAM']['address'], 0x20000000)
+        self.assertEqual(regions['RAM']['limit_size'], 128 * 1024)
+
+    def test_user_variable_override_architecture_defaults(self):
+        """Test that user variables override architecture defaults"""
+        # This test simulates architecture defaults being overridden
+        script_content = """
+        MEMORY
+        {
+            FLASH (rx) : ORIGIN = _flash_origin, LENGTH = _flash_size
+        }
+        """
+
+        script_path = self.create_temp_linker_script(script_content)
+
+        # User provides custom values
+        user_vars = {
+            '_flash_origin': '0x10000000',  # Custom start address
+            '_flash_size': '2M'             # Custom size
+        }
+
+        parser = LinkerScriptParser([script_path], user_variables=user_vars)
+        regions = parser.parse_memory_regions()
+
+        self.assertEqual(regions['FLASH']['address'], 0x10000000)
+        self.assertEqual(regions['FLASH']['limit_size'], 2 * 1024 * 1024)
+
+    def test_user_variable_in_expressions(self):
+        """Test user variables in arithmetic expressions"""
+        script_content = """
+        MEMORY
+        {
+            FLASH (rx)  : ORIGIN = base_addr, LENGTH = total_size - reserved_size
+            RAM (rwx)   : ORIGIN = base_addr + total_size, LENGTH = ram_size
+        }
+        """
+
+        script_path = self.create_temp_linker_script(script_content)
+        user_vars = {
+            'base_addr': '0x08000000',
+            'total_size': '1M',
+            'reserved_size': '64K',
+            'ram_size': '256K'
+        }
+        parser = LinkerScriptParser([script_path], user_variables=user_vars)
+        regions = parser.parse_memory_regions()
+
+        expected_flash_size = (1024 * 1024) - (64 * 1024)  # 1M - 64K
+        self.assertEqual(regions['FLASH']['address'], 0x08000000)
+        self.assertEqual(regions['FLASH']['limit_size'], expected_flash_size)
+        self.assertEqual(regions['RAM']['address'], 0x08000000 + (1024 * 1024))
+        self.assertEqual(regions['RAM']['limit_size'], 256 * 1024)
+
+    def test_user_variable_with_hex_values(self):
+        """Test user variables with hexadecimal values"""
+        script_content = """
+        MEMORY
+        {
+            FLASH (rx) : ORIGIN = flash_base, LENGTH = flash_len
+        }
+        """
+
+        script_path = self.create_temp_linker_script(script_content)
+        user_vars = {
+            'flash_base': '0x08000000',
+            'flash_len': '0x80000'  # 512KB in hex
+        }
+        parser = LinkerScriptParser([script_path], user_variables=user_vars)
+        regions = parser.parse_memory_regions()
+
+        self.assertEqual(regions['FLASH']['address'], 0x08000000)
+        self.assertEqual(regions['FLASH']['limit_size'], 0x80000)
+
+    def test_user_variable_with_size_suffixes(self):
+        """Test user variables with K/M/G size suffixes"""
+        script_content = """
+        MEMORY
+        {
+            FLASH_1M (rx) : ORIGIN = 0x08000000, LENGTH = size_1m
+            FLASH_4K (rx) : ORIGIN = 0x09000000, LENGTH = size_4k
+            FLASH_2G (rx) : ORIGIN = 0x10000000, LENGTH = size_2g
+        }
+        """
+
+        script_path = self.create_temp_linker_script(script_content)
+        user_vars = {
+            'size_1m': '1M',
+            'size_4k': '4K',
+            'size_2g': '2G'
+        }
+        parser = LinkerScriptParser([script_path], user_variables=user_vars)
+        regions = parser.parse_memory_regions()
+
+        self.assertEqual(regions['FLASH_1M']['limit_size'], 1024 * 1024)
+        self.assertEqual(regions['FLASH_4K']['limit_size'], 4 * 1024)
+        self.assertEqual(regions['FLASH_2G']['limit_size'], 2 * 1024 * 1024 * 1024)
+
+    def test_user_variable_script_override(self):
+        """Test that script-defined variables override user variables"""
+        script_content = """
+        flash_size = 1M;
+
+        MEMORY
+        {
+            FLASH (rx) : ORIGIN = 0x08000000, LENGTH = flash_size
+        }
+        """
+
+        script_path = self.create_temp_linker_script(script_content)
+
+        # User provides different value, but script should win
+        user_vars = {
+            'flash_size': '512K'  # This should be overridden by script
+        }
+
+        parser = LinkerScriptParser([script_path], user_variables=user_vars)
+        regions = parser.parse_memory_regions()
+
+        # Script defines flash_size = 1M, so it should override user's 512K
+        self.assertEqual(regions['FLASH']['limit_size'], 1024 * 1024)
+
+    def test_user_variable_only_no_script_vars(self):
+        """Test using only user variables without any script-defined variables"""
+        script_content = """
+        MEMORY
+        {
+            BOOTLOADER (rx) : ORIGIN = boot_start, LENGTH = boot_len
+            APP (rx)        : ORIGIN = app_start, LENGTH = app_len
+            RAM (rwx)       : ORIGIN = ram_start, LENGTH = ram_len
+        }
+        """
+
+        script_path = self.create_temp_linker_script(script_content)
+        user_vars = {
+            'boot_start': '0x00000000',
+            'boot_len': '32K',
+            'app_start': '0x00008000',
+            'app_len': '480K',
+            'ram_start': '0x20000000',
+            'ram_len': '64K'
+        }
+        parser = LinkerScriptParser([script_path], user_variables=user_vars)
+        regions = parser.parse_memory_regions()
+
+        self.assertEqual(len(regions), 3)
+        self.assertEqual(regions['BOOTLOADER']['address'], 0x00000000)
+        self.assertEqual(regions['BOOTLOADER']['limit_size'], 32 * 1024)
+        self.assertEqual(regions['APP']['address'], 0x00008000)
+        self.assertEqual(regions['APP']['limit_size'], 480 * 1024)
+        self.assertEqual(regions['RAM']['address'], 0x20000000)
+        self.assertEqual(regions['RAM']['limit_size'], 64 * 1024)
+
+    def test_user_variable_with_numeric_values(self):
+        """Test user variables with plain numeric values (no hex prefix)"""
+        script_content = """
+        MEMORY
+        {
+            FLASH (rx) : ORIGIN = origin_addr, LENGTH = length_bytes
+        }
+        """
+
+        script_path = self.create_temp_linker_script(script_content)
+        user_vars = {
+            'origin_addr': '134217728',  # 0x08000000 in decimal
+            'length_bytes': '524288'     # 512K in decimal
+        }
+        parser = LinkerScriptParser([script_path], user_variables=user_vars)
+        regions = parser.parse_memory_regions()
+
+        self.assertEqual(regions['FLASH']['address'], 134217728)
+        self.assertEqual(regions['FLASH']['limit_size'], 524288)
+
+    def test_user_variable_empty_dict(self):
+        """Test that empty user_variables dict works correctly"""
+        script_content = """
+        _flash_size = 512K;
+
+        MEMORY
+        {
+            FLASH (rx) : ORIGIN = 0x08000000, LENGTH = _flash_size
+        }
+        """
+
+        script_path = self.create_temp_linker_script(script_content)
+        parser = LinkerScriptParser([script_path], user_variables={})
+        regions = parser.parse_memory_regions()
+
+        self.assertEqual(regions['FLASH']['limit_size'], 512 * 1024)
+
+    def test_user_variable_none(self):
+        """Test that None user_variables works correctly"""
+        script_content = """
+        _ram_size = 128K;
+
+        MEMORY
+        {
+            RAM (rwx) : ORIGIN = 0x20000000, LENGTH = _ram_size
+        }
+        """
+
+        script_path = self.create_temp_linker_script(script_content)
+        parser = LinkerScriptParser([script_path], user_variables=None)
+        regions = parser.parse_memory_regions()
+
+        self.assertEqual(regions['RAM']['limit_size'], 128 * 1024)
+
+    def test_user_variable_micropython_scenario(self):
+        """Test real-world MicroPython scenario with configurable flash size"""
+        # This simulates MicroPython's build system where flash size is
+        # configurable via make variables
+        script_content = """
+        /* MicroPython linker script */
+        __micropy_flash_size__ = DEFINED(__micropy_flash_size__) ? __micropy_flash_size__ : 2M;
+
+        MEMORY
+        {
+            FLASH (rx) : ORIGIN = 0x00000000, LENGTH = __micropy_flash_size__
+        }
+        """
+
+        script_path = self.create_temp_linker_script(script_content)
+
+        # Test with 4M configuration
+        user_vars = {
+            '__micropy_flash_size__': '4M'
+        }
+        parser = LinkerScriptParser([script_path], user_variables=user_vars)
+        regions = parser.parse_memory_regions()
+
+        self.assertEqual(regions['FLASH']['limit_size'], 4 * 1024 * 1024)
+
+    def test_user_variable_complex_expression(self):
+        """Test user variables in complex expressions with parentheses"""
+        script_content = """
+        MEMORY
+        {
+            APP (rx) : ORIGIN = base + (offset * 2), LENGTH = (total - reserved) / 2
+        }
+        """
+
+        script_path = self.create_temp_linker_script(script_content)
+        user_vars = {
+            'base': '0x08000000',
+            'offset': '0x4000',
+            'total': '1M',
+            'reserved': '64K'
+        }
+        parser = LinkerScriptParser([script_path], user_variables=user_vars)
+        regions = parser.parse_memory_regions()
+
+        expected_origin = 0x08000000 + (0x4000 * 2)
+        expected_length = ((1024 * 1024) - (64 * 1024)) // 2
+        self.assertEqual(regions['APP']['address'], expected_origin)
+        self.assertEqual(regions['APP']['limit_size'], expected_length)
 
 
 if __name__ == '__main__':

@@ -7,7 +7,7 @@ import logging
 from datetime import datetime
 
 from ..utils.git import run_git_command, get_commit_metadata
-from .report import generate_report, upload_report, DEFAULT_API_URL
+from .report import generate_report, upload_report, DEFAULT_API_URL, _parse_linker_definitions
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -111,6 +111,14 @@ examples:
         action='store_true',
         help='Enable verbose output'
     )
+    parser.add_argument(
+        '--def',
+        dest='linker_defs',
+        action='append',
+        metavar='VAR=VALUE',
+        help='Define linker script variable (can be specified multiple times, '
+             'e.g., --def __flash_size__=4096K)'
+    )
 
     return parser
 
@@ -199,7 +207,7 @@ def _handle_build_failure(result, log_prefix, args):
     return _create_empty_report(args.elf_path)
 
 
-def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-locals,too-many-statements
+def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-locals,too-many-statements,too-many-branches
     """
     Execute the onboard subcommand.
 
@@ -214,6 +222,12 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
     logger.info("Build script: %s", args.build_script)
     logger.info("ELF file: %s", args.elf_path)
     logger.info("Linker scripts: %s", args.ld_scripts)
+
+    # Parse linker variable definitions
+    linker_variables = _parse_linker_definitions(getattr(args, 'linker_defs', None))
+    if linker_variables:
+        for key, value in linker_variables.items():
+            logger.info("User-defined linker variable: %s = %s", key, value)
 
     # Get repository information
     current_branch, original_head, repo_name = _get_repository_info()
@@ -327,7 +341,8 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
                     elf_path=args.elf_path,
                     ld_scripts=args.ld_scripts,
                     skip_line_program=False,
-                    verbose=args.verbose
+                    verbose=args.verbose,
+                    linker_variables=linker_variables
                 )
             except ValueError as e:
                 logger.error(
