@@ -9,6 +9,7 @@ from typing import Dict, Any, Optional
 
 from ..utils.git import detect_github_metadata
 from ..utils.url import normalize_api_url, build_comparison_url
+from ..utils.budget_alerts import iter_budget_alerts
 from ..linker.parser import LinkerScriptParser
 from ..core.generator import ReportGenerator
 from ..api.client import MemBrowseUploader
@@ -150,18 +151,21 @@ def _display_budget_alerts(budget_alerts: list) -> None:
     """Display budget alerts in human-readable format"""
     logger.info("Budget Alerts:")
 
-    for alert in budget_alerts:
-        region = alert.get('region', 'Unknown')
-        budget_type = alert.get('budget_type', 'unknown')
-        threshold = alert.get('threshold', 0)
-        current = alert.get('current', 0)
-        exceeded_by = alert.get('exceeded_by', 0)
+    current_budget = None
+    for alert in iter_budget_alerts(budget_alerts):
+        # Print budget name header when we encounter a new budget
+        if current_budget != alert.budget_name:
+            current_budget = alert.budget_name
+            logger.info("  %s:", alert.budget_name)
 
-        logger.info("  %s (%s):", region, budget_type)
-        logger.info("    Threshold: %s bytes", f"{threshold:,}")
-        logger.info("    Current:   %s bytes", f"{current:,}")
-        logger.info("    Exceeded by: %s bytes (%s%%)",
-                      f"{exceeded_by:,}", f"{exceeded_by/threshold*100:.1f}")
+        # Display region alert
+        if alert.percentage is not None:
+            logger.info("    %s: %s / %s bytes (exceeded by %s bytes, +%s%%)",
+                      alert.region, f"{alert.usage:,}", f"{alert.limit:,}",
+                      f"{alert.exceeded:,}", f"{alert.percentage:.1f}")
+        else:
+            logger.info("    %s: %s bytes (exceeded by %s bytes)",
+                      alert.region, f"{alert.usage:,}", f"{alert.exceeded:,}")
 
 
 def _display_upload_limit_error(response_data: dict) -> None:

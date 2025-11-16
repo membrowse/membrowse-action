@@ -6,6 +6,8 @@ import os
 import subprocess
 import logging
 
+from .budget_alerts import iter_budget_alerts
+
 logger = logging.getLogger(__name__)
 
 # Unique marker to identify MemBrowse comments
@@ -266,30 +268,27 @@ def _format_budget_alerts(alerts: dict) -> str:
 
     lines = ["### Budget Alerts ⚠️", ""]
 
-    for budget in budgets:
-        budget_name = budget.get('budget_name', 'Unknown')
-        exceeded_regions = budget.get('exceeded_regions', [])
-        exceeded_by = budget.get('exceeded_by', {})
-        current_usage = budget.get('current_usage', {})
-        limits = budget.get('limits', {})
+    current_budget = None
+    for alert in iter_budget_alerts(budgets):
+        # Add budget name header when we encounter a new budget
+        if current_budget != alert.budget_name:
+            current_budget = alert.budget_name
+            lines.append(f"**{alert.budget_name}**")
 
-        lines.append(f"**{budget_name}**")
+        # Add region alert
+        if alert.percentage is not None:
+            lines.append(
+                f"- **{alert.region}**: {alert.usage:,} B / {alert.limit:,} B "
+                f"(exceeded by {alert.exceeded:,} B, +{alert.percentage:.1f}%)"
+            )
+        else:
+            lines.append(
+                f"- **{alert.region}**: {alert.usage:,} B "
+                f"(exceeded by {alert.exceeded:,} B)"
+            )
 
-        for region in exceeded_regions:
-            usage = current_usage.get(region, 0)
-            limit = limits.get(region, 0)
-            exceeded = exceeded_by.get(region, 0)
-
-            if limit > 0:
-                pct = exceeded / limit * 100
-                lines.append(
-                    f"- **{region}**: {usage:,} B / {limit:,} B "
-                    f"(exceeded by {exceeded:,} B, +{pct:.1f}%)"
-                )
-            else:
-                lines.append(f"- **{region}**: {usage:,} B (exceeded by {exceeded:,} B)")
-
-        lines.append("")
+    # Add final empty line
+    lines.append("")
 
     return "\n".join(lines)
 
