@@ -266,7 +266,7 @@ def _format_budget_alerts(alerts: dict) -> str:
     if not budgets:
         return ""
 
-    lines = ["### Budget Alerts ⚠️", ""]
+    lines = ["### ⚠️Budget Alerts ", ""]
 
     current_budget = None
     for alert in iter_budget_alerts(budgets):
@@ -276,16 +276,10 @@ def _format_budget_alerts(alerts: dict) -> str:
             lines.append(f"**{alert.budget_name}**")
 
         # Add region alert
-        if alert.percentage is not None:
-            lines.append(
-                f"- **{alert.region}**: {alert.usage:,} B / {alert.limit:,} B "
-                f"(exceeded by {alert.exceeded:,} B, +{alert.percentage:.1f}%)"
-            )
-        else:
-            lines.append(
-                f"- **{alert.region}**: {alert.usage:,} B "
-                f"(exceeded by {alert.exceeded:,} B)"
-            )
+        lines.append(
+            f"- **{alert.region}**: {alert.usage:,} B "
+            f"(exceeded by {alert.exceeded:,} B)"
+        )
 
     # Add final empty line
     lines.append("")
