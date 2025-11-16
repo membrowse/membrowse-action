@@ -26,12 +26,38 @@ class TestPullRequestMetadata:
             }
         }
 
-        base_sha, branch_name, pr_number, head_sha = _parse_pull_request_event(event_data)
+        base_sha, branch_name, pr_number, head_sha, pr_name = _parse_pull_request_event(event_data)
 
         assert base_sha == '789ghi012jkl'
         assert branch_name == 'feature-branch'
         assert pr_number == '123'
         assert head_sha == 'abc123def456'
+        assert pr_name == ''  # No title in this test data
+
+    def test_parse_pull_request_event_extracts_pr_name(self):
+        """Test that _parse_pull_request_event extracts the PR name/title."""
+        event_data = {
+            'pull_request': {
+                'number': 456,
+                'title': 'Add awesome feature',
+                'head': {
+                    'sha': 'feature123abc',
+                    'ref': 'feature-branch'
+                },
+                'base': {
+                    'sha': 'main456def',
+                    'ref': 'main'
+                }
+            }
+        }
+
+        base_sha, branch_name, pr_number, head_sha, pr_name = _parse_pull_request_event(event_data)
+
+        assert base_sha == 'main456def'
+        assert branch_name == 'feature-branch'
+        assert pr_number == '456'
+        assert head_sha == 'feature123abc'
+        assert pr_name == 'Add awesome feature'
 
     def test_detect_github_metadata_uses_pr_head_sha(self):
         """Test that detect_github_metadata uses PR head SHA instead of merge commit."""
@@ -39,6 +65,7 @@ class TestPullRequestMetadata:
         pr_event = {
             'pull_request': {
                 'number': 456,
+                'title': 'Implement cool feature',
                 'head': {
                     'sha': 'real-commit-sha-123',
                     'ref': 'feature-branch'
@@ -97,6 +124,7 @@ class TestPullRequestMetadata:
                     assert metadata['base_commit_hash'] == 'base-commit-sha-456'
                     assert metadata['branch_name'] == 'feature-branch'
                     assert metadata['pr_number'] == '456'
+                    assert metadata['pr_name'] == 'Implement cool feature'
                     assert metadata['author_name'] == 'Test Author'
                     assert metadata['author_email'] == 'author@example.com'
         finally:
