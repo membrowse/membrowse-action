@@ -9,6 +9,7 @@ from typing import Dict, Any, Optional
 
 from ..utils.git import detect_github_metadata
 from ..utils.url import normalize_api_url, build_comparison_url
+from ..utils.budget_alerts import iter_budget_alerts
 from ..linker.parser import LinkerScriptParser
 from ..core.generator import ReportGenerator
 from ..api.client import MemBrowseUploader
@@ -150,27 +151,21 @@ def _display_budget_alerts(budget_alerts: list) -> None:
     """Display budget alerts in human-readable format"""
     logger.info("Budget Alerts:")
 
-    for budget in budget_alerts:
-        budget_name = budget.get('budget_name', 'Unknown')
-        exceeded_regions = budget.get('exceeded_regions', [])
-        exceeded_by = budget.get('exceeded_by', {})
-        current_usage = budget.get('current_usage', {})
-        limits = budget.get('limits', {})
+    current_budget = None
+    for alert in iter_budget_alerts(budget_alerts):
+        # Print budget name header when we encounter a new budget
+        if current_budget != alert.budget_name:
+            current_budget = alert.budget_name
+            logger.info("  %s:", alert.budget_name)
 
-        logger.info("  %s:", budget_name)
-
-        for region in exceeded_regions:
-            usage = current_usage.get(region, 0)
-            limit = limits.get(region, 0)
-            exceeded = exceeded_by.get(region, 0)
-
-            if limit > 0:
-                pct = exceeded / limit * 100
-                logger.info("    %s: %s / %s bytes (exceeded by %s bytes, +%s%%)",
-                          region, f"{usage:,}", f"{limit:,}", f"{exceeded:,}", f"{pct:.1f}")
-            else:
-                logger.info("    %s: %s bytes (exceeded by %s bytes)",
-                          region, f"{usage:,}", f"{exceeded:,}")
+        # Display region alert
+        if alert.percentage is not None:
+            logger.info("    %s: %s / %s bytes (exceeded by %s bytes, +%s%%)",
+                      alert.region, f"{alert.usage:,}", f"{alert.limit:,}",
+                      f"{alert.exceeded:,}", f"{alert.percentage:.1f}")
+        else:
+            logger.info("    %s: %s bytes (exceeded by %s bytes)",
+                      alert.region, f"{alert.usage:,}", f"{alert.exceeded:,}")
 
 
 def _display_upload_limit_error(response_data: dict) -> None:
