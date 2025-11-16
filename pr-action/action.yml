@@ -88,7 +88,7 @@ runs:
         membrowse report "${ARGS[@]}"
 
     - name: Post PR comment
-      if: github.event_name == 'pull_request' && inputs.pr_comment == 'true'
+      if: always() && github.event_name == 'pull_request' && inputs.pr_comment == 'true'
       shell: bash
       env:
         GITHUB_TOKEN: ${{ inputs.github_token || github.token }}

@@ -361,6 +361,7 @@ examples:
     git_group.add_argument('--author-name', help='Commit author name')
     git_group.add_argument('--author-email', help='Commit author email')
     git_group.add_argument('--pr-number', help='Pull request number')
+    git_group.add_argument('--pr-name', help='Pull request name/title')
 
     # Performance options
     perf_group = parser.add_argument_group('performance options')
@@ -679,6 +680,72 @@ def _parse_linker_definitions(linker_defs: list) -> Optional[Dict[str, str]]:
     return linker_variables if linker_variables else None
 
 
+def _handle_upload_and_alerts(
+    report: dict,
+    args: argparse.Namespace,
+    commit_info: dict,
+    verbose: bool
+) -> int:
+    """
+    Handle report upload and budget alert checking.
+
+    Args:
+        report: The generated memory report
+        args: Parsed command-line arguments
+        commit_info: Git commit metadata
+        verbose: Verbose logging flag
+
+    Returns:
+        Exit code (0 for success, 1 for error)
+    """
+    try:
+        # Always pass dont_fail_on_alerts=True to ensure we get the response data
+        # We'll check for alerts manually after writing the PR comment file
+        response_data, comparison_url = upload_report(
+            report=report,
+            commit_info=commit_info,
+            target_name=getattr(args, 'target_name', None),
+            api_key=getattr(args, 'api_key', None),
+            api_url=getattr(args, 'api_url', DEFAULT_API_URL),
+            verbose=verbose,
+            dont_fail_on_alerts=True  # Never raise exception on alerts here
+        )
+
+        # ALWAYS write comparison URL file first (before checking alerts)
+        # This ensures PR comments are posted even when budget alerts exist
+        pr_comment_enabled = getattr(args, 'pr_comment', False)
+        output_url_file = getattr(args, 'output_url_file', None)
+        if pr_comment_enabled and output_url_file:
+            _write_comparison_url_to_file(
+                comparison_url,
+                output_url_file,
+                api_response=response_data,
+                target_name=getattr(args, 'target_name', None)
+            )
+            logger.debug("Wrote comparison data for PR comment to %s", output_url_file)
+
+        # NOW check for budget alerts (after file is written)
+        # Return non-zero exit code if alerts exist and user hasn't disabled the check
+        if not getattr(args, 'dont_fail_on_alerts', False):
+            data = response_data.get('data', {})
+            alerts = data.get('alerts') or {}
+            budget_alerts = alerts.get('budgets', [])
+
+            if budget_alerts:
+                log_prefix = _get_log_prefix(commit_info)
+                error_msg = (
+                    f"Budget Alert Error: {len(budget_alerts)} budget(s) exceeded. "
+                    "Use --dont-fail-on-alerts to continue despite alerts."
+                )
+                logger.error("%s: %s", log_prefix, error_msg)
+                return 1  # Fail with non-zero exit code
+
+        return 0
+    except (ValueError, RuntimeError) as e:
+        logger.error("Failed to upload report: %s", e)
+        return 1
+
+
 def run_report(args: argparse.Namespace) -> int:
     """
     Execute the report subcommand.
@@ -731,6 +798,7 @@ def run_report(args: argparse.Namespace) -> int:
         'author_name': 'author_name',
         'author_email': 'author_email',
         'pr_number': 'pr_number',
+        'pr_name': 'pr_name',
     }
 
     commit_info = {
@@ -745,31 +813,5 @@ def run_report(args: argparse.Namespace) -> int:
         # Update commit_info with detected metadata (only if not already set)
         commit_info = {k: commit_info.get(k) or v for k, v in detected_metadata.items()}
 
-    # Upload report
-    try:
-        response_data, comparison_url = upload_report(
-            report=report,
-            commit_info=commit_info,
-            target_name=getattr(args, 'target_name', None),
-            api_key=getattr(args, 'api_key', None),
-            api_url=getattr(args, 'api_url', DEFAULT_API_URL),
-            verbose=verbose,
-            dont_fail_on_alerts=getattr(args, 'dont_fail_on_alerts', False)
-        )
-
-        # Write comparison URL and API response to file if PR comment is enabled
-        pr_comment_enabled = getattr(args, 'pr_comment', False)
-        output_url_file = getattr(args, 'output_url_file', None)
-        if pr_comment_enabled and output_url_file:
-            _write_comparison_url_to_file(
-                comparison_url,
-                output_url_file,
-                api_response=response_data,
-                target_name=getattr(args, 'target_name', None)
-            )
-            logger.debug("Wrote comparison data for PR comment to %s", output_url_file)
-
-        return 0
-    except (ValueError, RuntimeError) as e:
-        logger.error("Failed to upload report: %s", e)
-        return 1
+    # Upload report and handle alerts
+    return _handle_upload_and_alerts(report, args, commit_info, verbose)
