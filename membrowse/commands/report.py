@@ -159,13 +159,8 @@ def _display_budget_alerts(budget_alerts: list) -> None:
             logger.info("  %s:", alert.budget_name)
 
         # Display region alert
-        if alert.percentage is not None:
-            logger.info("    %s: %s / %s bytes (exceeded by %s bytes, +%s%%)",
-                      alert.region, f"{alert.usage:,}", f"{alert.limit:,}",
-                      f"{alert.exceeded:,}", f"{alert.percentage:.1f}")
-        else:
-            logger.info("    %s: %s bytes (exceeded by %s bytes)",
-                      alert.region, f"{alert.usage:,}", f"{alert.exceeded:,}")
+        logger.info("    %s: %s bytes (exceeded by %s bytes)",
+                    alert.region, f"{alert.usage:,}", f"{alert.exceeded:,}")
 
 
 def _display_upload_limit_error(response_data: dict) -> None:
@@ -477,7 +472,6 @@ def upload_report(  # pylint: disable=too-many-arguments
     api_url: str = DEFAULT_API_URL,
     *,
     verbose: bool = False,
-    dont_fail_on_alerts: bool = False,
     build_failed: bool = None
 ) -> tuple[dict, str]:
     """
@@ -502,7 +496,6 @@ def upload_report(  # pylint: disable=too-many-arguments
         api_url: MemBrowse API base URL (e.g., 'https://www.membrowse.com')
                  The /api/upload endpoint suffix is added automatically
         verbose: Enable verbose output (keyword-only)
-        dont_fail_on_alerts: Continue even if budget alerts are detected (keyword-only)
         build_failed: Whether the build failed (keyword-only)
 
     Returns:
@@ -540,9 +533,6 @@ def upload_report(  # pylint: disable=too-many-arguments
 
     # Validate upload success
     _validate_upload_success(response_data, log_prefix)
-
-    # Check for budget alerts if fail_on_alerts is enabled
-    _check_budget_alerts(response_data, dont_fail_on_alerts, log_prefix)
 
     logger.info("%s: Memory report uploaded successfully", log_prefix)
     return response_data, comparison_url
@@ -599,12 +589,10 @@ def _validate_upload_success(response_data: dict, log_prefix: str) -> None:
         raise RuntimeError("Upload failed - see response details above")
 
 
-def _check_budget_alerts(response_data: dict, dont_fail_on_alerts: bool, log_prefix: str) -> None:
+def _check_budget_alerts(response_data: dict, commit_info: dict) -> None:
     """Check for budget alerts and fail if necessary."""
-    if dont_fail_on_alerts:
-        return
-
     data = response_data.get('data', {})
+    log_prefix = _get_log_prefix(commit_info)
     alerts = data.get('alerts') or {}
     budget_alerts = alerts.get('budgets', [])
 
@@ -699,8 +687,6 @@ def _handle_upload_and_alerts(
         Exit code (0 for success, 1 for error)
     """
     try:
-        # Always pass dont_fail_on_alerts=True to ensure we get the response data
-        # We'll check for alerts manually after writing the PR comment file
         response_data, comparison_url = upload_report(
             report=report,
             commit_info=commit_info,
@@ -708,11 +694,8 @@ def _handle_upload_and_alerts(
             api_key=getattr(args, 'api_key', None),
             api_url=getattr(args, 'api_url', DEFAULT_API_URL),
             verbose=verbose,
-            dont_fail_on_alerts=True  # Never raise exception on alerts here
         )
 
-        # ALWAYS write comparison URL file first (before checking alerts)
-        # This ensures PR comments are posted even when budget alerts exist
         pr_comment_enabled = getattr(args, 'pr_comment', False)
         output_url_file = getattr(args, 'output_url_file', None)
         if pr_comment_enabled and output_url_file:
@@ -724,21 +707,8 @@ def _handle_upload_and_alerts(
             )
             logger.debug("Wrote comparison data for PR comment to %s", output_url_file)
 
-        # NOW check for budget alerts (after file is written)
-        # Return non-zero exit code if alerts exist and user hasn't disabled the check
         if not getattr(args, 'dont_fail_on_alerts', False):
-            data = response_data.get('data', {})
-            alerts = data.get('alerts') or {}
-            budget_alerts = alerts.get('budgets', [])
-
-            if budget_alerts:
-                log_prefix = _get_log_prefix(commit_info)
-                error_msg = (
-                    f"Budget Alert Error: {len(budget_alerts)} budget(s) exceeded. "
-                    "Use --dont-fail-on-alerts to continue despite alerts."
-                )
-                logger.error("%s: %s", log_prefix, error_msg)
-                return 1  # Fail with non-zero exit code
+            _check_budget_alerts(response_data, commit_info)
 
         return 0
     except (ValueError, RuntimeError) as e:

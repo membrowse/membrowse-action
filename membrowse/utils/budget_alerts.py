@@ -1,6 +1,6 @@
 """Utilities for processing budget alert data."""
 
-from typing import Iterator, NamedTuple, Optional
+from typing import Iterator, NamedTuple
 
 
 class BudgetRegionAlert(NamedTuple):
@@ -10,7 +10,6 @@ class BudgetRegionAlert(NamedTuple):
     usage: int
     limit: int
     exceeded: int
-    percentage: Optional[float]
 
 
 def iter_budget_alerts(budget_alerts: list) -> Iterator[BudgetRegionAlert]:
@@ -35,16 +34,10 @@ def iter_budget_alerts(budget_alerts: list) -> Iterator[BudgetRegionAlert]:
             limit = limits.get(region, 0)
             exceeded = exceeded_by.get(region, 0)
 
-            if limit > 0:
-                pct = exceeded / limit * 100
-            else:
-                pct = None
-
             yield BudgetRegionAlert(
                 budget_name=budget_name,
                 region=region,
                 usage=usage,
                 limit=limit,
                 exceeded=exceeded,
-                percentage=pct
             )

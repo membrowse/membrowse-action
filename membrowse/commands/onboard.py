@@ -369,14 +369,13 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
         # Upload report
         # For onboarding, don't fail on alerts to continue processing all commits
         try:
-            _response_data, _comparison_url = upload_report(
+            upload_report(
                 report=report,
                 commit_info=commit_info,
                 target_name=args.target_name,
                 api_key=args.api_key,
                 api_url=args.api_url,
                 verbose=args.verbose,
-                dont_fail_on_alerts=True,
                 build_failed=build_failed
             )
             if build_failed:
