@@ -150,18 +150,27 @@ def _display_budget_alerts(budget_alerts: list) -> None:
     """Display budget alerts in human-readable format"""
     logger.info("Budget Alerts:")
 
-    for alert in budget_alerts:
-        region = alert.get('region', 'Unknown')
-        budget_type = alert.get('budget_type', 'unknown')
-        threshold = alert.get('threshold', 0)
-        current = alert.get('current', 0)
-        exceeded_by = alert.get('exceeded_by', 0)
+    for budget in budget_alerts:
+        budget_name = budget.get('budget_name', 'Unknown')
+        exceeded_regions = budget.get('exceeded_regions', [])
+        exceeded_by = budget.get('exceeded_by', {})
+        current_usage = budget.get('current_usage', {})
+        limits = budget.get('limits', {})
 
-        logger.info("  %s (%s):", region, budget_type)
-        logger.info("    Threshold: %s bytes", f"{threshold:,}")
-        logger.info("    Current:   %s bytes", f"{current:,}")
-        logger.info("    Exceeded by: %s bytes (%s%%)",
-                      f"{exceeded_by:,}", f"{exceeded_by/threshold*100:.1f}")
+        logger.info("  %s:", budget_name)
+
+        for region in exceeded_regions:
+            usage = current_usage.get(region, 0)
+            limit = limits.get(region, 0)
+            exceeded = exceeded_by.get(region, 0)
+
+            if limit > 0:
+                pct = exceeded / limit * 100
+                logger.info("    %s: %s / %s bytes (exceeded by %s bytes, +%s%%)",
+                          region, f"{usage:,}", f"{limit:,}", f"{exceeded:,}", f"{pct:.1f}")
+            else:
+                logger.info("    %s: %s bytes (exceeded by %s bytes)",
+                          region, f"{usage:,}", f"{exceeded:,}")
 
 
 def _display_upload_limit_error(response_data: dict) -> None:
