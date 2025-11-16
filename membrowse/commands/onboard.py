@@ -366,8 +366,6 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
             'pr_number': None
         }
 
-        # Upload report
-        # For onboarding, don't fail on alerts to continue processing all commits
         try:
             upload_report(
                 report=report,

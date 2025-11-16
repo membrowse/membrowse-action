@@ -503,7 +503,7 @@ def upload_report(  # pylint: disable=too-many-arguments
 
     Raises:
         ValueError: If upload arguments are invalid
-        RuntimeError: If upload fails or budget alerts are triggered
+        RuntimeError: If upload fails
     """
     # Validate upload arguments
     is_valid, error_message = _validate_upload_arguments(api_key, target_name)
