@@ -750,10 +750,9 @@ def run_report(args: argparse.Namespace) -> int:
     # Check if upload mode is enabled
     upload_mode = getattr(args, 'upload', False) or getattr(args, 'github', False)
 
-    # If not uploading, output report via logging
+    # If not uploading, output report to stdout
     if not upload_mode:
-        logger.info("Local mode - outputting report to stdout")
-        logger.info(json.dumps(report, indent=2))
+        print(json.dumps(report, indent=2))
         return 0
 
     # Build commit_info dict in metadata['git'] format
