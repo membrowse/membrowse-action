@@ -56,6 +56,7 @@ runs:
     - name: Run memory analysis
       shell: bash
       run: |
+        set -o pipefail
         ARGS=(
           "${{ inputs.elf }}"
           "${{ inputs.ld }}"
@@ -63,15 +64,10 @@ runs:
           --target-name "${{ inputs.target_name }}"
           --api-key "${{ inputs.api_key }}"
           --api-url "${{ inputs.api_url }}"
-          --output-url-file "${{ runner.temp }}/membrowse_url.txt"
         )
 
         if [ "${{ inputs.dont_fail_on_alerts }}" = "true" ]; then
           ARGS+=(--dont-fail-on-alerts)
-        fi
-
-        if [ "${{ inputs.pr_comment }}" = "true" ]; then
-          ARGS+=(--pr-comment)
         fi
 
         # Add linker variable definitions
@@ -85,15 +81,13 @@ runs:
           ARGS+=(--verbose)
         fi
 
-        membrowse report "${ARGS[@]}"
-
-    - name: Post PR comment
-      if: always() && github.event_name == 'pull_request' && inputs.pr_comment == 'true'
-      shell: bash
-      env:
-        GITHUB_TOKEN: ${{ inputs.github_token || github.token }}
-      run: |
-        python -m membrowse.utils.github_comment --url-file "${{ runner.temp }}/membrowse_url.txt"
+        # Run report command and pipe to PR comment script if enabled
+        if [ "${{ inputs.pr_comment }}" = "true" ]; then
+          export GITHUB_TOKEN="${{ inputs.github_token || github.token }}"
+          membrowse report "${ARGS[@]}" --output-raw-response | python -m membrowse.utils.github_comment
+        else
+          membrowse report "${ARGS[@]}"
+        fi
 
 branding:
   icon: 'bar-chart-2'

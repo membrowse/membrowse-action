@@ -30,8 +30,11 @@ subcommands:
   onboard   Analyze and upload memory footprints across historical commits
 
 examples:
-  # Local mode - generate report to stdout (no upload)
+  # Local mode - human-readable output (default)
   membrowse report firmware.elf "linker.ld"
+
+  # Local mode - JSON output
+  membrowse report firmware.elf "linker.ld" --json
 
   # Upload mode - upload report to MemBrowse platform
   membrowse report firmware.elf "linker.ld" --upload \\
@@ -77,11 +80,19 @@ def main() -> int:
     args = parser.parse_args()
 
     # Configure logging based on verbose flag
-    # Messages go to stderr to keep stdout clean for JSON output
-    # Default: INFO level (show progress, warnings, and errors)
-    # Verbose: DEBUG level (show all debug information)
-    log_level = logging.DEBUG if getattr(
-        args, 'verbose', False) else logging.INFO
+    # Messages go to stderr to keep stdout clean for JSON/output
+    # Default (no -v): WARNING level (only warnings and errors)
+    # -v or --verbose: INFO level (show progress, warnings, and errors)
+    # -v DEBUG or --verbose=DEBUG: DEBUG level (show all debug information)
+    verbose_arg = getattr(args, 'verbose', None)
+    if verbose_arg is None:
+        log_level = logging.WARNING
+    elif verbose_arg.upper() == 'DEBUG':
+        log_level = logging.DEBUG
+    else:
+        # Default for -v with no argument or -v INFO
+        log_level = logging.INFO
+
     logging.basicConfig(
         level=log_level,
         format='%(levelname)s: %(message)s',

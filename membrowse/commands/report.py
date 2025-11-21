@@ -10,6 +10,7 @@ from typing import Dict, Any, Optional
 from ..utils.git import detect_github_metadata
 from ..utils.url import normalize_api_url, build_comparison_url
 from ..utils.budget_alerts import iter_budget_alerts
+from ..utils.formatter import format_report_human_readable
 from ..linker.parser import LinkerScriptParser
 from ..core.generator import ReportGenerator
 from ..api.client import MemBrowseUploader
@@ -288,11 +289,17 @@ def add_report_parser(subparsers) -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 examples:
-  # Local mode - output JSON to stdout
+  # Local mode - human-readable output (default)
   membrowse report firmware.elf "linker.ld"
 
-  # Save to file
-  membrowse report firmware.elf "linker.ld" > report.json
+  # Show all symbols instead of top 20
+  membrowse report firmware.elf "linker.ld" --all-symbols
+
+  # Output as JSON
+  membrowse report firmware.elf "linker.ld" --json
+
+  # Save JSON to file
+  membrowse report firmware.elf "linker.ld" --json > report.json
 
   # Upload to MemBrowse
   membrowse report firmware.elf "linker.ld" --upload \\
@@ -366,9 +373,12 @@ examples:
         help='Skip DWARF line program processing for faster analysis'
     )
     perf_group.add_argument(
-        '--verbose',
-        action='store_true',
-        help='Enable verbose output'
+        '-v', '--verbose',
+        nargs='?',
+        const='INFO',
+        default=None,
+        metavar='LEVEL',
+        help='Enable verbose output. Use -v for INFO level, -v DEBUG for DEBUG level'
     )
     perf_group.add_argument(
         '--def',
@@ -390,13 +400,19 @@ examples:
     # Output options
     output_group = parser.add_argument_group('output options')
     output_group.add_argument(
-        '--output-url-file',
-        help='File path to write comparison URL and API response (for GitHub Actions integration)'
+        '--json',
+        action='store_true',
+        help='Output report as JSON (default is human-readable format)'
     )
     output_group.add_argument(
-        '--pr-comment',
+        '--all-symbols',
         action='store_true',
-        help='Enable PR comment posting (writes comparison data to output file for GitHub Actions)'
+        help='Display all symbols instead of just top 20 (human-readable mode only)'
+    )
+    output_group.add_argument(
+        '--output-raw-response',
+        action='store_true',
+        help='Output raw API response as JSON to stdout (for piping to GitHub Actions PR comment)'
     )
 
     return parser
@@ -607,37 +623,6 @@ def _check_budget_alerts(response_data: dict, commit_info: dict) -> None:
         )
 
 
-def _write_comparison_url_to_file(
-    comparison_url: str,
-    file_path: str,
-    api_response: dict = None,
-    target_name: str = None
-) -> None:
-    """
-    Write comparison URL and API response data to a file for GitHub Actions integration.
-
-    Args:
-        comparison_url: Comparison URL to write (can be None)
-        file_path: Path to output file
-        api_response: Full API response data including changes and alerts (optional)
-        target_name: Target name (e.g., esp32, stm32f4) (optional)
-    """
-    try:
-        # Write JSON format with both URL and API response
-        output_data = {
-            'comparison_url': comparison_url or '',
-            'api_response': api_response or {},
-            'target_name': target_name or ''
-        }
-
-        with open(file_path, 'w', encoding='utf-8') as f:
-            json.dump(output_data, f, indent=2)
-
-        logger.debug("Wrote comparison URL and API response to %s", file_path)
-    except Exception as e:  # pylint: disable=broad-exception-caught
-        logger.warning("Failed to write comparison data to file: %s", e)
-
-
 def _parse_linker_definitions(linker_defs: list) -> Optional[Dict[str, str]]:
     """
     Parse --def linker variable definitions from command line.
@@ -696,19 +681,28 @@ def _handle_upload_and_alerts(
             verbose=verbose,
         )
 
-        pr_comment_enabled = getattr(args, 'pr_comment', False)
-        output_url_file = getattr(args, 'output_url_file', None)
-        if pr_comment_enabled and output_url_file:
-            _write_comparison_url_to_file(
-                comparison_url,
-                output_url_file,
-                api_response=response_data,
-                target_name=getattr(args, 'target_name', None)
-            )
-            logger.debug("Wrote comparison data for PR comment to %s", output_url_file)
-
+        # Check for budget alerts first to determine exit code
+        exit_code = 0
         if not getattr(args, 'dont_fail_on_alerts', False):
-            _check_budget_alerts(response_data, commit_info)
+            try:
+                _check_budget_alerts(response_data, commit_info)
+            except RuntimeError:
+                # Budget alerts detected - should fail CI
+                exit_code = 1
+
+        # Output raw API response to stdout if requested (for piping to PR comment script)
+        if getattr(args, 'output_raw_response', False):
+            output_data = {
+                'comparison_url': comparison_url or '',
+                'api_response': response_data or {},
+                'target_name': getattr(args, 'target_name', '')
+            }
+            print(json.dumps(output_data, indent=2))
+            return exit_code
+
+        # If we reach here and have alerts, re-raise to fail
+        if exit_code != 0:
+            raise RuntimeError("Budget alerts detected")
 
         return 0
     except (ValueError, RuntimeError) as e:
@@ -729,7 +723,10 @@ def run_report(args: argparse.Namespace) -> int:
     Returns:
         Exit code (0 for success, 1 for error)
     """
-    verbose = getattr(args, 'verbose', False)
+    # Convert verbose argument to boolean for backward compatibility
+    # verbose can be None (no flag), 'INFO', or 'DEBUG'
+    verbose_arg = getattr(args, 'verbose', None)
+    verbose = verbose_arg is not None
 
     # Parse linker variable definitions
     linker_variables = _parse_linker_definitions(getattr(args, 'linker_defs', None))
@@ -752,7 +749,11 @@ def run_report(args: argparse.Namespace) -> int:
 
     # If not uploading, output report to stdout
     if not upload_mode:
-        print(json.dumps(report, indent=2))
+        if getattr(args, 'json', False):
+            print(json.dumps(report, indent=2))
+        else:
+            show_all_symbols = getattr(args, 'all_symbols', False)
+            print(format_report_human_readable(report, show_all_symbols=show_all_symbols))
         return 0
 
     # Build commit_info dict in metadata['git'] format
