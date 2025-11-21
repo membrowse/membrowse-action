@@ -14,21 +14,14 @@ A tool for analyzing memory footprint in embedded firmware. MemBrowse extracts d
 - **Source File Mapping**: Symbols are automatically mapped to their definition source files using DWARF debug information
 - **Memory Region Extraction**: Memory region capacity and layout are extracted from GNU LD linker scripts
 - **Intelligent Linker Script Parsing**: Handles complex GNU LD syntax with automatic architecture detection and expression evaluation
-- **Cloud Integration**: Upload reports to [MemBrowse](https://membrowse.com) for historical tracking
+- **Cloud Integration**: Upload reports to [MemBrowse](https://membrowse.com) for historical tracking, diffs and monitoring
 
 ## Installation
 
-### From PyPI (Recommended)
+### From PyPI
 
 ```bash
 pip install membrowse
-```
-
-### From GitHub
-
-```bash
-# Install directly from GitHub
-pip install git+https://github.com/membrowse/membrowse-action.git
 ```
 
 ### For Development
@@ -57,19 +50,71 @@ membrowse onboard --help      # Help for onboard subcommand
 The simplest way to analyze your firmware (local mode - no upload):
 
 ```bash
-# Generate a memory report (prints JSON to stdout)
+# Generate a human-readable report (default)
 membrowse report \
   build/firmware.elf \
   "src/linker.ld src/memory.ld"
 
-# With verbose output to see progress
+# Output JSON format instead
+membrowse report \
+  build/firmware.elf \
+  "src/linker.ld src/memory.ld" \
+  --json
+
+# Show all symbols (not just top 20)
+membrowse report \
+  build/firmware.elf \
+  "src/linker.ld src/memory.ld" \
+  --all-symbols
+
+# With verbose output to see progress messages
 membrowse report \
   build/firmware.elf \
   "src/linker.ld src/memory.ld" \
   --verbose
 ```
 
-This generates a JSON report with detailed memory analysis and prints it to stdout. Use `--verbose` to see progress messages.
+By default, this generates a **human-readable report** with memory regions, sections, and top symbols. Use `--json` to output structured JSON data instead. Use `--verbose` or `-v` to see progress messages (otherwise only warnings and errors are shown).
+
+**Example output:**
+
+```
+ELF Metadata: build/firmware.elf  |  Arch: ELF32  |  Machine: EM_ARM  |  Entry: 0x0802015d  |  Type: ET_EXEC
+=======================================================================================================================================
+
+Region               Address Range                                Size                Used                Free  Utilization
+--------------------------------------------------------------------------------------------------------------------------------------------
+FLASH                0x08000000-0x08100000             1,048,576 bytes       365,192 bytes       683,384 bytes  [██████░░░░░░░░░░░░░░] 34.8%
+  └─ FLASH_START     0x08000000-0x08004000                16,384 bytes        14,708 bytes         1,676 bytes  [█████████████████░░░] 89.8%
+     • .isr_vector              392 bytes
+     • .isr_extratext        14,316 bytes
+  └─ FLASH_FS        0x08004000-0x08020000               114,688 bytes             0 bytes       114,688 bytes  [░░░░░░░░░░░░░░░░░░░░] 0.0%
+  └─ FLASH_TEXT      0x08020000-0x08100000               917,504 bytes       350,484 bytes       567,020 bytes  [███████░░░░░░░░░░░░░] 38.2%
+     • .text                350,476 bytes
+     • .ARM                       8 bytes
+RAM                  0x20000000-0x20020000               131,072 bytes        26,960 bytes       104,112 bytes  [████░░░░░░░░░░░░░░░░] 20.6%
+  • .data                       52 bytes
+  • .bss                     8,476 bytes
+  • .heap                   16,384 bytes
+  • .stack                   2,048 bytes
+
+Top 20 Largest Symbols
+======================
+
+Name                                     Address                    Size  Type       Section              Source
+--------------------------------------------------------------------------------------------------------------------------------------------
+usb_device                               0x20000a30          5,444 bytes  OBJECT     .bss                 usb.c
+mp_qstr_const_pool                       0x08062b70          4,692 bytes  OBJECT     .text                qstr.c
+mp_execute_bytecode                      0x080392f9          4,208 bytes  FUNC       .text                vm.c
+fresh_pybcdc_inf                         0x0806ffaa          2,598 bytes  OBJECT     .text                factoryreset.c
+emit_inline_thumb_op                     0x0802ac25          2,476 bytes  FUNC       .text                emitinlinethumb.c
+mp_qstr_const_hashes                     0x08061b36          2,334 bytes  OBJECT     .text                qstr.c
+stm_module_globals_table                 0x08073478          2,096 bytes  OBJECT     .text                modstm.c
+stm32_help_text                          0x08072366          2,067 bytes  OBJECT     .text                help.c
+mp_lexer_to_next                         0x080229ed          1,768 bytes  FUNC       .text                lexer.c
+f_mkfs                                   0x080020ed          1,564 bytes  FUNC       .isr_extratext       ff.c
+...
+```
 
 ### Upload Reports to MemBrowse Platform
 
@@ -81,7 +126,17 @@ membrowse report \
   --upload \
   --target-name esp32 \
   --api-key your-membrowse-api-key
+
+# GitHub Actions mode - auto-detects Git metadata from CI environment
+membrowse report \
+  build/firmware.elf \
+  "src/linker.ld" \
+  --github \
+  --target-name esp32 \
+  --api-key your-membrowse-api-key
 ```
+
+When uploading, MemBrowse will fail the build (exit code 1) if budget alerts are detected. Use `--dont-fail-on-alerts` to continue despite alerts.
 
 ### Analyze Historical Commits (Onboarding)
 
@@ -121,14 +176,23 @@ jobs:
         run: make all
 
       - name: Analyze memory
-        uses: membrowse/membrowse-action/pr-action@main
+        uses: membrowse/membrowse-action/pr-action@latest
         with:
           elf: build/firmware.elf
           ld: "src/linker.ld"
           target_name: stm32f4
           api_key: ${{ secrets.MEMBROWSE_API_KEY }}
-          # dont_fail_on_alerts: true  # Optional: continue even if budget alerts are detected
+          # Optional inputs:
+          # pr_comment: true                    # Post PR comments with memory changes (default: true)
+          # dont_fail_on_alerts: true           # Continue even if budget alerts are detected (default: false)
+          # verbose: true                       # Show verbose output (default: false)
 ```
+
+**Features:**
+- Automatically uploads memory reports to MemBrowse
+- Posts PR comments showing memory changes, budget alerts, and comparison links (enabled by default)
+- Fails CI if memory budgets are exceeded (unless `dont_fail_on_alerts: true`)
+- Auto-detects Git metadata from GitHub Actions environment
 
 #### Historical Onboarding
 
@@ -145,7 +209,7 @@ jobs:
           fetch-depth: 0
 
       - name: Historical analysis
-        uses: membrowse/membrowse-action/onboard-action@main
+        uses: membrowse/membrowse-action/onboard-action@latest
         with:
           num_commits: 50
           build_script: "make clean && make"
@@ -175,49 +239,47 @@ membrowse report \
   --api-key your-membrowse-api-key
 ```
 
+## Advanced Usage
+
+### Custom GitHub Integration
+
+For custom GitHub integration (e.g., posting PR comments with custom formatting), use `--output-raw-response`:
+
+```bash
+# Output raw API response as JSON to stdout (for piping)
+membrowse report \
+  build/firmware.elf \
+  "src/linker.ld" \
+  --github \
+  --target-name esp32 \
+  --api-key your-api-key \
+  --output-raw-response | python -m your_custom_pr_comment_script
+```
+
+This outputs a JSON object with:
+- `comparison_url`: URL to the build comparison page on MemBrowse
+- `api_response`: Full API response including memory changes and alerts
+- `target_name`: The target name specified
+
+### Verbose Logging
+
+Control logging verbosity:
+
+```bash
+# No flag: Only warnings and errors
+membrowse report firmware.elf "linker.ld"
+
+# -v or --verbose: Show INFO messages (progress updates)
+membrowse report firmware.elf "linker.ld" --verbose
+
+# -v DEBUG: Show DEBUG messages (detailed analysis)
+membrowse report firmware.elf "linker.ld" -v DEBUG
+```
+
 ## Platform Support
 
 MemBrowse is **platform agnostic** and works with any embedded architecture that produces ELF files and uses GNU LD linker scripts. The tool automatically detects the target architecture and applies appropriate parsing strategies for optimal results.
 
-## Output Format
-
-MemBrowse generates comprehensive JSON reports:
-
-```json
-{
-  "memory_regions": {
-    "FLASH": {
-      "address": "0x08000000",
-      "size": 524288,
-      "used": 245760,
-      "utilization": 46.9,
-      "sections": [".text", ".rodata"],
-      "symbols": [...]
-    },
-    "RAM": {
-      "address": "0x20000000",
-      "size": 131072,
-      "used": 12345,
-      "utilization": 9.4,
-      "sections": [".data", ".bss"],
-      "symbols": [...]
-    }
-  },
-  "symbols": [
-    {
-      "name": "main",
-      "size": 234,
-      "type": "FUNC",
-      "address": "0x08001234",
-      "source_file": "src/main.c",
-      "region": "FLASH"
-    }
-  ],
-  "architecture": "arm",
-  "sections": [...],
-  "compilation_units": [...]
-}
-```
 
 ## License
 

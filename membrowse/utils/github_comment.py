@@ -5,6 +5,7 @@ import json
 import os
 import subprocess
 import logging
+import sys
 
 from .budget_alerts import iter_budget_alerts
 
@@ -402,39 +403,28 @@ def main():
     """
     Main entry point for GitHub comment posting.
 
-    Reads comparison URL and API response from JSON file specified by --url-file argument.
+    Reads comparison URL and API response JSON from stdin (piped from membrowse report).
     """
     parser = argparse.ArgumentParser(description='Post MemBrowse PR comment')
-    parser.add_argument(
-        '--url-file',
-        required=True,
-        help='File containing comparison URL and API response data (JSON format)'
-    )
-    args = parser.parse_args()
+    # No arguments needed - reads from stdin
+    parser.parse_args()
 
-    # Read comparison URL and API response from file
+    # Read comparison URL and API response from stdin
     comparison_url = None
     api_response = None
     target_name = None
     try:
-        with open(args.url_file, 'r', encoding='utf-8') as f:
-            # Try to read as JSON first
-            try:
-                data = json.load(f)
-                comparison_url = data.get('comparison_url')
-                api_response = data.get('api_response')
-                target_name = data.get('target_name')
-            except json.JSONDecodeError:
-                # Fall back to plain text for backwards compatibility
-                f.seek(0)
-                url_content = f.read().strip()
-                comparison_url = url_content if url_content else None
-                logger.debug("Read plain text format (backwards compatibility)")
-
-    except FileNotFoundError:
-        logger.warning("URL file not found: %s", args.url_file)
+        # Read JSON from stdin
+        data = json.load(sys.stdin)
+        comparison_url = data.get('comparison_url')
+        api_response = data.get('api_response')
+        target_name = data.get('target_name')
+    except json.JSONDecodeError as e:
+        logger.error("Failed to parse JSON from stdin: %s", e)
+        sys.exit(1)
     except Exception as e:  # pylint: disable=broad-exception-caught
-        logger.warning("Failed to read URL file: %s", e)
+        logger.error("Failed to read from stdin: %s", e)
+        sys.exit(1)
 
     # Post PR comment
     post_pr_comment(comparison_url, api_response, target_name)

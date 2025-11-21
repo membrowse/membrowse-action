@@ -107,9 +107,12 @@ examples:
 
     # Optional flags
     parser.add_argument(
-        '--verbose',
-        action='store_true',
-        help='Enable verbose output'
+        '-v', '--verbose',
+        nargs='?',
+        const='INFO',
+        default=None,
+        metavar='LEVEL',
+        help='Enable verbose output. Use -v for INFO level, -v DEBUG for DEBUG level'
     )
     parser.add_argument(
         '--def',
@@ -217,6 +220,13 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
     Returns:
         Exit code (0 for success, 1 for error)
     """
+    # Convert verbose argument to boolean for backward compatibility
+    # verbose can be None (no flag), 'INFO', or 'DEBUG'
+    verbose_arg = getattr(args, 'verbose', None)
+    verbose = verbose_arg is not None
+    # Update args.verbose to be boolean for use in other functions
+    args.verbose = verbose
+
     logger.info("Starting historical memory analysis for %s", args.target_name)
     logger.info("Processing last %d commits", args.num_commits)
     logger.info("Build script: %s", args.build_script)
