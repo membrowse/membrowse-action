@@ -39,6 +39,14 @@ inputs:
     description: 'Enable verbose output including full API responses (default: false)'
     required: false
     default: 'false'
+  pr_author_name:
+    description: 'PR author name (auto-detected from GitHub event if not provided)'
+    required: false
+    default: ''
+  pr_author_email:
+    description: 'PR author email (auto-detected from GitHub event if not provided)'
+    required: false
+    default: ''
 
 runs:
   using: 'composite'
@@ -79,6 +87,14 @@ runs:
 
         if [ "${{ inputs.verbose }}" = "true" ]; then
           ARGS+=(--verbose)
+        fi
+
+        # Add PR author info if provided
+        if [ -n "${{ inputs.pr_author_name }}" ]; then
+          ARGS+=(--pr-author-name "${{ inputs.pr_author_name }}")
+        fi
+        if [ -n "${{ inputs.pr_author_email }}" ]; then
+          ARGS+=(--pr-author-email "${{ inputs.pr_author_email }}")
         fi
 
         # Run report command and pipe to PR comment script if enabled

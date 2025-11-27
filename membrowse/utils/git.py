@@ -41,7 +41,13 @@ def _parse_pull_request_event(event_data: Dict[str, Any]) -> tuple:
     pr_number = str(pr.get('number', ''))
     head_sha = pr.get('head', {}).get('sha', '')
     pr_name = pr.get('title', '')
-    return base_sha, branch_name, pr_number, head_sha, pr_name
+    # PR author info (user who opened the PR)
+    pr_user = pr.get('user', {})
+    pr_author_name = pr_user.get('login', '')
+    # Note: GitHub API doesn't expose email for privacy, use login as fallback
+    pr_author_email = ''
+    return (base_sha, branch_name, pr_number, head_sha, pr_name,
+            pr_author_name, pr_author_email)
 
 
 def _parse_push_event(event_data: Dict[str, Any]) -> tuple:
@@ -54,30 +60,34 @@ def _parse_push_event(event_data: Dict[str, Any]) -> tuple:
                          '--format=%(refname:short)', 'refs/heads/']) or
         os.environ.get('GITHUB_REF_NAME', 'unknown')
     )
-    return base_sha, branch_name, '', '', ''
+    # Push events don't have PR author info
+    return base_sha, branch_name, '', '', '', '', ''
 
 
 def _parse_github_event(event_name: str, event_path: str) -> tuple:
     """Parse GitHub event payload."""
     base_sha, branch_name, pr_number, head_sha, pr_name = '', '', '', '', ''
+    pr_author_name, pr_author_email = '', ''
 
     if not event_path or not os.path.exists(event_path):
-        return base_sha, branch_name, pr_number, head_sha, pr_name
+        return (base_sha, branch_name, pr_number, head_sha, pr_name,
+                pr_author_name, pr_author_email)
 
     try:
         with open(event_path, 'r', encoding='utf-8') as f:
             event_data = json.load(f)
 
         if event_name == 'pull_request':
-            (base_sha, branch_name, pr_number, head_sha, pr_name) = (
-                _parse_pull_request_event(event_data)
-            )
+            (base_sha, branch_name, pr_number, head_sha, pr_name,
+             pr_author_name, pr_author_email) = _parse_pull_request_event(event_data)
         elif event_name == 'push':
-            base_sha, branch_name, pr_number, head_sha, pr_name = _parse_push_event(event_data)
+            (base_sha, branch_name, pr_number, head_sha, pr_name,
+             pr_author_name, pr_author_email) = _parse_push_event(event_data)
     except Exception:  # pylint: disable=broad-exception-caught
         pass
 
-    return base_sha, branch_name, pr_number, head_sha, pr_name
+    return (base_sha, branch_name, pr_number, head_sha, pr_name,
+            pr_author_name, pr_author_email)
 
 
 def _get_branch_name(branch_name: str) -> str:
@@ -155,7 +165,9 @@ def detect_github_metadata() -> Dict[str, Any]:
             'author_name': str,
             'author_email': str,
             'pr_number': str,
-            'pr_name': str
+            'pr_name': str,
+            'pr_author_name': str,      # PR author (user who opened the PR)
+            'pr_author_email': str      # PR author email (if available)
         }
     """
     # Get GitHub environment variables
@@ -164,9 +176,8 @@ def detect_github_metadata() -> Dict[str, Any]:
     event_path = os.environ.get('GITHUB_EVENT_PATH', '')
 
     # Parse event payload if available
-    (base_sha, branch_name, pr_number, head_sha, pr_name) = (
-        _parse_github_event(event_name, event_path)
-    )
+    (base_sha, branch_name, pr_number, head_sha, pr_name,
+     pr_author_name, pr_author_email) = _parse_github_event(event_name, event_path)
 
     # For pull_request events, use the PR head SHA instead of the merge commit SHA
     # GITHUB_SHA points to a temporary merge commit in PR events, not the actual commit
@@ -201,7 +212,9 @@ def detect_github_metadata() -> Dict[str, Any]:
         'author_name': author_name or None,
         'author_email': author_email or None,
         'pr_number': pr_number or None,
-        'pr_name': pr_name or None
+        'pr_name': pr_name or None,
+        'pr_author_name': pr_author_name or None,
+        'pr_author_email': pr_author_email or None
     }
 
 
