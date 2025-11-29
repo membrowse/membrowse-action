@@ -158,7 +158,7 @@ membrowse onboard \
 
 ### GitHub Actions
 
-MemBrowse provides two composite GitHub Actions for seamless integration.
+MemBrowse provides GitHub Actions for seamless CI integration. The main action is available on the [GitHub Marketplace](https://github.com/marketplace/actions/membrowse-pr-memory-report).
 
 #### PR/Push Analysis
 
@@ -176,7 +176,7 @@ jobs:
         run: make all
 
       - name: Analyze memory
-        uses: membrowse/membrowse-action/pr-action@latest
+        uses: membrowse/membrowse-action@v1
         with:
           elf: build/firmware.elf
           ld: "src/linker.ld"
@@ -196,6 +196,8 @@ jobs:
 
 #### Historical Onboarding
 
+For onboarding historical commits, use the onboard action from the subdirectory:
+
 ```yaml
 name: Onboard to MemBrowse
 on: workflow_dispatch
@@ -209,7 +211,7 @@ jobs:
           fetch-depth: 0
 
       - name: Historical analysis
-        uses: membrowse/membrowse-action/onboard-action@latest
+        uses: membrowse/membrowse-action/onboard-action@v1
         with:
           num_commits: 50
           build_script: "make clean && make"
