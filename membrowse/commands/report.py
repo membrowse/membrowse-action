@@ -364,6 +364,8 @@ examples:
     git_group.add_argument('--author-email', help='Commit author email')
     git_group.add_argument('--pr-number', help='Pull request number')
     git_group.add_argument('--pr-name', help='Pull request name/title')
+    git_group.add_argument('--pr-author-name', help='Pull request author name')
+    git_group.add_argument('--pr-author-email', help='Pull request author email')
 
     # Performance options
     perf_group = parser.add_argument_group('performance options')
@@ -769,6 +771,8 @@ def run_report(args: argparse.Namespace) -> int:
         'author_email': 'author_email',
         'pr_number': 'pr_number',
         'pr_name': 'pr_name',
+        'pr_author_name': 'pr_author_name',
+        'pr_author_email': 'pr_author_email',
     }
 
     commit_info = {

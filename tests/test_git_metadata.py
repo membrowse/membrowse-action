@@ -26,13 +26,16 @@ class TestPullRequestMetadata:
             }
         }
 
-        base_sha, branch_name, pr_number, head_sha, pr_name = _parse_pull_request_event(event_data)
+        (base_sha, branch_name, pr_number, head_sha, pr_name,
+         pr_author_name, pr_author_email) = _parse_pull_request_event(event_data)
 
         assert base_sha == '789ghi012jkl'
         assert branch_name == 'feature-branch'
         assert pr_number == '123'
         assert head_sha == 'abc123def456'
         assert pr_name == ''  # No title in this test data
+        assert pr_author_name == ''  # No user in this test data
+        assert pr_author_email == ''
 
     def test_parse_pull_request_event_extracts_pr_name(self):
         """Test that _parse_pull_request_event extracts the PR name/title."""
@@ -51,13 +54,16 @@ class TestPullRequestMetadata:
             }
         }
 
-        base_sha, branch_name, pr_number, head_sha, pr_name = _parse_pull_request_event(event_data)
+        (base_sha, branch_name, pr_number, head_sha, pr_name,
+         pr_author_name, pr_author_email) = _parse_pull_request_event(event_data)
 
         assert base_sha == 'main456def'
         assert branch_name == 'feature-branch'
         assert pr_number == '456'
         assert head_sha == 'feature123abc'
         assert pr_name == 'Add awesome feature'
+        assert pr_author_name == ''  # No user in this test data
+        assert pr_author_email == ''
 
     def test_detect_github_metadata_uses_pr_head_sha(self):
         """Test that detect_github_metadata uses PR head SHA instead of merge commit."""

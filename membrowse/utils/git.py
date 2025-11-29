@@ -3,8 +3,19 @@
 import os
 import subprocess
 import json
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional, Dict, Any
+
+
+@dataclass
+class GitContext:
+    """Git context information for metadata building."""
+    commit_sha: str
+    parent_sha: Optional[str]
+    base_sha: str
+    branch_name: str
+    repo_name: str
 
 
 def run_git_command(command: list) -> Optional[str]:
@@ -41,7 +52,13 @@ def _parse_pull_request_event(event_data: Dict[str, Any]) -> tuple:
     pr_number = str(pr.get('number', ''))
     head_sha = pr.get('head', {}).get('sha', '')
     pr_name = pr.get('title', '')
-    return base_sha, branch_name, pr_number, head_sha, pr_name
+    # PR author info (user who opened the PR)
+    pr_user = pr.get('user', {})
+    pr_author_name = pr_user.get('login', '')
+    # Note: GitHub API doesn't expose email for privacy, use login as fallback
+    pr_author_email = ''
+    return (base_sha, branch_name, pr_number, head_sha, pr_name,
+            pr_author_name, pr_author_email)
 
 
 def _parse_push_event(event_data: Dict[str, Any]) -> tuple:
@@ -54,30 +71,34 @@ def _parse_push_event(event_data: Dict[str, Any]) -> tuple:
                          '--format=%(refname:short)', 'refs/heads/']) or
         os.environ.get('GITHUB_REF_NAME', 'unknown')
     )
-    return base_sha, branch_name, '', '', ''
+    # Push events don't have PR author info
+    return base_sha, branch_name, '', '', '', '', ''
 
 
 def _parse_github_event(event_name: str, event_path: str) -> tuple:
     """Parse GitHub event payload."""
     base_sha, branch_name, pr_number, head_sha, pr_name = '', '', '', '', ''
+    pr_author_name, pr_author_email = '', ''
 
     if not event_path or not os.path.exists(event_path):
-        return base_sha, branch_name, pr_number, head_sha, pr_name
+        return (base_sha, branch_name, pr_number, head_sha, pr_name,
+                pr_author_name, pr_author_email)
 
     try:
         with open(event_path, 'r', encoding='utf-8') as f:
             event_data = json.load(f)
 
         if event_name == 'pull_request':
-            (base_sha, branch_name, pr_number, head_sha, pr_name) = (
-                _parse_pull_request_event(event_data)
-            )
+            (base_sha, branch_name, pr_number, head_sha, pr_name,
+             pr_author_name, pr_author_email) = _parse_pull_request_event(event_data)
         elif event_name == 'push':
-            base_sha, branch_name, pr_number, head_sha, pr_name = _parse_push_event(event_data)
+            (base_sha, branch_name, pr_number, head_sha, pr_name,
+             pr_author_name, pr_author_email) = _parse_push_event(event_data)
     except Exception:  # pylint: disable=broad-exception-caught
         pass
 
-    return base_sha, branch_name, pr_number, head_sha, pr_name
+    return (base_sha, branch_name, pr_number, head_sha, pr_name,
+            pr_author_name, pr_author_email)
 
 
 def _get_branch_name(branch_name: str) -> str:
@@ -135,6 +156,32 @@ def _get_commit_details(commit_sha: str) -> tuple:
     return commit_message, commit_timestamp, author_name, author_email
 
 
+def _build_metadata_result(
+    git_context: GitContext,
+    commit_details: tuple,
+    pr_info: tuple
+) -> Dict[str, Any]:
+    """Build the metadata result dictionary."""
+    commit_message, commit_timestamp, author_name, author_email = commit_details
+    pr_number, pr_name, pr_author_name, pr_author_email = pr_info
+
+    return {
+        'commit_hash': git_context.commit_sha or None,
+        'parent_commit_hash': git_context.parent_sha or None,
+        'base_commit_hash': git_context.base_sha or None,
+        'branch_name': git_context.branch_name or None,
+        'repository': git_context.repo_name or None,
+        'commit_message': commit_message or None,
+        'commit_timestamp': commit_timestamp or None,
+        'author_name': author_name or None,
+        'author_email': author_email or None,
+        'pr_number': pr_number or None,
+        'pr_name': pr_name or None,
+        'pr_author_name': pr_author_name or None,
+        'pr_author_email': pr_author_email or None
+    }
+
+
 def detect_github_metadata() -> Dict[str, Any]:
     """
     Detect Git metadata from GitHub Actions environment.
@@ -155,7 +202,9 @@ def detect_github_metadata() -> Dict[str, Any]:
             'author_name': str,
             'author_email': str,
             'pr_number': str,
-            'pr_name': str
+            'pr_name': str,
+            'pr_author_name': str,      # PR author (user who opened the PR)
+            'pr_author_email': str      # PR author email (if available)
         }
     """
     # Get GitHub environment variables
@@ -164,9 +213,8 @@ def detect_github_metadata() -> Dict[str, Any]:
     event_path = os.environ.get('GITHUB_EVENT_PATH', '')
 
     # Parse event payload if available
-    (base_sha, branch_name, pr_number, head_sha, pr_name) = (
-        _parse_github_event(event_name, event_path)
-    )
+    (base_sha, branch_name, pr_number, head_sha, pr_name,
+     pr_author_name, pr_author_email) = _parse_github_event(event_name, event_path)
 
     # For pull_request events, use the PR head SHA instead of the merge commit SHA
     # GITHUB_SHA points to a temporary merge commit in PR events, not the actual commit
@@ -176,10 +224,6 @@ def detect_github_metadata() -> Dict[str, Any]:
     # Fallback: detect from git if not from GitHub env
     commit_sha = commit_sha or run_git_command(['rev-parse', 'HEAD']) or ''
     branch_name = _get_branch_name(branch_name)
-    repo_name = _get_repo_name()
-
-    # Get commit details
-    commit_message, commit_timestamp, author_name, author_email = _get_commit_details(commit_sha)
 
     # Get parent commit (actual git parent)
     parent_sha = get_parent_commit()
@@ -189,20 +233,18 @@ def detect_github_metadata() -> Dict[str, Any]:
     if event_name == 'push' and parent_sha:
         base_sha = parent_sha
 
-    # Return in metadata['git'] format
-    return {
-        'commit_hash': commit_sha or None,
-        'parent_commit_hash': parent_sha or None,
-        'base_commit_hash': base_sha or None,
-        'branch_name': branch_name or None,
-        'repository': repo_name or None,
-        'commit_message': commit_message or None,
-        'commit_timestamp': commit_timestamp or None,
-        'author_name': author_name or None,
-        'author_email': author_email or None,
-        'pr_number': pr_number or None,
-        'pr_name': pr_name or None
-    }
+    git_context = GitContext(
+        commit_sha=commit_sha,
+        parent_sha=parent_sha,
+        base_sha=base_sha,
+        branch_name=branch_name,
+        repo_name=_get_repo_name()
+    )
+    return _build_metadata_result(
+        git_context=git_context,
+        commit_details=_get_commit_details(commit_sha),
+        pr_info=(pr_number, pr_name, pr_author_name, pr_author_email)
+    )
 
 
 def get_commit_metadata(commit_sha: str) -> Dict[str, Any]:
