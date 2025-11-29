@@ -1,5 +1,5 @@
 name: 'MemBrowse PR Memory Report'
-description: 'Analyze memory footprint of embedded firmware and upload report to MemBrowse'
+description: 'Analyze memory footprint of embedded firmware and upload report to MemBrowse. For historical commit analysis, see the onboard-action in this repository.'
 author: 'MemBrowse'
 
 inputs:
@@ -55,12 +55,12 @@ runs:
       uses: actions/setup-python@v4
       with:
         python-version: '3.11'
-    
+
     - name: Install membrowse package
       shell: bash
       run: |
-        pip install ${{ github.action_path }}/..
-    
+        pip install ${{ github.action_path }}
+
     - name: Run memory analysis
       shell: bash
       run: |
