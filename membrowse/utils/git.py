@@ -3,8 +3,19 @@
 import os
 import subprocess
 import json
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional, Dict, Any
+
+
+@dataclass
+class GitContext:
+    """Git context information for metadata building."""
+    commit_sha: str
+    parent_sha: Optional[str]
+    base_sha: str
+    branch_name: str
+    repo_name: str
 
 
 def run_git_command(command: list) -> Optional[str]:
@@ -146,11 +157,7 @@ def _get_commit_details(commit_sha: str) -> tuple:
 
 
 def _build_metadata_result(
-    commit_sha: str,
-    parent_sha: Optional[str],
-    base_sha: str,
-    branch_name: str,
-    repo_name: str,
+    git_context: GitContext,
     commit_details: tuple,
     pr_info: tuple
 ) -> Dict[str, Any]:
@@ -159,11 +166,11 @@ def _build_metadata_result(
     pr_number, pr_name, pr_author_name, pr_author_email = pr_info
 
     return {
-        'commit_hash': commit_sha or None,
-        'parent_commit_hash': parent_sha or None,
-        'base_commit_hash': base_sha or None,
-        'branch_name': branch_name or None,
-        'repository': repo_name or None,
+        'commit_hash': git_context.commit_sha or None,
+        'parent_commit_hash': git_context.parent_sha or None,
+        'base_commit_hash': git_context.base_sha or None,
+        'branch_name': git_context.branch_name or None,
+        'repository': git_context.repo_name or None,
         'commit_message': commit_message or None,
         'commit_timestamp': commit_timestamp or None,
         'author_name': author_name or None,
@@ -226,12 +233,15 @@ def detect_github_metadata() -> Dict[str, Any]:
     if event_name == 'push' and parent_sha:
         base_sha = parent_sha
 
-    return _build_metadata_result(
+    git_context = GitContext(
         commit_sha=commit_sha,
         parent_sha=parent_sha,
         base_sha=base_sha,
         branch_name=branch_name,
-        repo_name=_get_repo_name(),
+        repo_name=_get_repo_name()
+    )
+    return _build_metadata_result(
+        git_context=git_context,
         commit_details=_get_commit_details(commit_sha),
         pr_info=(pr_number, pr_name, pr_author_name, pr_author_email)
     )
