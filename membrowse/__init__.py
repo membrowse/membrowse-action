@@ -12,7 +12,7 @@ from .core.analyzer import ELFAnalyzer
 from .core.models import Symbol, MemoryRegion, MemorySection, ELFMetadata
 from .linker.parser import parse_linker_scripts
 
-__version__ = "0.1.3"
+__version__ = "1.0.0"
 
 __all__ = [
     'ReportGenerator',

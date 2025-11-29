@@ -41,18 +41,18 @@ runs:
       uses: actions/setup-python@v4
       with:
         python-version: '3.11'
-    
+
     - name: Install membrowse package
       shell: bash
       run: |
         pip install --force-reinstall --no-cache-dir ${{ github.action_path }}/..
-    
+
     - name: Fetch full git history
       shell: bash
       run: |
         git fetch --unshallow || true
         git fetch --all
-    
+
     - name: Run historical analysis
       shell: bash
       run: |
