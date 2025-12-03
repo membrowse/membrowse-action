@@ -36,9 +36,9 @@ inputs:
     required: false
     default: ''
   verbose:
-    description: 'Enable verbose output including full API responses (default: false)'
+    description: 'Enable verbose output including full API responses (default: WARNING)'
     required: false
-    default: 'false'
+    default: 'WARNING'
   pr_author_name:
     description: 'PR author name (auto-detected from GitHub event if not provided)'
     required: false
@@ -65,6 +65,14 @@ runs:
       shell: bash
       run: |
         set -o pipefail
+
+        # Global args (before subcommand)
+        GLOBAL_ARGS=()
+        if [ "${{ inputs.verbose }}" != "WARNING" ]; then
+          GLOBAL_ARGS+=(--verbose "${{ inputs.verbose }}")
+        fi
+
+        # Subcommand args
         ARGS=(
           "${{ inputs.elf }}"
           "${{ inputs.ld }}"
@@ -85,10 +93,6 @@ runs:
           done
         fi
 
-        if [ "${{ inputs.verbose }}" = "true" ]; then
-          ARGS+=(--verbose)
-        fi
-
         # Add PR author info if provided
         if [ -n "${{ inputs.pr_author_name }}" ]; then
           ARGS+=(--pr-author-name "${{ inputs.pr_author_name }}")
@@ -100,9 +104,9 @@ runs:
         # Run report command and pipe to PR comment script if enabled
         if [ "${{ inputs.pr_comment }}" = "true" ]; then
           export GITHUB_TOKEN="${{ inputs.github_token || github.token }}"
-          membrowse report "${ARGS[@]}" --output-raw-response | python -m membrowse.utils.github_comment
+          membrowse "${GLOBAL_ARGS[@]}" report "${ARGS[@]}" --output-raw-response | python -m membrowse.utils.github_comment
         else
-          membrowse report "${ARGS[@]}"
+          membrowse "${GLOBAL_ARGS[@]}" report "${ARGS[@]}"
         fi
 
 branding:

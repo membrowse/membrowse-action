@@ -68,13 +68,12 @@ membrowse report \
   --all-symbols
 
 # With verbose output to see progress messages
-membrowse report \
+membrowse -v INFO report \
   build/firmware.elf \
-  "src/linker.ld src/memory.ld" \
-  --verbose
+  "src/linker.ld src/memory.ld"
 ```
 
-By default, this generates a **human-readable report** with memory regions, sections, and top symbols. Use `--json` to output structured JSON data instead. Use `--verbose` or `-v` to see progress messages (otherwise only warnings and errors are shown).
+By default, this generates a **human-readable report** with memory regions, sections, and top symbols. Use `--json` to output structured JSON data instead. Use `-v INFO` or `-v DEBUG` before the subcommand to see progress messages (default is `WARNING` which only shows warnings and errors).
 
 **Example output:**
 
@@ -185,7 +184,7 @@ jobs:
           # Optional inputs:
           # pr_comment: true                    # Post PR comments with memory changes (default: true)
           # dont_fail_on_alerts: true           # Continue even if budget alerts are detected (default: false)
-          # verbose: true                       # Show verbose output (default: false)
+          # verbose: INFO                       # Set logging level: DEBUG, INFO, or WARNING (default: WARNING)
 ```
 
 **Features:**
@@ -265,17 +264,17 @@ This outputs a JSON object with:
 
 ### Verbose Logging
 
-Control logging verbosity:
+Control logging verbosity with the global `-v/--verbose` flag (must come before the subcommand):
 
 ```bash
-# No flag: Only warnings and errors
+# Default (WARNING): Only warnings and errors
 membrowse report firmware.elf "linker.ld"
 
-# -v or --verbose: Show INFO messages (progress updates)
-membrowse report firmware.elf "linker.ld" --verbose
+# INFO: Show progress messages
+membrowse -v INFO report firmware.elf "linker.ld"
 
-# -v DEBUG: Show DEBUG messages (detailed analysis)
-membrowse report firmware.elf "linker.ld" -v DEBUG
+# DEBUG: Show detailed analysis information
+membrowse --verbose DEBUG report firmware.elf "linker.ld"
 ```
 
 ## Platform Support

@@ -54,6 +54,14 @@ For more help on a subcommand:
         """
     )
 
+    # Global verbose option (applies to all subcommands)
+    parser.add_argument(
+        '-v', '--verbose',
+        choices=['DEBUG', 'INFO', 'WARNING'],
+        default='WARNING',
+        help='Set logging verbosity level (default: WARNING)'
+    )
+
     # Create subparsers
     subparsers = parser.add_subparsers(
         title='subcommands',
@@ -79,19 +87,13 @@ def main() -> int:
     parser = create_parser()
     args = parser.parse_args()
 
-    # Configure logging based on verbose flag
-    # Messages go to stderr to keep stdout clean for JSON/output
-    # Default (no -v): WARNING level (only warnings and errors)
-    # -v or --verbose: INFO level (show progress, warnings, and errors)
-    # -v DEBUG or --verbose=DEBUG: DEBUG level (show all debug information)
-    verbose_arg = getattr(args, 'verbose', None)
-    if verbose_arg is None:
-        log_level = logging.WARNING
-    elif verbose_arg.upper() == 'DEBUG':
-        log_level = logging.DEBUG
-    else:
-        # Default for -v with no argument or -v INFO
-        log_level = logging.INFO
+    match args.verbose:
+        case "WARNING":
+            log_level = logging.WARNING
+        case "DEBUG":
+            log_level = logging.DEBUG
+        case _:
+            log_level = logging.INFO
 
     logging.basicConfig(
         level=log_level,

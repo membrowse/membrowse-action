@@ -30,9 +30,9 @@ inputs:
     required: false
     default: ''
   verbose:
-    description: 'Enable verbose output including full API responses (default: false)'
+    description: 'Set logging level: DEBUG, INFO, or WARNING (default: WARNING)'
     required: false
-    default: 'false'
+    default: 'WARNING'
 
 runs:
   using: 'composite'
@@ -56,6 +56,13 @@ runs:
     - name: Run historical analysis
       shell: bash
       run: |
+        # Global args (before subcommand)
+        GLOBAL_ARGS=()
+        if [ "${{ inputs.verbose }}" != "WARNING" ]; then
+          GLOBAL_ARGS+=(--verbose "${{ inputs.verbose }}")
+        fi
+
+        # Subcommand args
         ONBOARD_ARGS=(
           "${{ inputs.num_commits }}"
           "${{ inputs.build_script }}"
@@ -73,11 +80,7 @@ runs:
           done
         fi
 
-        if [ "${{ inputs.verbose }}" = "true" ]; then
-          ONBOARD_ARGS+=(--verbose)
-        fi
-
-        membrowse onboard "${ONBOARD_ARGS[@]}"
+        membrowse "${GLOBAL_ARGS[@]}" onboard "${ONBOARD_ARGS[@]}"
 
 branding:
   icon: 'clock'

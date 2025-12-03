@@ -24,7 +24,6 @@ DEFAULT_API_URL = 'https://www.membrowse.com'
 
 def print_upload_response(
     response_data: dict,
-    verbose: bool = False,
     base_url: str = None,
     target_name: str = None,
     commit_info: dict = None
@@ -54,10 +53,8 @@ def print_upload_response(
     else:
         logger.error("Upload failed")
 
-    # In verbose mode, log the full API response for debugging
-    if verbose:
-        logger.debug("Full API Response:")
-        logger.debug(json.dumps(response_data, indent=2))
+    logger.debug("Full API Response:")
+    logger.debug(json.dumps(response_data, indent=2))
 
     # Display API message if present
     api_message = response_data.get('message')
@@ -375,14 +372,6 @@ examples:
         help='Skip DWARF line program processing for faster analysis'
     )
     perf_group.add_argument(
-        '-v', '--verbose',
-        nargs='?',
-        const='INFO',
-        default=None,
-        metavar='LEVEL',
-        help='Enable verbose output. Use -v for INFO level, -v DEBUG for DEBUG level'
-    )
-    perf_group.add_argument(
         '--def',
         dest='linker_defs',
         action='append',
@@ -424,7 +413,6 @@ def generate_report(
     elf_path: str,
     ld_scripts: str,
     skip_line_program: bool = False,
-    verbose: bool = False,
     linker_variables: Optional[Dict[str, Any]] = None
 ) -> dict:
     """
@@ -434,7 +422,6 @@ def generate_report(
         elf_path: Path to ELF file
         ld_scripts: Space-separated linker script paths
         skip_line_program: Skip DWARF line program processing for faster analysis
-        verbose: Enable verbose output
         linker_variables: Optional dict of user-defined linker script variables
 
     Returns:
@@ -473,7 +460,7 @@ def generate_report(
             memory_regions_data,
             skip_line_program=skip_line_program
         )
-        report = generator.generate_report(verbose)
+        report = generator.generate_report()
     except Exception as e:  # pylint: disable=broad-exception-caught
         logger.error("Failed to generate memory report: %s", e)
         raise ValueError(f"Failed to generate memory report: {e}") from e
@@ -488,8 +475,6 @@ def upload_report(  # pylint: disable=too-many-arguments
     target_name: str,
     api_key: str,
     api_url: str = DEFAULT_API_URL,
-    *,
-    verbose: bool = False,
     build_failed: bool = None
 ) -> tuple[dict, str]:
     """
@@ -513,7 +498,6 @@ def upload_report(  # pylint: disable=too-many-arguments
         api_key: MemBrowse API key
         api_url: MemBrowse API base URL (e.g., 'https://www.membrowse.com')
                  The /api/upload endpoint suffix is added automatically
-        verbose: Enable verbose output (keyword-only)
         build_failed: Whether the build failed (keyword-only)
 
     Returns:
@@ -543,7 +527,6 @@ def upload_report(  # pylint: disable=too-many-arguments
     # Always print upload response details (success or failure)
     comparison_url = print_upload_response(
         response_data,
-        verbose=verbose,
         base_url=api_url,
         target_name=target_name,
         commit_info=commit_info
@@ -659,7 +642,6 @@ def _handle_upload_and_alerts(
     report: dict,
     args: argparse.Namespace,
     commit_info: dict,
-    verbose: bool
 ) -> int:
     """
     Handle report upload and budget alert checking.
@@ -680,7 +662,6 @@ def _handle_upload_and_alerts(
             target_name=getattr(args, 'target_name', None),
             api_key=getattr(args, 'api_key', None),
             api_url=getattr(args, 'api_url', DEFAULT_API_URL),
-            verbose=verbose,
         )
 
         # Check for budget alerts first to determine exit code
@@ -725,11 +706,6 @@ def run_report(args: argparse.Namespace) -> int:
     Returns:
         Exit code (0 for success, 1 for error)
     """
-    # Convert verbose argument to boolean for backward compatibility
-    # verbose can be None (no flag), 'INFO', or 'DEBUG'
-    verbose_arg = getattr(args, 'verbose', None)
-    verbose = verbose_arg is not None
-
     # Parse linker variable definitions
     linker_variables = _parse_linker_definitions(getattr(args, 'linker_defs', None))
 
@@ -739,7 +715,6 @@ def run_report(args: argparse.Namespace) -> int:
             elf_path=args.elf_path,
             ld_scripts=args.ld_scripts,
             skip_line_program=getattr(args, 'skip_line_program', False),
-            verbose=verbose,
             linker_variables=linker_variables
         )
     except ValueError as e:
@@ -788,4 +763,4 @@ def run_report(args: argparse.Namespace) -> int:
         commit_info = {k: commit_info.get(k) or v for k, v in detected_metadata.items()}
 
     # Upload report and handle alerts
-    return _handle_upload_and_alerts(report, args, commit_info, verbose)
+    return _handle_upload_and_alerts(report, args, commit_info)
