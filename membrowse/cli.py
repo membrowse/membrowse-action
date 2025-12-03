@@ -63,8 +63,8 @@ For more help on a subcommand:
     parser.add_argument(
         '-v', '--verbose',
         choices=LOG_LEVELS.keys(),
-        default=LOG_LEVELS.keys()[0],
-        help=f'Set logging verbosity level (default: {LOG_LEVELS.keys()[0]})'
+        default=list(LOG_LEVELS.keys())[0],
+        help=f'Set logging verbosity level (default: {list(LOG_LEVELS.keys())[0]})'
     )
 
     # Create subparsers
