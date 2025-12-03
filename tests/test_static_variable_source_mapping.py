@@ -97,7 +97,7 @@ class TestStaticVariableSourceMapping(unittest.TestCase):
             memory_regions_data=None,
             skip_line_program=False
         )
-        report = generator.generate_report(verbose=False)
+        report = generator.generate_report()
         return report
 
     def _find_foo_symbols(

@@ -40,7 +40,7 @@ class ReportGenerator:  # pylint: disable=too-few-public-methods
         self.elf_path = elf_path
         self.skip_line_program = skip_line_program
 
-    def generate_report(self, verbose: bool = False) -> Dict[str, Any]:
+    def generate_report(self) -> Dict[str, Any]:
         """Generate comprehensive memory report with performance tracking.
 
         Args:
@@ -72,18 +72,17 @@ class ReportGenerator:  # pylint: disable=too-few-public-methods
             total_time = time.time() - report_start_time
             symbols_with_source = sum(1 for s in symbols if s.source_file)
 
-            if verbose:
-                logger.info("Performance Summary:")
-                logger.info("  Total time: %.2fs", total_time)
-                logger.info("  Symbols processed: %d", len(symbols))
-                if symbols:
-                    logger.info("  Avg time per symbol: %.2fms",
-                                total_time / len(symbols) * 1000)
-                    logger.info("  Source mapping success: %.1f%%",
-                                symbols_with_source / len(symbols) * 100)
-                else:
-                    logger.info("  Avg time per symbol: 0ms")
-                    logger.info("  Source mapping success: 0%%")
+            logger.debug("Performance Summary:")
+            logger.debug("  Total time: %.2fs", total_time)
+            logger.debug("  Symbols processed: %d", len(symbols))
+            if symbols:
+                logger.debug("  Avg time per symbol: %.2fms",
+                            total_time / len(symbols) * 1000)
+                logger.debug("  Source mapping success: %.1f%%",
+                            symbols_with_source / len(symbols) * 100)
+            else:
+                logger.debug("  Avg time per symbol: 0ms")
+                logger.debug("  Source mapping success: 0%%")
 
             # Build final report
             report = {

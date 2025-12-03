@@ -12,6 +12,11 @@ import argparse
 from .commands.report import add_report_parser, run_report
 from .commands.onboard import add_onboard_parser, run_onboard
 
+LOG_LEVELS = {
+    "WARNING": logging.WARNING,
+    "DEBUG": logging.DEBUG,
+    "INFO": logging.INFO
+}
 
 def create_parser() -> argparse.ArgumentParser:
     """
@@ -54,6 +59,14 @@ For more help on a subcommand:
         """
     )
 
+    # Global verbose option (applies to all subcommands)
+    parser.add_argument(
+        '-v', '--verbose',
+        choices=LOG_LEVELS.keys(),
+        default=LOG_LEVELS.keys()[0],
+        help=f'Set logging verbosity level (default: {LOG_LEVELS.keys()[0]})'
+    )
+
     # Create subparsers
     subparsers = parser.add_subparsers(
         title='subcommands',
@@ -79,22 +92,8 @@ def main() -> int:
     parser = create_parser()
     args = parser.parse_args()
 
-    # Configure logging based on verbose flag
-    # Messages go to stderr to keep stdout clean for JSON/output
-    # Default (no -v): WARNING level (only warnings and errors)
-    # -v or --verbose: INFO level (show progress, warnings, and errors)
-    # -v DEBUG or --verbose=DEBUG: DEBUG level (show all debug information)
-    verbose_arg = getattr(args, 'verbose', None)
-    if verbose_arg is None:
-        log_level = logging.WARNING
-    elif verbose_arg.upper() == 'DEBUG':
-        log_level = logging.DEBUG
-    else:
-        # Default for -v with no argument or -v INFO
-        log_level = logging.INFO
-
     logging.basicConfig(
-        level=log_level,
+        level=LOG_LEVELS[args.verbose],
         format='%(levelname)s: %(message)s',
         stream=sys.stderr
     )

@@ -107,14 +107,6 @@ examples:
 
     # Optional flags
     parser.add_argument(
-        '-v', '--verbose',
-        nargs='?',
-        const='INFO',
-        default=None,
-        metavar='LEVEL',
-        help='Enable verbose output. Use -v for INFO level, -v DEBUG for DEBUG level'
-    )
-    parser.add_argument(
         '--def',
         dest='linker_defs',
         action='append',
@@ -176,16 +168,14 @@ def _get_commit_list(num_commits: int):
     return [c.strip() for c in commits_output.split('\n') if c.strip()]
 
 
-def _handle_build_failure(result, log_prefix, args):
+def _handle_build_failure(result, log_prefix, elf_path):
     """
     Handle build failure by logging output and creating empty report.
 
     Args:
         result: subprocess.CompletedProcess result
         log_prefix: Logging prefix string
-        args: Command-line arguments
-        commit_count: Current commit number
-        total_commits: Total number of commits
+        elf_path: Path to ELF file (for empty report)
 
     Returns:
         Empty report dictionary
@@ -194,20 +184,20 @@ def _handle_build_failure(result, log_prefix, args):
         "%s: Build failed with exit code %d, will upload empty report",
         log_prefix, result.returncode)
 
-    # Log build output (last 50 lines if too large)
+    # Log build output (last 50 lines at INFO level, full output at DEBUG)
     if result.stdout or result.stderr:
         logger.error("%s: Build output:", log_prefix)
         combined_output = (result.stdout or "") + (result.stderr or "")
         output_lines = combined_output.strip().split('\n')
-        if len(output_lines) > 50:
-            logger.error("... (showing last 50 lines) ...")
+        if len(output_lines) > 50 and not logger.isEnabledFor(logging.DEBUG):
+            logger.error("... (showing last 50 lines, use -v DEBUG for full output) ...")
             for line in output_lines[-50:]:
                 logger.error(line)
         else:
             for line in output_lines:
                 logger.error(line)
 
-    return _create_empty_report(args.elf_path)
+    return _create_empty_report(elf_path)
 
 
 def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-locals,too-many-statements,too-many-branches
@@ -220,12 +210,6 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
     Returns:
         Exit code (0 for success, 1 for error)
     """
-    # Convert verbose argument to boolean for backward compatibility
-    # verbose can be None (no flag), 'INFO', or 'DEBUG'
-    verbose_arg = getattr(args, 'verbose', None)
-    verbose = verbose_arg is not None
-    # Update args.verbose to be boolean for use in other functions
-    args.verbose = verbose
 
     logger.info("Starting historical memory analysis for %s", args.target_name)
     logger.info("Processing last %d commits", args.num_commits)
@@ -328,7 +312,7 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
         # Case 1: Build failed (non-zero exit code)
         if result.returncode != 0:
             report = _handle_build_failure(
-                result, log_prefix, args)
+                result, log_prefix, args.elf_path)
             build_failed = True
 
         # Case 2: Build returned success but ELF missing - treat as failed build
@@ -339,7 +323,7 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
                 log_prefix, args.elf_path)
 
             report = _handle_build_failure(
-                result, log_prefix, args)
+                result, log_prefix, args.elf_path)
             build_failed = True
 
         # Case 3: Build succeeded and files exist - generate report
@@ -351,7 +335,6 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
                     elf_path=args.elf_path,
                     ld_scripts=args.ld_scripts,
                     skip_line_program=False,
-                    verbose=args.verbose,
                     linker_variables=linker_variables
                 )
             except ValueError as e:
@@ -383,7 +366,6 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
                 target_name=args.target_name,
                 api_key=args.api_key,
                 api_url=args.api_url,
-                verbose=args.verbose,
                 build_failed=build_failed
             )
             if build_failed:

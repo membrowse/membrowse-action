@@ -61,7 +61,7 @@ class TestMicroPythonFirmware(unittest.TestCase):
                 str(self.firmware_path), memory_regions_data)
 
             # Generate the report
-            report = generator.generate_report(verbose=False)
+            report = generator.generate_report()
 
             # Write report to file
             with open(report_file_path, 'w', encoding='utf-8') as f:
@@ -574,7 +574,7 @@ class TestMicroPythonESP32Firmware(unittest.TestCase):
                 str(self.firmware_path), memory_regions_data)
 
             # Generate the report
-            report = generator.generate_report(verbose=False)
+            report = generator.generate_report()
 
             # Write report to file
             with open(report_file_path, 'w', encoding='utf-8') as f:

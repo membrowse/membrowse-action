@@ -301,14 +301,12 @@ class TestOnboardDefArgument(unittest.TestCase):
             'https://membrowse.com',
             '--def', 'FLASH_SIZE=512K',
             '--def', 'RAM_SIZE=128K',
-            '--verbose'
         ])
 
         self.assertIsNotNone(args.linker_defs)
         self.assertEqual(len(args.linker_defs), 2)
         self.assertEqual(args.linker_defs[0], 'FLASH_SIZE=512K')
         self.assertEqual(args.linker_defs[1], 'RAM_SIZE=128K')
-        self.assertTrue(args.verbose)
 
     def test_def_argument_optional_onboard(self):
         """Test that --def argument is optional in onboard command"""
