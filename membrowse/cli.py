@@ -12,6 +12,11 @@ import argparse
 from .commands.report import add_report_parser, run_report
 from .commands.onboard import add_onboard_parser, run_onboard
 
+LOG_LEVELS = {
+    "WARNING": logging.WARNING,
+    "DEBUG": logging.DEBUG,
+    "INFO": logging.INFO
+}
 
 def create_parser() -> argparse.ArgumentParser:
     """
@@ -57,9 +62,9 @@ For more help on a subcommand:
     # Global verbose option (applies to all subcommands)
     parser.add_argument(
         '-v', '--verbose',
-        choices=['DEBUG', 'INFO', 'WARNING'],
-        default='WARNING',
-        help='Set logging verbosity level (default: WARNING)'
+        choices=LOG_LEVELS.keys(),
+        default=LOG_LEVELS.keys()[0],
+        help=f'Set logging verbosity level (default: {LOG_LEVELS.keys()[0]})'
     )
 
     # Create subparsers
@@ -87,16 +92,8 @@ def main() -> int:
     parser = create_parser()
     args = parser.parse_args()
 
-    match args.verbose:
-        case "WARNING":
-            log_level = logging.WARNING
-        case "DEBUG":
-            log_level = logging.DEBUG
-        case _:
-            log_level = logging.INFO
-
     logging.basicConfig(
-        level=log_level,
+        level=LOG_LEVELS[args.verbose],
         format='%(levelname)s: %(message)s',
         stream=sys.stderr
     )
