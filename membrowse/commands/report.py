@@ -8,7 +8,7 @@ from importlib.metadata import version
 from typing import Dict, Any, Optional
 
 from ..utils.git import detect_github_metadata
-from ..utils.url import normalize_api_url, build_comparison_url
+from ..utils.url import normalize_api_url
 from ..utils.budget_alerts import iter_budget_alerts
 from ..utils.formatter import format_report_human_readable
 from ..linker.parser import LinkerScriptParser
@@ -22,21 +22,12 @@ logger = logging.getLogger(__name__)
 DEFAULT_API_URL = 'https://www.membrowse.com'
 
 
-def print_upload_response(
-    response_data: dict,
-    base_url: str = None,
-    target_name: str = None,
-    commit_info: dict = None
-) -> str:
+def print_upload_response(response_data: dict) -> str:
     """
     Print upload response details including changes summary and budget alerts.
 
     Args:
         response_data: The API response data from MemBrowse
-        verbose: If True, print full JSON response for debugging
-        base_url: Base URL of MemBrowse (for building comparison link)
-        target_name: Target name (for building comparison link)
-        commit_info: Git commit information (for building comparison link)
 
     Returns:
         str: Comparison URL if available, None otherwise
@@ -49,7 +40,7 @@ def print_upload_response(
         logger.info("Report uploaded successfully to MemBrowse")
 
         # Display comparison link if available and capture URL
-        comparison_url = _display_comparison_link(response_data, base_url, target_name, commit_info)
+        comparison_url = _display_comparison_link(response_data)
     else:
         logger.error("Upload failed")
 
@@ -181,46 +172,24 @@ def _display_upload_limit_error(response_data: dict) -> None:
         logger.error("  Billing period: %s to %s", period_start, period_end)
 
 
-def _display_comparison_link(
-    response_data: dict,
-    base_url: str,
-    target_name: str,
-    commit_info: dict
-) -> str:
+def _display_comparison_link(response_data: dict) -> str:
     """
-    Display link to build comparison page if all required data is available.
+    Display link to build comparison page from API response.
 
     Args:
         response_data: The API response data from MemBrowse
-        base_url: Base URL of MemBrowse
-        target_name: Target name
-        commit_info: Git commit information
 
     Returns:
-        str: Comparison URL if successfully built, None otherwise
+        str: Comparison URL from API response, or None if not available
     """
-    # Skip if any required parameters are missing
-    if not all([response_data, base_url, target_name, commit_info]):
+    if not response_data:
         return None
 
-    # Extract data from response
+    # Extract comparison URL directly from API response
     data = response_data.get('data', {})
-    project_id = data.get('project_id')
+    comparison_url = data.get('comparison_url')
 
-    # Extract commit hashes from commit_info
-    base_commit = commit_info.get('base_commit_hash')
-    head_commit = commit_info.get('commit_hash')
-
-    # Build comparison URL
-    comparison_url = build_comparison_url(
-        base_url,
-        project_id,
-        target_name,
-        base_commit,
-        head_commit
-    )
-
-    # Display URL if successfully built
+    # Display URL if available
     if comparison_url:
         logger.info("View build comparison: %s", comparison_url)
 
@@ -525,12 +494,7 @@ def upload_report(  # pylint: disable=too-many-arguments
     response_data = _perform_upload(enriched_report, api_key, api_url, log_prefix)
 
     # Always print upload response details (success or failure)
-    comparison_url = print_upload_response(
-        response_data,
-        base_url=api_url,
-        target_name=target_name,
-        commit_info=commit_info
-    )
+    comparison_url = print_upload_response(response_data)
 
     # Validate upload success
     _validate_upload_success(response_data, log_prefix)

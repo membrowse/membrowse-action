@@ -1,0 +1,36 @@
+name: 'MemBrowse PR Comment'
+description: 'Post a combined PR comment with memory analysis results from multiple targets'
+author: 'MemBrowse'
+
+inputs:
+  json_files:
+    description: 'Space-separated list of JSON report file paths or glob pattern (e.g., "reports/*.json")'
+    required: true
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install membrowse package
+      shell: bash
+      run: |
+        pip install --force-reinstall --no-cache-dir ${{ github.action_path }}/..
+
+    - name: Post combined PR comment
+      shell: bash
+      run: |
+        # Expand glob patterns and convert to array
+        shopt -s nullglob
+        FILES=(${{ inputs.json_files }})
+        shopt -u nullglob
+
+        # Invoke the existing Python module with all file paths
+        python -m membrowse.utils.github_comment_combined "${FILES[@]}"
+
+branding:
+  icon: 'message-circle'
+  color: 'purple'
