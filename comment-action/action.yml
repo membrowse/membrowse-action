@@ -29,7 +29,7 @@ runs:
         shopt -u nullglob
 
         # Invoke the existing Python module with all file paths
-        python -m membrowse.utils.github_comment_combined "${FILES[@]}"
+        python -m membrowse.utils.github_comment "${FILES[@]}"
 
 branding:
   icon: 'message-circle'

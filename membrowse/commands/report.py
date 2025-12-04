@@ -438,11 +438,12 @@ def generate_report(
     return report
 
 
-def upload_report(  # pylint: disable=too-many-arguments
+def upload_report(
     report: dict,
     commit_info: dict,
     target_name: str,
     api_key: str,
+    *,
     api_url: str = DEFAULT_API_URL,
     build_failed: bool = None
 ) -> tuple[dict, str]:
