@@ -12,7 +12,6 @@ from .github_common import (
     is_gh_cli_available,
     create_comment,
     build_memory_change_row,
-    check_pr_context,
     handle_comment_error,
     configure_logging,
 )
@@ -23,24 +22,48 @@ logger = logging.getLogger(__name__)
 COMMENT_MARKER = "<!-- membrowse-pr-comment -->"
 
 
+def _extract_pr_number(results: list[dict]) -> str:
+    """
+    Extract PR number from results.
+
+    Args:
+        results: List of result dicts
+
+    Returns:
+        PR number as string
+
+    Raises:
+        ValueError: If no PR number found in results
+    """
+    for result in results:
+        pr_number = result.get('pr_number')
+        if pr_number:
+            return str(pr_number)
+
+    raise ValueError("No PR number found in results")
+
+
 def post_combined_pr_comment(results: list[dict]) -> None:
     """
     Post a single PR comment with combined memory analysis results from multiple targets.
 
     Args:
-        results: List of result dicts, each containing comparison_url, api_response, target_name
+        results: List of result dicts, each containing comparison_url, api_response, target_name, pr_number
     """
-    if not check_pr_context():
-        return
-
     if not is_gh_cli_available():
         logger.warning("GitHub CLI (gh) not available, skipping PR comment")
+        return
+
+    try:
+        pr_number = _extract_pr_number(results)
+    except ValueError as e:
+        logger.warning("Cannot post PR comment: %s", e)
         return
 
     comment_body = _build_combined_comment_body(results)
 
     try:
-        create_comment(comment_body)
+        create_comment(comment_body, pr_number)
         logger.info("Created combined PR comment for %d targets", len(results))
     except subprocess.CalledProcessError as e:
         handle_comment_error(e, "PR comment")

@@ -678,7 +678,8 @@ def _handle_upload_and_alerts(
             output_data = {
                 'comparison_url': comparison_url or '',
                 'api_response': response_data or {},
-                'target_name': getattr(args, 'target_name', '')
+                'target_name': getattr(args, 'target_name', ''),
+                'pr_number': commit_info.get('pr_number', '')
             }
             print(json.dumps(output_data, indent=2))
             return exit_code
