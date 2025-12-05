@@ -66,3 +66,7 @@ zip-safe = false
 
 [tool.setuptools.package-data]
 membrowse = ["py.typed"]
+
+[tool.pylint.main]
+# Ignore import errors for test dependencies that may not be installed in all environments
+ignored-modules = ["pytest"]
