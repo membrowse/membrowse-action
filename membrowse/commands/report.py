@@ -438,7 +438,7 @@ def generate_report(
     return report
 
 
-def upload_report(
+def upload_report(  # pylint: disable=too-many-arguments
     report: dict,
     commit_info: dict,
     target_name: str,
