@@ -48,7 +48,8 @@ def post_combined_pr_comment(results: list[dict]) -> None:
     Post a single PR comment with combined memory analysis results from multiple targets.
 
     Args:
-        results: List of result dicts, each containing comparison_url, api_response, target_name, pr_number
+        results: List of result dicts, each containing comparison_url, api_response,
+            target_name, pr_number
     """
     if not is_gh_cli_available():
         logger.warning("GitHub CLI (gh) not available, skipping PR comment")

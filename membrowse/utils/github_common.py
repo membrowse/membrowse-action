@@ -1,7 +1,6 @@
 """Common GitHub utilities shared between comment modules."""
 
 import logging
-import os
 import subprocess
 from typing import Optional
 
