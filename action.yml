@@ -23,14 +23,6 @@ inputs:
     description: 'Continue even if budget alerts are detected (default: fail on alerts)'
     required: false
     default: 'false'
-  pr_comment:
-    description: 'Enable PR comment posting with memory changes (default: true)'
-    required: false
-    default: 'true'
-  github_token:
-    description: 'GitHub token for posting PR comments (defaults to automatic github.token)'
-    required: false
-    default: ${{ github.token }}
   linker_vars:
     description: 'Space-separated linker variable definitions (e.g., "__micropy_flash_size__=4096K RAM_START=0x20000000")'
     required: false
@@ -48,6 +40,11 @@ inputs:
     required: false
     default: ''
 
+outputs:
+  report_path:
+    description: 'Path to the generated JSON report file'
+    value: ${{ steps.analysis.outputs.report_path }}
+
 runs:
   using: 'composite'
   steps:
@@ -62,6 +59,7 @@ runs:
         pip install ${{ github.action_path }}
 
     - name: Run memory analysis
+      id: analysis
       shell: bash
       run: |
         set -o pipefail
@@ -101,13 +99,10 @@ runs:
           ARGS+=(--pr-author-email "${{ inputs.pr_author_email }}")
         fi
 
-        # Run report command and pipe to PR comment script if enabled
-        if [ "${{ inputs.pr_comment }}" = "true" ]; then
-          export GITHUB_TOKEN="${{ inputs.github_token || github.token }}"
-          membrowse "${GLOBAL_ARGS[@]}" report "${ARGS[@]}" --output-raw-response | python -m membrowse.utils.github_comment
-        else
-          membrowse "${GLOBAL_ARGS[@]}" report "${ARGS[@]}"
-        fi
+        # Run report command and save output to file
+        REPORT_PATH="${{ runner.temp }}/membrowse_${{ inputs.target_name }}.json"
+        membrowse "${GLOBAL_ARGS[@]}" report "${ARGS[@]}" --output-raw-response > "$REPORT_PATH"
+        echo "report_path=$REPORT_PATH" >> "$GITHUB_OUTPUT"
 
 branding:
   icon: 'bar-chart-2'

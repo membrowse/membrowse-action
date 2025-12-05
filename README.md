@@ -193,6 +193,60 @@ jobs:
 - Fails CI if memory budgets are exceeded (unless `dont_fail_on_alerts: true`)
 - Auto-detects Git metadata from GitHub Actions environment
 
+#### Multi-Target Combined Comments
+
+When analyzing multiple targets, use a matrix strategy with the comment action to post a single combined PR comment:
+
+```yaml
+name: Multi-Target Analysis
+on: pull_request
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target: [esp32, stm32f4, nrf52]
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Build firmware
+        run: make TARGET=${{ matrix.target }}
+
+      - name: Analyze memory
+        id: analyze
+        uses: membrowse/membrowse-action@v1
+        with:
+          elf: build/${{ matrix.target }}/firmware.elf
+          ld: "linker/${{ matrix.target }}.ld"
+          target_name: ${{ matrix.target }}
+          api_key: ${{ secrets.MEMBROWSE_API_KEY }}
+
+      - name: Upload report artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: report-${{ matrix.target }}
+          path: ${{ steps.analyze.outputs.report_path }}
+
+  comment:
+    needs: analyze
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Download all reports
+        uses: actions/download-artifact@v4
+        with:
+          path: reports
+          pattern: report-*
+          merge-multiple: true
+
+      - name: Post combined PR comment
+        uses: membrowse/membrowse-action/comment-action@v1
+        with:
+          json_files: "reports/*.json"
+```
+
 #### Historical Onboarding
 
 For onboarding historical commits, use the onboard action from the subdirectory:
