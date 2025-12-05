@@ -1,12 +1,12 @@
 """Tests for GitHub fork PR detection utilities."""
 
-import json
 import os
 import tempfile
 from unittest.mock import patch
 import pytest
 
-from membrowse.utils.github import is_fork_pr, get_fork_pr_context, ForkPRContext
+from membrowse.utils.github import is_fork_pr, get_fork_pr_context
+from tests.conftest import github_event_context, make_pr_event_data
 
 
 class TestIsForkPR:
@@ -14,12 +14,12 @@ class TestIsForkPR:
 
     def test_returns_false_for_non_pr_event(self):
         """Test that is_fork_pr returns False for push events."""
-        with patch.dict(os.environ, {'GITHUB_EVENT_NAME': 'push'}):
+        with patch.dict('os.environ', {'GITHUB_EVENT_NAME': 'push'}):
             assert is_fork_pr() is False
 
     def test_returns_false_when_event_path_missing(self):
         """Test that is_fork_pr returns False when GITHUB_EVENT_PATH is not set."""
-        with patch.dict(os.environ, {
+        with patch.dict('os.environ', {
             'GITHUB_EVENT_NAME': 'pull_request',
             'GITHUB_EVENT_PATH': ''
         }):
@@ -27,65 +27,25 @@ class TestIsForkPR:
 
     def test_returns_true_for_fork_pr(self):
         """Test that is_fork_pr returns True when PR is from a fork."""
-        event_data = {
-            'pull_request': {
-                'number': 123,
-                'head': {
-                    'repo': {'full_name': 'contributor/repo'},
-                    'sha': 'abc123',
-                    'ref': 'feature-branch'
-                },
-                'base': {
-                    'repo': {'full_name': 'owner/repo'},
-                    'sha': 'def456',
-                    'ref': 'main'
-                }
-            }
-        }
+        event_data = make_pr_event_data(
+            head_repo='contributor/repo',
+            base_repo='owner/repo',
+            head_ref='feature-branch'
+        )
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-            json.dump(event_data, f)
-            event_path = f.name
-
-        try:
-            with patch.dict(os.environ, {
-                'GITHUB_EVENT_NAME': 'pull_request',
-                'GITHUB_EVENT_PATH': event_path
-            }):
-                assert is_fork_pr() is True
-        finally:
-            os.unlink(event_path)
+        with github_event_context(event_data):
+            assert is_fork_pr() is True
 
     def test_returns_false_for_same_repo_pr(self):
         """Test that is_fork_pr returns False when PR is from same repo."""
-        event_data = {
-            'pull_request': {
-                'number': 123,
-                'head': {
-                    'repo': {'full_name': 'owner/repo'},
-                    'sha': 'abc123',
-                    'ref': 'feature-branch'
-                },
-                'base': {
-                    'repo': {'full_name': 'owner/repo'},
-                    'sha': 'def456',
-                    'ref': 'main'
-                }
-            }
-        }
+        event_data = make_pr_event_data(
+            head_repo='owner/repo',
+            base_repo='owner/repo',
+            head_ref='feature-branch'
+        )
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-            json.dump(event_data, f)
-            event_path = f.name
-
-        try:
-            with patch.dict(os.environ, {
-                'GITHUB_EVENT_NAME': 'pull_request',
-                'GITHUB_EVENT_PATH': event_path
-            }):
-                assert is_fork_pr() is False
-        finally:
-            os.unlink(event_path)
+        with github_event_context(event_data):
+            assert is_fork_pr() is False
 
     def test_returns_false_on_invalid_json(self):
         """Test that is_fork_pr returns False for invalid JSON."""
@@ -94,7 +54,7 @@ class TestIsForkPR:
             event_path = f.name
 
         try:
-            with patch.dict(os.environ, {
+            with patch.dict('os.environ', {
                 'GITHUB_EVENT_NAME': 'pull_request',
                 'GITHUB_EVENT_PATH': event_path
             }):
@@ -108,46 +68,29 @@ class TestGetForkPRContext:
 
     def test_extracts_all_fields(self):
         """Test that get_fork_pr_context extracts all required fields."""
-        event_data = {
-            'pull_request': {
-                'number': 456,
-                'user': {'login': 'contributor'},
-                'head': {
-                    'repo': {'full_name': 'contributor/repo'},
-                    'sha': 'abc123def456',
-                    'ref': 'feature-branch'
-                },
-                'base': {
-                    'repo': {'full_name': 'owner/repo'},
-                    'sha': 'base789xyz',
-                    'ref': 'main'
-                }
-            }
-        }
+        event_data = make_pr_event_data(
+            head_repo='contributor/repo',
+            base_repo='owner/repo',
+            head_sha='abc123def456',
+            base_sha='base789xyz',
+            head_ref='feature-branch',
+            pr_number=456,
+            pr_author='contributor'
+        )
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-            json.dump(event_data, f)
-            event_path = f.name
+        with github_event_context(event_data):
+            context = get_fork_pr_context()
 
-        try:
-            with patch.dict(os.environ, {
-                'GITHUB_EVENT_NAME': 'pull_request',
-                'GITHUB_EVENT_PATH': event_path
-            }):
-                context = get_fork_pr_context()
-
-                assert context.pr_number == 456
-                assert context.fork_repo_full_name == 'contributor/repo'
-                assert context.base_repo_full_name == 'owner/repo'
-                assert context.head_sha == 'abc123def456'
-                assert context.pr_author_login == 'contributor'
-                assert context.branch_name == 'feature-branch'
-        finally:
-            os.unlink(event_path)
+            assert context.pr_number == 456
+            assert context.fork_repo_full_name == 'contributor/repo'
+            assert context.base_repo_full_name == 'owner/repo'
+            assert context.head_sha == 'abc123def456'
+            assert context.pr_author_login == 'contributor'
+            assert context.branch_name == 'feature-branch'
 
     def test_raises_on_missing_event_path(self):
         """Test that get_fork_pr_context raises ValueError when event path is missing."""
-        with patch.dict(os.environ, {
+        with patch.dict('os.environ', {
             'GITHUB_EVENT_NAME': 'pull_request',
             'GITHUB_EVENT_PATH': ''
         }):
@@ -159,20 +102,10 @@ class TestGetForkPRContext:
         """Test that get_fork_pr_context raises ValueError when PR data is missing."""
         event_data = {'action': 'opened'}  # No pull_request key
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-            json.dump(event_data, f)
-            event_path = f.name
-
-        try:
-            with patch.dict(os.environ, {
-                'GITHUB_EVENT_NAME': 'pull_request',
-                'GITHUB_EVENT_PATH': event_path
-            }):
-                with pytest.raises(ValueError) as exc_info:
-                    get_fork_pr_context()
-                assert 'No pull_request data' in str(exc_info.value)
-        finally:
-            os.unlink(event_path)
+        with github_event_context(event_data):
+            with pytest.raises(ValueError) as exc_info:
+                get_fork_pr_context()
+            assert 'No pull_request data' in str(exc_info.value)
 
     def test_raises_on_missing_required_fields(self):
         """Test that get_fork_pr_context raises ValueError for missing required fields."""
@@ -185,17 +118,7 @@ class TestGetForkPRContext:
             }
         }
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-            json.dump(event_data, f)
-            event_path = f.name
-
-        try:
-            with patch.dict(os.environ, {
-                'GITHUB_EVENT_NAME': 'pull_request',
-                'GITHUB_EVENT_PATH': event_path
-            }):
-                with pytest.raises(ValueError) as exc_info:
-                    get_fork_pr_context()
-                assert 'Missing required fields' in str(exc_info.value)
-        finally:
-            os.unlink(event_path)
+        with github_event_context(event_data):
+            with pytest.raises(ValueError) as exc_info:
+                get_fork_pr_context()
+            assert 'Missing required fields' in str(exc_info.value)

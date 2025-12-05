@@ -111,5 +111,8 @@ def determine_auth_strategy(
     # No valid authentication available
     error_msg = "--api-key is required when using --upload or --github"
     if auto_detect_fork:
-        error_msg += ". For fork PRs to public repositories, api_key can be omitted to use tokenless upload."
+        error_msg += (
+            ". For fork PRs to public repositories, "
+            "api_key can be omitted to use tokenless upload."
+        )
     raise ValueError(error_msg)

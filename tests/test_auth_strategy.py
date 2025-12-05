@@ -1,8 +1,5 @@
 """Tests for authentication strategy implementation."""
 
-import json
-import os
-import tempfile
 from unittest.mock import patch
 import pytest
 
@@ -13,6 +10,7 @@ from membrowse.auth.strategy import (
     _fork_context_to_dict
 )
 from membrowse.utils.github import ForkPRContext
+from tests.conftest import github_event_context, make_pr_event_data
 
 
 class TestAuthContext:
@@ -57,7 +55,7 @@ class TestAuthContext:
             api_key='test-key'
         )
         additions = context.get_metadata_additions()
-        assert additions == {}
+        assert not additions
 
     def test_get_metadata_additions_tokenless(self):
         """Test that tokenless auth returns github_context in metadata."""
@@ -77,7 +75,7 @@ class TestAuthContext:
         assert additions['github_context']['repository'] == 'owner/repo'
 
 
-class TestForkContextToDict:
+class TestForkContextToDict:  # pylint: disable=too-few-public-methods
     """Test fork context conversion."""
 
     def test_converts_all_fields(self):
@@ -117,82 +115,39 @@ class TestDetermineAuthStrategy:
 
     def test_tokenless_for_fork_pr_without_api_key(self):
         """Test tokenless auth when in fork PR without API key."""
-        event_data = {
-            'pull_request': {
-                'number': 123,
-                'user': {'login': 'contributor'},
-                'head': {
-                    'repo': {'full_name': 'contributor/repo'},
-                    'sha': 'abc123',
-                    'ref': 'feature'
-                },
-                'base': {
-                    'repo': {'full_name': 'owner/repo'},
-                    'sha': 'def456',
-                    'ref': 'main'
-                }
-            }
-        }
+        event_data = make_pr_event_data(
+            head_repo='contributor/repo',
+            base_repo='owner/repo',
+            pr_number=123
+        )
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-            json.dump(event_data, f)
-            event_path = f.name
+        with github_event_context(event_data):
+            context = determine_auth_strategy(
+                api_key=None,
+                auto_detect_fork=True
+            )
 
-        try:
-            with patch.dict(os.environ, {
-                'GITHUB_EVENT_NAME': 'pull_request',
-                'GITHUB_EVENT_PATH': event_path
-            }):
-                context = determine_auth_strategy(
-                    api_key=None,
-                    auto_detect_fork=True
-                )
-
-                assert context.auth_type == AuthType.GITHUB_TOKENLESS
-                assert context.api_key is None
-                assert context.github_context is not None
-                assert context.github_context['pr_number'] == 123
-                assert context.github_context['repository'] == 'owner/repo'
-                assert context.github_context['fork_repository'] == 'contributor/repo'
-        finally:
-            os.unlink(event_path)
+            assert context.auth_type == AuthType.GITHUB_TOKENLESS
+            assert context.api_key is None
+            assert context.github_context is not None
+            assert context.github_context['pr_number'] == 123
+            assert context.github_context['repository'] == 'owner/repo'
+            assert context.github_context['fork_repository'] == 'contributor/repo'
 
     def test_raises_when_no_api_key_and_not_fork_pr(self):
         """Test that ValueError is raised when no API key and not a fork PR."""
-        # Same-repo PR
-        event_data = {
-            'pull_request': {
-                'number': 123,
-                'head': {
-                    'repo': {'full_name': 'owner/repo'},
-                    'sha': 'abc123',
-                    'ref': 'feature'
-                },
-                'base': {
-                    'repo': {'full_name': 'owner/repo'},
-                    'sha': 'def456',
-                    'ref': 'main'
-                }
-            }
-        }
+        event_data = make_pr_event_data(
+            head_repo='owner/repo',
+            base_repo='owner/repo'
+        )
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-            json.dump(event_data, f)
-            event_path = f.name
-
-        try:
-            with patch.dict(os.environ, {
-                'GITHUB_EVENT_NAME': 'pull_request',
-                'GITHUB_EVENT_PATH': event_path
-            }):
-                with pytest.raises(ValueError) as exc_info:
-                    determine_auth_strategy(
-                        api_key=None,
-                        auto_detect_fork=True
-                    )
-                assert '--api-key is required' in str(exc_info.value)
-        finally:
-            os.unlink(event_path)
+        with github_event_context(event_data):
+            with pytest.raises(ValueError) as exc_info:
+                determine_auth_strategy(
+                    api_key=None,
+                    auto_detect_fork=True
+                )
+            assert '--api-key is required' in str(exc_info.value)
 
     def test_raises_when_no_api_key_and_auto_detect_disabled(self):
         """Test that ValueError is raised when no API key and auto-detect disabled."""
@@ -205,7 +160,7 @@ class TestDetermineAuthStrategy:
 
     def test_error_message_mentions_fork_pr_when_github_mode(self):
         """Test that error message mentions fork PR support when in GitHub mode."""
-        with patch.dict(os.environ, {
+        with patch.dict('os.environ', {
             'GITHUB_EVENT_NAME': 'push',  # Not a PR
         }):
             with pytest.raises(ValueError) as exc_info:
