@@ -3,6 +3,7 @@
 import logging
 import os
 import subprocess
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +80,7 @@ def create_comment(body: str) -> None:
     )
 
 
-def build_memory_change_row(region: dict) -> dict | None:
+def build_memory_change_row(region: dict) -> Optional[dict]:
     """
     Build a single table row for memory changes.
 
