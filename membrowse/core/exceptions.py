@@ -33,3 +33,11 @@ class SectionAnalysisError(ELFAnalysisError):
 
 class MemoryRegionMappingError(ELFAnalysisError):
     """Exception raised when memory region mapping fails"""
+
+
+class AuthenticationError(Exception):
+    """Base exception for authentication errors"""
+
+
+class ForkPRContextError(AuthenticationError):
+    """Exception raised when fork PR context cannot be determined"""

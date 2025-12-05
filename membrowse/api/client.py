@@ -5,12 +5,15 @@ Provides MemBrowseUploader class for uploading memory analysis reports
 to the MemBrowse API using the requests library.
 """
 
+import copy
 import logging
 import time
 from importlib.metadata import version
 from typing import Dict, Any
 
 import requests
+
+from ..auth.strategy import AuthContext
 
 logger = logging.getLogger(__name__)
 
@@ -20,15 +23,22 @@ PACKAGE_VERSION = version('membrowse')
 class MemBrowseUploader:  # pylint: disable=too-few-public-methods
     """Handles uploading reports to MemBrowse API"""
 
-    def __init__(self, api_key: str, api_endpoint: str):
-        self.api_key = api_key
+    def __init__(self, auth_context: AuthContext, api_endpoint: str):
+        """
+        Initialize uploader with authentication context.
+
+        Args:
+            auth_context: Authentication context with strategy and credentials
+            api_endpoint: API endpoint URL
+        """
+        self.auth_context = auth_context
         self.api_endpoint = api_endpoint
         self.session = requests.Session()
-        self.session.headers.update({
-            'Authorization': f'Bearer {self.api_key}',
-            'Content-Type': 'application/json',
-            'User-Agent': f'MemBrowse-Action/{PACKAGE_VERSION}'
-        })
+
+        # Build headers based on auth strategy
+        headers = auth_context.build_headers()
+        headers['User-Agent'] = f'MemBrowse-Action/{PACKAGE_VERSION}'
+        self.session.headers.update(headers)
 
     def upload_report(self, report_data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -46,6 +56,16 @@ class MemBrowseUploader:  # pylint: disable=too-few-public-methods
             requests.exceptions.RequestException: For other request errors
             json.JSONDecodeError: If response cannot be parsed as JSON
         """
+        # Create a copy to avoid mutating the input
+        report_to_send = copy.deepcopy(report_data)
+
+        # Add auth-specific metadata (e.g., github_context for tokenless uploads)
+        metadata_additions = self.auth_context.get_metadata_additions()
+        if metadata_additions:
+            if 'metadata' not in report_to_send:
+                report_to_send['metadata'] = {}
+            report_to_send['metadata'].update(metadata_additions)
+
         max_attempts = 3
         retry_delay = 5  # seconds
         timeout_seconds = 60
@@ -54,7 +74,7 @@ class MemBrowseUploader:  # pylint: disable=too-few-public-methods
             try:
                 response = self.session.post(
                     self.api_endpoint,
-                    json=report_data,
+                    json=report_to_send,
                     timeout=timeout_seconds
                 )
                 response.raise_for_status()

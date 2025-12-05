@@ -192,6 +192,46 @@ jobs:
 - Posts PR comments showing memory changes, budget alerts, and comparison links (enabled by default)
 - Fails CI if memory budgets are exceeded (unless `dont_fail_on_alerts: true`)
 - Auto-detects Git metadata from GitHub Actions environment
+- **Fork PR Support**: For public repositories, fork PRs can upload reports without an API key (tokenless mode)
+
+#### Fork PR Support (Public Repositories)
+
+Fork PRs cannot access repository secrets like `MEMBROWSE_API_KEY`. For public repositories, MemBrowse supports **tokenless uploads** that authenticate using GitHub's pull request context.
+
+```yaml
+name: Memory Analysis
+on: pull_request
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Build firmware
+        run: make all
+
+      - name: Analyze memory
+        uses: membrowse/membrowse-action@v1
+        with:
+          elf: build/firmware.elf
+          ld: "src/linker.ld"
+          target_name: stm32f4
+          # api_key not required for fork PRs to public repos!
+```
+
+**How it works:**
+- When running in a fork PR context without an API key, the action automatically uses tokenless upload mode
+- The server validates the upload using GitHub's PR metadata (repository, PR number, commit SHA, author)
+- This only works for **public repositories** - private repos always require an API key
+
+**Behavior Summary:**
+| Context | API Key | Upload Mode |
+|---------|---------|-------------|
+| Fork PR | None | Tokenless (public repos only) |
+| Fork PR | Provided | Authenticated |
+| Same-repo PR | Required | Authenticated |
+| Push event | Required | Authenticated |
 
 #### Multi-Target Combined Comments
 
