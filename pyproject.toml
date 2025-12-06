@@ -60,9 +60,10 @@ Changelog = "https://github.com/membrowse/membrowse-action/blob/main/CHANGELOG.m
 [project.scripts]
 membrowse = "membrowse.cli:main"
 
-[tool.setuptools]
-packages = ["membrowse", "membrowse.core", "membrowse.analysis", "membrowse.linker", "membrowse.api", "membrowse.commands", "membrowse.utils"]
-zip-safe = false
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["membrowse*"]
+exclude = ["tests*"]
 
 [tool.setuptools.package-data]
 membrowse = ["py.typed"]
