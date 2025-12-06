@@ -3,3 +3,4 @@
 *.elf
 !tests/fixtures/**/*.elf
 *.out
+membrowse.egg-info

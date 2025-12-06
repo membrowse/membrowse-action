@@ -11,9 +11,11 @@ from ..utils.git import detect_github_metadata
 from ..utils.url import normalize_api_url
 from ..utils.budget_alerts import iter_budget_alerts
 from ..utils.formatter import format_report_human_readable
+from ..utils.github import is_fork_pr
 from ..linker.parser import LinkerScriptParser
 from ..core.generator import ReportGenerator
 from ..api.client import MemBrowseUploader
+from ..auth.strategy import determine_auth_strategy
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -219,22 +221,37 @@ def _validate_file_paths(elf_path: str, ld_script_paths: list[str]) -> tuple[boo
     return True, ""
 
 
-def _validate_upload_arguments(api_key: str, target_name: str) -> tuple[bool, str]:
+def _validate_upload_arguments(
+    api_key: Optional[str],
+    target_name: str,
+    is_github_mode: bool = False
+) -> tuple[bool, str]:
     """
     Validate arguments required for uploading reports.
 
     Args:
-        api_key: API key for upload
+        api_key: Optional API key for upload
         target_name: Target name for upload
+        is_github_mode: Whether --github flag is set (enables tokenless for fork PRs)
 
     Returns:
         Tuple of (is_valid, error_message)
     """
-    if not api_key:
-        return False, "--api-key is required when using --upload or --github"
-
+    # Target name always required for uploads
     if not target_name:
         return False, "--target-name is required when using --upload or --github"
+
+    # In GitHub mode, allow tokenless for fork PRs
+    if is_github_mode and not api_key and is_fork_pr():
+        logger.info("Fork PR detected without API key - will use tokenless upload")
+        return True, ""
+
+    # Otherwise API key is required
+    if not api_key:
+        error_msg = "--api-key is required when using --upload or --github"
+        if is_github_mode:
+            error_msg += ". For fork PRs to public repositories, api_key can be omitted."
+        return False, error_msg
 
     return True, ""
 
@@ -442,10 +459,11 @@ def upload_report(  # pylint: disable=too-many-arguments
     report: dict,
     commit_info: dict,
     target_name: str,
-    api_key: str,
+    api_key: Optional[str],
     *,
     api_url: str = DEFAULT_API_URL,
-    build_failed: bool = None
+    build_failed: bool = None,
+    is_github_mode: bool = False
 ) -> tuple[dict, str]:
     """
     Upload a memory footprint report to MemBrowse platform.
@@ -465,10 +483,11 @@ def upload_report(  # pylint: disable=too-many-arguments
                 'pr_number': str
             }
         target_name: Build configuration/target (e.g., esp32, stm32, x86)
-        api_key: MemBrowse API key
+        api_key: MemBrowse API key (None for tokenless fork PR uploads)
         api_url: MemBrowse API base URL (e.g., 'https://www.membrowse.com')
                  The /api/upload endpoint suffix is added automatically
         build_failed: Whether the build failed (keyword-only)
+        is_github_mode: Whether --github flag is set (enables tokenless for fork PRs)
 
     Returns:
         tuple[dict, str]: (API response data, comparison URL if available)
@@ -478,7 +497,9 @@ def upload_report(  # pylint: disable=too-many-arguments
         RuntimeError: If upload fails
     """
     # Validate upload arguments
-    is_valid, error_message = _validate_upload_arguments(api_key, target_name)
+    is_valid, error_message = _validate_upload_arguments(
+        api_key, target_name, is_github_mode=is_github_mode
+    )
     if not is_valid:
         raise ValueError(error_message)
 
@@ -492,7 +513,9 @@ def upload_report(  # pylint: disable=too-many-arguments
     enriched_report = _build_enriched_report(report, commit_info, target_name, build_failed)
 
     # Upload to MemBrowse
-    response_data = _perform_upload(enriched_report, api_key, api_url, log_prefix)
+    response_data = _perform_upload(
+        enriched_report, api_key, api_url, log_prefix, is_github_mode=is_github_mode
+    )
 
     # Always print upload response details (success or failure)
     comparison_url = print_upload_response(response_data)
@@ -535,13 +558,24 @@ def _build_enriched_report(
     }
 
 
-def _perform_upload(enriched_report: dict, api_key: str, api_url: str, log_prefix: str) -> dict:
+def _perform_upload(
+    enriched_report: dict,
+    api_key: Optional[str],
+    api_url: str,
+    log_prefix: str,
+    is_github_mode: bool = False
+) -> dict:
     """Perform the actual upload to MemBrowse."""
     # Normalize API URL (append /api/upload)
     upload_endpoint = normalize_api_url(api_url)
 
     try:
-        uploader = MemBrowseUploader(api_key, upload_endpoint)
+        # Determine authentication strategy
+        auth_context = determine_auth_strategy(
+            api_key=api_key,
+            auto_detect_fork=is_github_mode
+        )
+        uploader = MemBrowseUploader(auth_context, upload_endpoint)
         return uploader.upload_report(enriched_report)
     except Exception as e:  # pylint: disable=broad-exception-caught
         logger.error("%s: Failed to upload report to %s: %s", log_prefix, upload_endpoint, e)
@@ -627,6 +661,7 @@ def _handle_upload_and_alerts(
             target_name=getattr(args, 'target_name', None),
             api_key=getattr(args, 'api_key', None),
             api_url=getattr(args, 'api_url', DEFAULT_API_URL),
+            is_github_mode=getattr(args, 'github', False),
         )
 
         # Check for budget alerts first to determine exit code
@@ -643,7 +678,8 @@ def _handle_upload_and_alerts(
             output_data = {
                 'comparison_url': comparison_url or '',
                 'api_response': response_data or {},
-                'target_name': getattr(args, 'target_name', '')
+                'target_name': getattr(args, 'target_name', ''),
+                'pr_number': commit_info.get('pr_number', '')
             }
             print(json.dumps(output_data, indent=2))
             return exit_code

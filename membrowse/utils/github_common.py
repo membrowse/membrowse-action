@@ -1,7 +1,6 @@
 """Common GitHub utilities shared between comment modules."""
 
 import logging
-import os
 import subprocess
 from typing import Optional
 
@@ -26,54 +25,45 @@ def is_gh_cli_available() -> bool:
         return False
 
 
-def get_pr_number() -> str:
+def get_pr_number(pr_number: Optional[str] = None) -> str:
     """
-    Extract PR number from GITHUB_REF environment variable.
+    Get PR number from provided value.
+
+    Args:
+        pr_number: PR number (e.g., from JSON report file)
 
     Returns:
         str: PR number
 
     Raises:
-        ValueError: If PR number cannot be determined from GITHUB_REF
+        ValueError: If PR number is not provided or invalid
     """
-    github_ref = os.environ.get('GITHUB_REF', '')
+    if not pr_number:
+        raise ValueError("PR number is required")
 
-    if not github_ref.startswith('refs/pull/'):
-        raise ValueError(
-            f"Cannot determine PR number: GITHUB_REF='{github_ref}' "
-            "does not match expected format 'refs/pull/<number>/merge'"
-        )
+    pr_str = str(pr_number).strip()
+    if not pr_str.isdigit():
+        raise ValueError(f"Invalid PR number: {pr_number}")
 
-    parts = github_ref.split('/')
-    if len(parts) < 3:
-        raise ValueError(
-            f"Cannot parse PR number from GITHUB_REF='{github_ref}'"
-        )
-
-    pr_number = parts[2]
-    if not pr_number.isdigit():
-        raise ValueError(
-            f"Invalid PR number '{pr_number}' extracted from GITHUB_REF='{github_ref}'"
-        )
-
-    return pr_number
+    return pr_str
 
 
-def create_comment(body: str) -> None:
+def create_comment(body: str, pr_number: Optional[str] = None) -> None:
     """
     Create a new PR comment using GitHub CLI.
 
     Args:
         body: The markdown content for the comment
+        pr_number: Optional PR number override (for workflow_run context)
 
     Raises:
         subprocess.CalledProcessError: If gh command fails
         ValueError: If PR number cannot be determined
     """
-    pr_number = get_pr_number()
+    pr_num = get_pr_number(pr_number)
 
     subprocess.run(
-        ['gh', 'pr', 'comment', pr_number, '--body', body],
+        ['gh', 'pr', 'comment', pr_num, '--body', body],
         check=True,
         capture_output=True,
         timeout=GH_COMMENT_TIMEOUT
@@ -135,20 +125,6 @@ def handle_comment_error(error: Exception, context: str = "PR comment") -> None:
         logger.warning(error_msg)
     else:
         logger.warning("Failed to post %s: %s", context, error)
-
-
-def check_pr_context() -> bool:
-    """
-    Check if we're running in a PR context.
-
-    Returns:
-        True if in a PR context, False otherwise
-    """
-    event_name = os.environ.get('GITHUB_EVENT_NAME', '')
-    if event_name != 'pull_request':
-        logger.debug("Not a pull request event (%s), skipping PR comment", event_name)
-        return False
-    return True
 
 
 def configure_logging() -> None:
