@@ -1,5 +1,6 @@
 """Common GitHub utilities shared between comment modules."""
 
+import json
 import logging
 import subprocess
 from typing import Optional
@@ -9,6 +10,7 @@ logger = logging.getLogger(__name__)
 # Timeout constants for subprocess calls (in seconds)
 GH_VERSION_TIMEOUT = 5
 GH_COMMENT_TIMEOUT = 30
+GH_LIST_COMMENTS_TIMEOUT = 30
 
 
 def is_gh_cli_available() -> bool:
@@ -48,6 +50,69 @@ def get_pr_number(pr_number: Optional[str] = None) -> str:
     return pr_str
 
 
+def find_existing_comment(pr_number: str, marker: str) -> Optional[int]:
+    """
+    Find an existing comment containing the specified marker.
+
+    Args:
+        pr_number: The PR number to search comments in
+        marker: The unique marker string to search for
+
+    Returns:
+        The comment ID if found, None otherwise
+    """
+    try:
+        # Use gh api to list PR comments
+        result = subprocess.run(
+            ['gh', 'api', f'repos/{{owner}}/{{repo}}/issues/{pr_number}/comments',
+             '--jq', '.[] | {id, body}'],
+            check=True,
+            capture_output=True,
+            timeout=GH_LIST_COMMENTS_TIMEOUT
+        )
+
+        output = result.stdout.decode('utf-8').strip()
+        if not output:
+            return None
+
+        # Parse each JSON object (one per line)
+        for line in output.split('\n'):
+            if not line.strip():
+                continue
+            try:
+                comment = json.loads(line)
+                if marker in comment.get('body', ''):
+                    return comment['id']
+            except json.JSONDecodeError:
+                continue
+
+        return None
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+        logger.debug("Failed to list comments: %s", e)
+        return None
+
+
+def update_comment(comment_id: int, body: str) -> None:
+    """
+    Update an existing comment using GitHub CLI.
+
+    Args:
+        comment_id: The ID of the comment to update
+        body: The new markdown content for the comment
+
+    Raises:
+        subprocess.CalledProcessError: If gh command fails
+    """
+    subprocess.run(
+        ['gh', 'api', '--method', 'PATCH',
+         f'repos/{{owner}}/{{repo}}/issues/comments/{comment_id}',
+         '-f', f'body={body}'],
+        check=True,
+        capture_output=True,
+        timeout=GH_COMMENT_TIMEOUT
+    )
+
+
 def create_comment(body: str, pr_number: Optional[str] = None) -> None:
     """
     Create a new PR comment using GitHub CLI.
@@ -68,6 +133,36 @@ def create_comment(body: str, pr_number: Optional[str] = None) -> None:
         capture_output=True,
         timeout=GH_COMMENT_TIMEOUT
     )
+
+
+def create_or_update_comment(
+    body: str,
+    pr_number: str,
+    marker: str
+) -> None:
+    """
+    Create a new comment or update an existing one if it contains the marker.
+
+    Args:
+        body: The markdown content for the comment
+        pr_number: The PR number
+        marker: The unique marker string to identify existing comments
+
+    Raises:
+        subprocess.CalledProcessError: If gh command fails
+        ValueError: If PR number is invalid
+    """
+    pr_num = get_pr_number(pr_number)
+
+    # Try to find an existing comment with the marker
+    existing_comment_id = find_existing_comment(pr_num, marker)
+
+    if existing_comment_id:
+        logger.info("Updating existing comment %d", existing_comment_id)
+        update_comment(existing_comment_id, body)
+    else:
+        logger.info("Creating new comment")
+        create_comment(body, pr_num)
 
 
 def build_memory_change_row(region: dict) -> Optional[dict]:
