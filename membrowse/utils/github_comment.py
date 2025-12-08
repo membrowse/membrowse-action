@@ -72,12 +72,58 @@ def post_combined_pr_comment(results: list[dict]) -> None:
         handle_comment_error(e, "PR comment")
 
 
-def _format_memory_change_row(region: dict) -> dict | None:
+def _format_section_delta(section: dict) -> str | None:
+    """
+    Format a section's size change.
+
+    Args:
+        section: Section dict with 'name', 'size', and 'old' containing 'size'
+
+    Returns:
+        Formatted string like '.bss +400 B' or None if no size change
+    """
+    current_size = section.get('size', 0)
+    old_data = section.get('old', {})
+    old_size = old_data.get('size')
+
+    # Only show if size changed
+    if old_size is None or old_size == current_size:
+        return None
+
+    delta = current_size - old_size
+    delta_str = f"+{delta:,}" if delta >= 0 else f"{delta:,}"
+    return f"{section.get('name', 'unknown')} {delta_str} B"
+
+
+def _group_sections_by_region(sections_data: dict) -> dict[str, list[dict]]:
+    """
+    Group modified sections by their region name.
+
+    Args:
+        sections_data: Dict with 'modified' list of section dicts
+
+    Returns:
+        Dict mapping region name to list of modified sections
+    """
+    sections_by_region: dict[str, list[dict]] = {}
+    modified_sections = sections_data.get('modified', [])
+
+    for section in modified_sections:
+        region_name = section.get('region', 'Unknown')
+        if region_name not in sections_by_region:
+            sections_by_region[region_name] = []
+        sections_by_region[region_name].append(section)
+
+    return sections_by_region
+
+
+def _format_memory_change_row(region: dict, section_changes: list[str]) -> dict | None:
     """
     Format a memory change row for display.
 
     Args:
         region: Dictionary containing region data
+        section_changes: List of formatted section change strings
 
     Returns:
         Dictionary with 'region' and 'usage' keys, or None if no change
@@ -87,17 +133,34 @@ def _format_memory_change_row(region: dict) -> dict | None:
         return None
 
     limit_size = row_data['limit_size']
+    current_used = row_data['current_used']
+
+    # Build section changes string
+    sections_str = ', '.join(section_changes) if section_changes else ''
+
     if limit_size > 0:
-        util_pct = row_data['current_used'] / limit_size * 100
-        usage_str = (
-            f"{row_data['delta_str']} B ({row_data['delta_pct_str']}, "
-            f"{row_data['current_used']:,} B / {limit_size:,} B, {util_pct:.1f}%)"
-        )
+        util_pct = current_used / limit_size * 100
+        if sections_str:
+            usage_str = (
+                f"{sections_str} ({row_data['delta_pct_str']}, "
+                f"{current_used:,} B / {limit_size:,} B, total: {util_pct:.0f}% used)"
+            )
+        else:
+            usage_str = (
+                f"{row_data['delta_str']} B ({row_data['delta_pct_str']}, "
+                f"{current_used:,} B / {limit_size:,} B, total: {util_pct:.0f}% used)"
+            )
     else:
-        usage_str = (
-            f"{row_data['delta_str']} B ({row_data['delta_pct_str']}, "
-            f"{row_data['current_used']:,} B)"
-        )
+        if sections_str:
+            usage_str = (
+                f"{sections_str} ({row_data['delta_pct_str']}, "
+                f"{current_used:,} B)"
+            )
+        else:
+            usage_str = (
+                f"{row_data['delta_str']} B ({row_data['delta_pct_str']}, "
+                f"{current_used:,} B)"
+            )
 
     return {
         'region': row_data['region_name'],
@@ -110,7 +173,7 @@ def _format_target_changes(changes: dict) -> list[str]:
     Format memory changes for a single target into markdown lines.
 
     Args:
-        changes: Dictionary containing 'regions' with 'modified' list
+        changes: Dictionary containing 'regions' and 'sections' with change data
 
     Returns:
         List of markdown-formatted strings describing memory changes
@@ -119,14 +182,28 @@ def _format_target_changes(changes: dict) -> list[str]:
         return []
 
     regions_data = changes.get('regions', {})
+    sections_data = changes.get('sections', {})
     modified_regions = regions_data.get('modified', [])
 
     if not modified_regions:
         return []
 
+    # Group section changes by region
+    sections_by_region = _group_sections_by_region(sections_data)
+
     lines = []
     for region in modified_regions:
-        row = _format_memory_change_row(region)
+        region_name = region.get('name', 'Unknown')
+
+        # Get section changes for this region
+        region_sections = sections_by_region.get(region_name, [])
+        section_changes = []
+        for section in region_sections:
+            delta_str = _format_section_delta(section)
+            if delta_str:
+                section_changes.append(delta_str)
+
+        row = _format_memory_change_row(region, section_changes)
         if row:
             lines.append(f"  - **{row['region']}**: {row['usage']}")
 
@@ -202,7 +279,7 @@ def _build_target_section(
     return '\n'.join(section_parts)
 
 
-def _process_target_result(result: dict) -> tuple[str | None, str, list[str]]:
+def _process_target_result(result: dict) -> tuple[str | None, str, str | None, list[str]]:
     """
     Process a single target result and extract section data.
 
@@ -210,9 +287,10 @@ def _process_target_result(result: dict) -> tuple[str | None, str, list[str]]:
         result: Dictionary containing target analysis result
 
     Returns:
-        Tuple of (section_markdown, target_name, alert_lines)
+        Tuple of (section_markdown, target_name, comparison_url, alert_lines)
     """
     target_name = result.get('target_name', 'Unknown')
+    comparison_url = result.get('comparison_url')
     data = result.get('api_response', {}).get('data', {})
 
     change_lines = _format_target_changes(data.get('changes', {}))
@@ -220,11 +298,27 @@ def _process_target_result(result: dict) -> tuple[str | None, str, list[str]]:
 
     section = _build_target_section(
         target_name,
-        result.get('comparison_url'),
+        comparison_url,
         change_lines,
         alert_lines
     )
-    return section, target_name, alert_lines
+    return section, target_name, comparison_url, alert_lines
+
+
+def _format_target_link(target_name: str, comparison_url: str | None) -> str:
+    """
+    Format a target name as a markdown link if URL is available.
+
+    Args:
+        target_name: Name of the target
+        comparison_url: Optional URL to comparison view
+
+    Returns:
+        Markdown link if URL available, otherwise plain target name
+    """
+    if comparison_url:
+        return f"[{target_name}]({comparison_url})"
+    return target_name
 
 
 def _build_combined_comment_body(results: list[dict]) -> str:
@@ -248,7 +342,7 @@ def _build_combined_comment_body(results: list[dict]) -> str:
     targets_without_changes = []
 
     for result in results:
-        section, target_name, alert_lines = _process_target_result(result)
+        section, target_name, comparison_url, alert_lines = _process_target_result(result)
 
         if alert_lines:
             has_any_alerts = True
@@ -256,7 +350,7 @@ def _build_combined_comment_body(results: list[dict]) -> str:
         if section:
             targets_with_changes.append(section)
         else:
-            targets_without_changes.append(target_name)
+            targets_without_changes.append((target_name, comparison_url))
 
     # Add targets with changes first
     if targets_with_changes:
@@ -265,11 +359,10 @@ def _build_combined_comment_body(results: list[dict]) -> str:
 
     # Summarize targets without changes
     if targets_without_changes:
-        if len(targets_without_changes) == 1:
-            body_parts.append(f"*No memory changes detected for {targets_without_changes[0]}*")
-        else:
-            targets_list = ', '.join(targets_without_changes)
-            body_parts.append(f"*No memory changes detected for: {targets_list}*")
+        body_parts.append("*No memory changes detected for:*")
+        for target_name, comparison_url in targets_without_changes:
+            target_link = _format_target_link(target_name, comparison_url)
+            body_parts.append(f"- {target_link}")
         body_parts.append("")
 
     # Add warning banner if any alerts
