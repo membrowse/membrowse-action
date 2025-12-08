@@ -10,7 +10,7 @@ from pathlib import Path
 from .budget_alerts import iter_budget_alerts
 from .github_common import (
     is_gh_cli_available,
-    create_comment,
+    create_or_update_comment,
     build_memory_change_row,
     handle_comment_error,
     configure_logging,
@@ -64,8 +64,8 @@ def post_combined_pr_comment(results: list[dict]) -> None:
     comment_body = _build_combined_comment_body(results)
 
     try:
-        create_comment(comment_body, pr_number)
-        logger.info("Created combined PR comment for %d targets", len(results))
+        create_or_update_comment(comment_body, pr_number, COMMENT_MARKER)
+        logger.info("Posted combined PR comment for %d targets", len(results))
     except subprocess.CalledProcessError as e:
         handle_comment_error(e, "PR comment")
     except Exception as e:  # pylint: disable=broad-exception-caught
