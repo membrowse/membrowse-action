@@ -67,7 +67,7 @@ class MemBrowseUploader:  # pylint: disable=too-few-public-methods
             report_to_send['metadata'].update(metadata_additions)
 
         max_attempts = 3
-        retry_delay = 5  # seconds
+        retry_delays = [10, 30]  # seconds between attempts
         timeout_seconds = 60
 
         for attempt in range(1, max_attempts + 1):
@@ -87,26 +87,21 @@ class MemBrowseUploader:  # pylint: disable=too-few-public-methods
                         f"Failed to parse JSON response from {self.api_endpoint}: {e}"
                     ) from e
 
-            except requests.exceptions.Timeout as e:
+            except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
                 if attempt < max_attempts:
+                    delay = retry_delays[attempt - 1]
                     logger.warning(
-                        "Upload timed out after %d seconds, retrying in %d seconds "
-                        "(attempt %d of %d)",
-                        timeout_seconds, retry_delay, attempt, max_attempts
+                        "Upload failed: %s. Retrying in %d seconds (attempt %d of %d)",
+                        str(e), delay, attempt, max_attempts
                     )
-                    time.sleep(retry_delay)
+                    time.sleep(delay)
                     continue
                 logger.error(
-                    "Upload failed after %d attempts due to timeout", max_attempts
+                    "Upload failed after %d attempts: %s", max_attempts, str(e)
                 )
-                raise requests.exceptions.Timeout(
-                    f"Request to {self.api_endpoint} timed out after {timeout_seconds} "
-                    f"seconds ({max_attempts} attempts)"
-                ) from e
-
-            except requests.exceptions.ConnectionError as e:
-                raise requests.exceptions.ConnectionError(
-                    f"Failed to connect to {self.api_endpoint}: {e}"
+                raise type(e)(
+                    f"Request to {self.api_endpoint} failed after {max_attempts} "
+                    f"attempts: {e}"
                 ) from e
             except requests.exceptions.HTTPError as e:
                 raise requests.exceptions.HTTPError(
