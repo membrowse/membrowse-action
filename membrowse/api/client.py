@@ -104,6 +104,17 @@ class MemBrowseUploader:  # pylint: disable=too-few-public-methods
                     f"attempts: {e}"
                 ) from e
             except requests.exceptions.HTTPError as e:
+                # Retry on gateway errors (502 Bad Gateway, 504 Gateway Timeout)
+                status_code = e.response.status_code if e.response is not None else None
+                if status_code in (502, 504) and attempt < max_attempts:
+                    delay = retry_delays[attempt - 1]
+                    logger.warning(
+                        "Upload failed with HTTP %d: %s. Retrying in %d seconds "
+                        "(attempt %d of %d)",
+                        status_code, str(e), delay, attempt, max_attempts
+                    )
+                    time.sleep(delay)
+                    continue
                 raise requests.exceptions.HTTPError(
                     f"HTTP error from {self.api_endpoint}: {e}"
                 ) from e
