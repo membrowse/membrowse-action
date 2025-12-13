@@ -7,7 +7,7 @@ long_description = (this_directory / "README.md").read_text(encoding="utf-8")
 
 setup(
     name="membrowse",
-    version="1.0.1",
+    version="1.0.2",
     packages=find_packages(),
 
     # Main CLI tool installed as a script
