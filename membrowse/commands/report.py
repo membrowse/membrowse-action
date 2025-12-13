@@ -506,8 +506,7 @@ def upload_report(  # pylint: disable=too-many-arguments
     # Set up log prefix
     log_prefix = _get_log_prefix(commit_info)
 
-    logger.warning("%s: Uploading report to MemBrowse...", log_prefix)
-    logger.info("Target: %s", target_name)
+    logger.info("%s: Target: %s", log_prefix, target_name)
 
     # Build and enrich report
     enriched_report = _build_enriched_report(report, commit_info, target_name, build_failed)

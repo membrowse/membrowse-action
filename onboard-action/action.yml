@@ -70,8 +70,12 @@ runs:
           "${{ inputs.ld }}"
           "${{ inputs.target_name }}"
           "${{ inputs.api_key }}"
-          "${{ inputs.api_url }}"
         )
+
+        # Only pass api_url if explicitly provided and non-empty
+        if [ -n "${{ inputs.api_url }}" ]; then
+          ONBOARD_ARGS+=("${{ inputs.api_url }}")
+        fi
 
         # Add linker variable definitions
         if [ -n "${{ inputs.linker_vars }}" ]; then

@@ -66,12 +66,16 @@ class MemBrowseUploader:  # pylint: disable=too-few-public-methods
                 report_to_send['metadata'] = {}
             report_to_send['metadata'].update(metadata_additions)
 
-        max_attempts = 3
-        retry_delays = [10, 30]  # seconds between attempts
-        timeout_seconds = 60
+        max_attempts = 5
+        retry_delays = [10, 30, 60, 120]  # seconds between attempts
+        timeout_seconds = 120
 
         for attempt in range(1, max_attempts + 1):
             try:
+                logger.warning(
+                    "Uploading report to MemBrowse (attempt %d of %d)...",
+                    attempt, max_attempts
+                )
                 response = self.session.post(
                     self.api_endpoint,
                     json=report_to_send,
@@ -91,8 +95,8 @@ class MemBrowseUploader:  # pylint: disable=too-few-public-methods
                 if attempt < max_attempts:
                     delay = retry_delays[attempt - 1]
                     logger.warning(
-                        "Upload failed: %s. Retrying in %d seconds (attempt %d of %d)",
-                        str(e), delay, attempt, max_attempts
+                        "Upload failed: %s. Retrying in %d seconds...",
+                        str(e), delay
                     )
                     time.sleep(delay)
                     continue
@@ -109,9 +113,8 @@ class MemBrowseUploader:  # pylint: disable=too-few-public-methods
                 if status_code in (502, 504) and attempt < max_attempts:
                     delay = retry_delays[attempt - 1]
                     logger.warning(
-                        "Upload failed with HTTP %d: %s. Retrying in %d seconds "
-                        "(attempt %d of %d)",
-                        status_code, str(e), delay, attempt, max_attempts
+                        "Upload failed with HTTP %d: %s. Retrying in %d seconds...",
+                        status_code, str(e), delay
                     )
                     time.sleep(delay)
                     continue
