@@ -175,6 +175,7 @@ jobs:
         run: make all
 
       - name: Analyze memory
+        id: analyze
         uses: membrowse/membrowse-action@v1
         with:
           elf: build/firmware.elf
@@ -182,17 +183,22 @@ jobs:
           target_name: stm32f4
           api_key: ${{ secrets.MEMBROWSE_API_KEY }}
           # Optional inputs:
-          # pr_comment: true                    # Post PR comments with memory changes (default: true)
           # dont_fail_on_alerts: true           # Continue even if budget alerts are detected (default: false)
           # verbose: INFO                       # Set logging level: DEBUG, INFO, or WARNING (default: WARNING)
+
+      - name: Post PR comment
+        if: github.event_name == 'pull_request'
+        uses: membrowse/membrowse-action/comment-action@v1
+        with:
+          json_files: ${{ steps.analyze.outputs.report_path }}
 ```
 
 **Features:**
 - Automatically uploads memory reports to MemBrowse
-- Posts PR comments showing memory changes, budget alerts, and comparison links (enabled by default)
 - Fails CI if memory budgets are exceeded (unless `dont_fail_on_alerts: true`)
 - Auto-detects Git metadata from GitHub Actions environment
 - **Fork PR Support**: For public repositories, fork PRs can upload reports without an API key (tokenless mode)
+- **PR Comments**: Use the separate `comment-action` to post PR comments with memory changes and comparison links
 
 #### Fork PR Support (Public Repositories)
 
@@ -212,12 +218,18 @@ jobs:
         run: make all
 
       - name: Analyze memory
+        id: analyze
         uses: membrowse/membrowse-action@v1
         with:
           elf: build/firmware.elf
           ld: "src/linker.ld"
           target_name: stm32f4
           # api_key not required for fork PRs to public repos!
+
+      - name: Post PR comment
+        uses: membrowse/membrowse-action/comment-action@v1
+        with:
+          json_files: ${{ steps.analyze.outputs.report_path }}
 ```
 
 **How it works:**
