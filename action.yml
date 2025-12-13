@@ -77,8 +77,12 @@ runs:
           --github
           --target-name "${{ inputs.target_name }}"
           --api-key "${{ inputs.api_key }}"
-          --api-url "${{ inputs.api_url }}"
         )
+
+        # Only pass api-url if explicitly provided and non-empty
+        if [ -n "${{ inputs.api_url }}" ]; then
+          ARGS+=(--api-url "${{ inputs.api_url }}")
+        fi
 
         if [ "${{ inputs.dont_fail_on_alerts }}" = "true" ]; then
           ARGS+=(--dont-fail-on-alerts)
