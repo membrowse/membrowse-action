@@ -45,8 +45,8 @@ examples:
   membrowse report firmware.elf "linker.ld" --upload \\
       --target-name esp32 --api-key "$API_KEY"
 
-  # GitHub mode - auto-detect Git metadata and upload
-  membrowse report firmware.elf "linker.ld" --github \\
+  # GitHub mode - auto-detect Git metadata from GitHub environment
+  membrowse report firmware.elf "linker.ld" --upload --github \\
       --target-name stm32f4 --api-key "$API_KEY"
 
   # Onboard - analyze and upload last 50 commits

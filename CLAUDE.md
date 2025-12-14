@@ -54,10 +54,10 @@ membrowse report firmware.elf "linker.ld" --upload \
     --repo-name "my-repo"
 ```
 
-**GitHub Actions Mode** - Automatically detect Git metadata:
+**GitHub Actions Mode** - Automatically detect Git metadata from GitHub environment:
 ```bash
 # Auto-detects Git metadata from GitHub environment
-membrowse report firmware.elf "linker.ld" --github \
+membrowse report firmware.elf "linker.ld" --upload --github \
     --target-name "esp32" \
     --api-key "$API_KEY" \
     --api-url "https://membrowse.com"
@@ -65,11 +65,11 @@ membrowse report firmware.elf "linker.ld" --github \
 
 **Modes:**
 - **Local mode (default)**: Generates JSON report and outputs to stdout
-- **Upload mode**: Uploads report to MemBrowse platform (requires `--upload` flag)
-- **GitHub mode**: Auto-detects Git metadata and uploads (requires `--github` flag)
+- **Upload mode**: Uploads report to MemBrowse platform (requires `--upload` flag), auto-detects Git metadata from local git
+- **GitHub mode**: Use `--github` with `--upload` to detect Git metadata from GitHub Actions environment variables instead of local git
 
 **Key Features:**
-- Does NOT execute `git` commands unless `--github` flag is used
+- Git metadata is auto-detected by default when uploading (use `--no-git` to disable)
 - Target name only required when uploading
 - All Git metadata is optional
 
@@ -207,8 +207,8 @@ scripts/                            # Shell wrappers
 - Parses linker scripts to extract memory regions
 - Analyzes ELF files to generate memory footprint reports
 - Outputs JSON to stdout (default) or uploads to platform
-- `--github` flag enables automatic Git metadata detection from GitHub environment
-- Does NOT execute `git` commands unless `--github` flag is used
+- Git metadata is auto-detected by default when uploading (use `--no-git` to disable)
+- `--github` flag uses GitHub-specific Git metadata detection from environment variables
 
 **`membrowse onboard`** - Historical analysis command:
 - Iterates through N commits, checking out each one
@@ -281,8 +281,8 @@ membrowse report firmware.elf "linker.ld" --upload \
     --commit-sha "$(git rev-parse HEAD)" \
     --branch-name "$(git branch --show-current)"
 
-# Test report command - GitHub mode (auto-detects Git metadata and uploads)
-membrowse report firmware.elf "linker.ld" --github \
+# Test report command - GitHub mode (auto-detects Git metadata from GitHub environment)
+membrowse report firmware.elf "linker.ld" --upload --github \
     --target-name "esp32" \
     --api-key "$API_KEY"
 

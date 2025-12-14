@@ -130,6 +130,7 @@ membrowse report \
 membrowse report \
   build/firmware.elf \
   "src/linker.ld" \
+  --upload \
   --github \
   --target-name esp32 \
   --api-key your-membrowse-api-key
@@ -192,58 +193,6 @@ jobs:
         with:
           json_files: ${{ steps.analyze.outputs.report_path }}
 ```
-
-**Features:**
-- Automatically uploads memory reports to MemBrowse
-- Fails CI if memory budgets are exceeded (unless `dont_fail_on_alerts: true`)
-- Auto-detects Git metadata from GitHub Actions environment
-- **Fork PR Support**: For public repositories, fork PRs can upload reports without an API key (tokenless mode)
-- **PR Comments**: Use the separate `comment-action` to post PR comments with memory changes and comparison links
-
-#### Fork PR Support (Public Repositories)
-
-Fork PRs cannot access repository secrets like `MEMBROWSE_API_KEY`. For public repositories, MemBrowse supports **tokenless uploads** that authenticate using GitHub's pull request context.
-
-```yaml
-name: Memory Analysis
-on: pull_request
-
-jobs:
-  analyze:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-
-      - name: Build firmware
-        run: make all
-
-      - name: Analyze memory
-        id: analyze
-        uses: membrowse/membrowse-action@v1
-        with:
-          elf: build/firmware.elf
-          ld: "src/linker.ld"
-          target_name: stm32f4
-          # api_key not required for fork PRs to public repos!
-
-      - name: Post PR comment
-        uses: membrowse/membrowse-action/comment-action@v1
-        with:
-          json_files: ${{ steps.analyze.outputs.report_path }}
-```
-
-**How it works:**
-- When running in a fork PR context without an API key, the action automatically uses tokenless upload mode
-- The server validates the upload using GitHub's PR metadata (repository, PR number, commit SHA, author)
-- This only works for **public repositories** - private repos always require an API key
-
-**Behavior Summary:**
-| Context | API Key | Upload Mode |
-|---------|---------|-------------|
-| Fork PR | None | Tokenless (public repos only) |
-| Fork PR | Provided | Authenticated |
-| Same-repo PR | Required | Authenticated |
-| Push event | Required | Authenticated |
 
 #### Multi-Target Combined Comments
 
@@ -357,6 +306,7 @@ For custom GitHub integration (e.g., posting PR comments with custom formatting)
 membrowse report \
   build/firmware.elf \
   "src/linker.ld" \
+  --upload \
   --github \
   --target-name esp32 \
   --api-key your-api-key \
