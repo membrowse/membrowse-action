@@ -47,13 +47,11 @@ Configure protected environments in your GitHub repository:
 
 The workflow automatically triggers when you create a GitHub release:
 
-1. **Update version number** in both:
-   - `setup.py` (line 10)
-   - `pyproject.toml` (line 7)
+1. **Update version number** in `pyproject.toml` (line 7)
 
 2. **Commit and push changes:**
    ```bash
-   git add setup.py pyproject.toml
+   git add pyproject.toml
    git commit -m "Bump version to X.Y.Z"
    git push origin main
    ```
@@ -122,10 +120,11 @@ Both files are uploaded as GitHub artifacts and retained for 7 days.
 
 ## Version Management
 
-The package version is defined in two places (must be kept in sync):
+The package version is defined in a single place:
 
-- `setup.py`: Line 10 → `version="X.Y.Z"`
 - `pyproject.toml`: Line 7 → `version = "X.Y.Z"`
+
+The version is accessible at runtime via `membrowse.__version__`, which reads from the installed package metadata.
 
 ### Versioning Scheme
 
@@ -155,7 +154,7 @@ Examples:
 **Cause**: Version number not updated
 
 **Solution**:
-1. Update version in `setup.py` and `pyproject.toml`
+1. Update version in `pyproject.toml`
 2. Create a new tag and release
 
 ### Tests fail during deployment
@@ -172,7 +171,7 @@ Examples:
 **Cause**: Invalid package metadata or missing README
 
 **Solution**:
-1. Check `setup.py` and `pyproject.toml` for errors
+1. Check `pyproject.toml` for errors
 2. Ensure `README.md` exists and is valid
 3. Test locally: `python -m build && twine check dist/*`
 

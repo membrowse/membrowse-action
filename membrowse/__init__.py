@@ -7,12 +7,17 @@ This package provides tools for analyzing ELF files and generating
 comprehensive memory reports from embedded firmware.
 """
 
+from importlib.metadata import version, PackageNotFoundError
+
 from .core.generator import ReportGenerator
 from .core.analyzer import ELFAnalyzer
 from .core.models import Symbol, MemoryRegion, MemorySection, ELFMetadata
 from .linker.parser import parse_linker_scripts
 
-__version__ = "1.0.2"
+try:
+    __version__ = version('membrowse')
+except PackageNotFoundError:
+    __version__ = "0.0.0"  # Package not installed
 
 __all__ = [
     'ReportGenerator',

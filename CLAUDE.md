@@ -204,7 +204,7 @@ scripts/                            # Shell wrappers
 **`membrowse` command** - Unified CLI interface:
 - Single entry point with subcommands (`report`, `onboard`)
 - Python-based with proper argument parsing and error handling
-- Shell wrapper provides seamless installation via setup.py
+- Shell wrapper provides seamless installation via pyproject.toml
 
 **`membrowse report`** - Core analysis command:
 - Parses linker scripts to extract memory regions
