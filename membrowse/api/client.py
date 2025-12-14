@@ -118,8 +118,17 @@ class MemBrowseUploader:  # pylint: disable=too-few-public-methods
                     )
                     time.sleep(delay)
                     continue
+                # Include error field from response in error message
+                error_detail = ""
+                if e.response is not None:
+                    try:
+                        response_json = e.response.json()
+                        if 'error' in response_json:
+                            error_detail = f"\nError: {response_json['error']}"
+                    except Exception:  # pylint: disable=broad-exception-caught
+                        pass
                 raise requests.exceptions.HTTPError(
-                    f"HTTP error from {self.api_endpoint}: {e}"
+                    f"HTTP error from {self.api_endpoint}: {e}{error_detail}"
                 ) from e
             except requests.exceptions.RequestException as e:
                 raise requests.exceptions.RequestException(

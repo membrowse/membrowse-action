@@ -156,6 +156,66 @@ def _get_commit_details(commit_sha: str) -> tuple:
     return commit_message, commit_timestamp, author_name, author_email
 
 
+def detect_git_metadata() -> Dict[str, Any]:
+    """
+    Detect Git metadata from local git repository.
+
+    Runs git commands to extract commit SHA, branch name, author info, etc.
+    This works in any git repository without requiring GitHub Actions environment.
+
+    Returns:
+        Dict with metadata in metadata['git'] format:
+        {
+            'commit_hash': str,
+            'parent_commit_hash': str,  # Actual git parent (HEAD~1)
+            'base_commit_hash': str,    # Same as parent for local git
+            'branch_name': str,
+            'repository': str,
+            'commit_message': str,
+            'commit_timestamp': str,
+            'author_name': str,
+            'author_email': str,
+            'pr_number': None,          # Not available from git alone
+            'pr_name': None,
+            'pr_author_name': None,
+            'pr_author_email': None
+        }
+    """
+    # Get commit SHA
+    commit_sha = run_git_command(['rev-parse', 'HEAD']) or ''
+
+    # Get parent commit
+    parent_sha = get_parent_commit()
+
+    # For local git, base_sha is the same as parent_sha
+    base_sha = parent_sha
+
+    # Get branch name
+    branch_name = _get_branch_name('')
+
+    # Get repo name
+    repo_name = _get_repo_name()
+
+    # Get commit details
+    commit_message, commit_timestamp, author_name, author_email = _get_commit_details(commit_sha)
+
+    return {
+        'commit_hash': commit_sha or None,
+        'parent_commit_hash': parent_sha or None,
+        'base_commit_hash': base_sha or None,
+        'branch_name': branch_name or None,
+        'repository': repo_name or None,
+        'commit_message': commit_message or None,
+        'commit_timestamp': commit_timestamp or None,
+        'author_name': author_name or None,
+        'author_email': author_email or None,
+        'pr_number': None,
+        'pr_name': None,
+        'pr_author_name': None,
+        'pr_author_email': None
+    }
+
+
 def _build_metadata_result(
     git_context: GitContext,
     commit_details: tuple,
@@ -186,8 +246,8 @@ def detect_github_metadata() -> Dict[str, Any]:
     """
     Detect Git metadata from GitHub Actions environment.
 
-    Reads GitHub environment variables and event payload to extract
-    commit SHA, branch name, PR number, etc.
+    Combines GitHub-specific data (from environment variables and event payload)
+    with git command data. GitHub-specific values override git values where available.
 
     Returns:
         Dict with metadata in metadata['git'] format:
@@ -207,6 +267,9 @@ def detect_github_metadata() -> Dict[str, Any]:
             'pr_author_email': str      # PR author email (if available)
         }
     """
+    # Start with git metadata as base
+    metadata = detect_git_metadata()
+
     # Get GitHub environment variables
     event_name = os.environ.get('GITHUB_EVENT_NAME', '')
     commit_sha = os.environ.get('GITHUB_SHA', '')
@@ -221,30 +284,37 @@ def detect_github_metadata() -> Dict[str, Any]:
     if event_name == 'pull_request' and head_sha:
         commit_sha = head_sha
 
-    # Fallback: detect from git if not from GitHub env
-    commit_sha = commit_sha or run_git_command(['rev-parse', 'HEAD']) or ''
-    branch_name = _get_branch_name(branch_name)
+    # Override with GitHub-specific values where available
+    if commit_sha:
+        metadata['commit_hash'] = commit_sha
+        # Re-fetch commit details for the GitHub commit SHA
+        commit_message, commit_timestamp, author_name, author_email = _get_commit_details(commit_sha)
+        metadata['commit_message'] = commit_message
+        metadata['commit_timestamp'] = commit_timestamp
+        metadata['author_name'] = author_name
+        metadata['author_email'] = author_email
 
-    # Get parent commit (actual git parent)
-    parent_sha = get_parent_commit()
+    if branch_name:
+        metadata['branch_name'] = branch_name
 
-    # For push events, use parent commit as comparison base
-    # For PR events, base_sha is already set to target branch tip
-    if event_name == 'push' and parent_sha:
-        base_sha = parent_sha
+    # For PR events, base_sha is the target branch tip (use event data)
+    # For push events, use parent commit (HEAD~1) as comparison base
+    if event_name == 'pull_request' and base_sha:
+        metadata['base_commit_hash'] = base_sha
+    elif event_name == 'push' and metadata.get('parent_commit_hash'):
+        metadata['base_commit_hash'] = metadata['parent_commit_hash']
 
-    git_context = GitContext(
-        commit_sha=commit_sha,
-        parent_sha=parent_sha,
-        base_sha=base_sha,
-        branch_name=branch_name,
-        repo_name=_get_repo_name()
-    )
-    return _build_metadata_result(
-        git_context=git_context,
-        commit_details=_get_commit_details(commit_sha),
-        pr_info=(pr_number, pr_name, pr_author_name, pr_author_email)
-    )
+    # Add PR-specific metadata
+    if pr_number:
+        metadata['pr_number'] = pr_number
+    if pr_name:
+        metadata['pr_name'] = pr_name
+    if pr_author_name:
+        metadata['pr_author_name'] = pr_author_name
+    if pr_author_email:
+        metadata['pr_author_email'] = pr_author_email
+
+    return metadata
 
 
 def get_commit_metadata(commit_sha: str) -> Dict[str, Any]:

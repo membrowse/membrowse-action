@@ -109,7 +109,7 @@ def determine_auth_strategy(
             ) from e
 
     # No valid authentication available
-    error_msg = "--api-key is required when using --upload or --github"
+    error_msg = "--api-key is required when using --upload"
     if auto_detect_fork:
         error_msg += (
             ". For fork PRs to public repositories, "

@@ -7,7 +7,7 @@ import logging
 from importlib.metadata import version
 from typing import Dict, Any, Optional
 
-from ..utils.git import detect_github_metadata
+from ..utils.git import detect_git_metadata, detect_github_metadata
 from ..utils.url import normalize_api_url
 from ..utils.budget_alerts import iter_budget_alerts
 from ..utils.formatter import format_report_human_readable
@@ -239,7 +239,7 @@ def _validate_upload_arguments(
     """
     # Target name always required for uploads
     if not target_name:
-        return False, "--target-name is required when using --upload or --github"
+        return False, "--target-name is required when using --upload"
 
     # In GitHub mode, allow tokenless for fork PRs
     if is_github_mode and not api_key and is_fork_pr():
@@ -248,7 +248,7 @@ def _validate_upload_arguments(
 
     # Otherwise API key is required
     if not api_key:
-        error_msg = "--api-key is required when using --upload or --github"
+        error_msg = "--api-key is required when using --upload"
         if is_github_mode:
             error_msg += ". For fork PRs to public repositories, api_key can be omitted."
         return False, error_msg
@@ -284,13 +284,17 @@ examples:
   # Save JSON to file
   membrowse report firmware.elf "linker.ld" --json > report.json
 
-  # Upload to MemBrowse
+  # Upload to MemBrowse (Git metadata auto-detected by default)
   membrowse report firmware.elf "linker.ld" --upload \\
       --api-key "$API_KEY" --target-name esp32 \\
       --api-url https://www.membrowse.com
 
-  # GitHub Actions mode (auto-detects Git metadata)
-  membrowse report firmware.elf "linker.ld" --github \\
+  # Upload without Git metadata
+  membrowse report firmware.elf "linker.ld" --upload --no-git \\
+      --api-key "$API_KEY" --target-name esp32
+
+  # GitHub Actions mode (auto-detects Git metadata from GitHub environment)
+  membrowse report firmware.elf "linker.ld" --upload --github \\
       --target-name stm32f4 --api-key "$API_KEY"
         """
     )
@@ -309,15 +313,20 @@ examples:
         help='Upload report to MemBrowse platform'
     )
     mode_group.add_argument(
+        '--no-git',
+        action='store_true',
+        help='Disable auto-detection of Git metadata when uploading'
+    )
+    mode_group.add_argument(
         '--github',
         action='store_true',
-        help='GitHub Actions mode - auto-detect Git metadata and upload'
+        help='Use GitHub Actions environment for Git metadata detection (use with --upload)'
     )
 
-    # Upload parameters (only relevant with --upload or --github)
+    # Upload parameters (only relevant with --upload)
     upload_group = parser.add_argument_group(
         'upload options',
-        'Required when using --upload or --github'
+        'Required when using --upload'
     )
     upload_group.add_argument('--api-key', help='MemBrowse API key')
     upload_group.add_argument(
@@ -329,10 +338,10 @@ examples:
         help='MemBrowse API base URL (default: %(default)s, /api/upload appended automatically)'
     )
 
-    # Optional Git metadata (for --upload mode without --github)
+    # Optional Git metadata (overrides auto-detected values)
     git_group = parser.add_argument_group(
         'git metadata options',
-        'Optional Git metadata (auto-detected in --github mode)'
+        'Optional Git metadata (auto-detected by default, use --no-git to disable)'
     )
     git_group.add_argument('--commit-sha', help='Git commit SHA')
     git_group.add_argument('--base-sha', help='Git base commit SHA (for comparison URLs)')
@@ -721,8 +730,8 @@ def run_report(args: argparse.Namespace) -> int:
         logger.error("Failed to generate report: %s", e)
         return 1
 
-    # Check if upload mode is enabled
-    upload_mode = getattr(args, 'upload', False) or getattr(args, 'github', False)
+    # Check if upload mode is enabled (--upload required, --github only affects metadata detection)
+    upload_mode = getattr(args, 'upload', False)
 
     # If not uploading, output report to stdout
     if not upload_mode:
@@ -756,9 +765,14 @@ def run_report(args: argparse.Namespace) -> int:
         if getattr(args, arg_key, None) is not None
     }
 
-    # Auto-detect Git metadata if --github flag is set
+    # Auto-detect Git metadata (enabled by default, use --no-git to disable)
+    # --github mode uses GitHub-specific detection, otherwise use local git
     if getattr(args, 'github', False):
         detected_metadata = detect_github_metadata()
+        # Update commit_info with detected metadata (only if not already set)
+        commit_info = {k: commit_info.get(k) or v for k, v in detected_metadata.items()}
+    elif not getattr(args, 'no_git', False):
+        detected_metadata = detect_git_metadata()
         # Update commit_info with detected metadata (only if not already set)
         commit_info = {k: commit_info.get(k) or v for k, v in detected_metadata.items()}
 
