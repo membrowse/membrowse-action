@@ -5,18 +5,85 @@
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Downloads](https://pepy.tech/badge/membrowse)](https://pepy.tech/project/membrowse)
 
-A tool for analyzing memory footprint in embedded firmware. MemBrowse extracts detailed memory information from ELF files and linker scripts, providing symbol-level analysis with source file mapping for any embedded architecture. Use it standalone for local analysis or integrate with [MemBrowse](https://membrowse.com) for historical analysis and CI integration.
+A tool for analyzing memory footprint in embedded firmware. MemBrowse extracts detailed memory information from ELF files and linker scripts, providing symbol-level analysis with source file mapping for multiple architectures. Use it standalone for local analysis or integrate with [MemBrowse](https://membrowse.com) for historical analysis and CI integration.
 
 
 ## Features
 
-- **Architecture Agnostic**: Works with any embedded architecture by relying on the DWARF debug format
-- **Source File Mapping**: Symbols are automatically mapped to their definition source files using DWARF debug information
+- **Architecture Agnostic**: Works with architectures that produce ELFs with DWARF debug format
+- **Source File Mapping**: Symbols are mapped to their definition source files
 - **Memory Region Extraction**: Memory region capacity and layout are extracted from GNU LD linker scripts
-- **Intelligent Linker Script Parsing**: Handles complex GNU LD syntax with automatic architecture detection and expression evaluation
-- **Cloud Integration**: Upload reports to [MemBrowse](https://membrowse.com) for historical tracking, diffs and monitoring
+- **Cloud Integration**: Upload reports to [MemBrowse](https://membrowse.com) for historical tracking, diffs, monitoring and CI gating 
 
-## Installation
+## CI/CD Integration
+
+### GitHub Actions
+
+MemBrowse provides GitHub Actions for CI integration.
+
+
+#### PR/Push Analysis
+
+Create a Github action for PR analysis that will call `membrowse/membrowse-action`:
+
+```yaml
+name: Memory Analysis
+on: [push, pull_request]
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Build firmware
+        run: make all # your build commands
+
+      - name: Analyze memory
+        id: analyze
+        uses: membrowse/membrowse-action@v1
+        with:
+          elf: build/firmware.elf # your elf
+          ld: "src/linker.ld" # your ld scripts
+          target_name: stm32f4 # the target name will be recognized by Membrowse
+          api_key: ${{ secrets.MEMBROWSE_API_KEY }}
+
+      - name: Post PR comment
+        if: github.event_name == 'pull_request'
+        uses: membrowse/membrowse-action/comment-action@v1
+        with:
+          json_files: ${{ steps.analyze.outputs.report_path }}
+```
+
+#### Historical Onboarding
+
+For getting historical build data from day one upload the last N commits by
+Creating an Onboard Github action in your repo that will call `membrowse/membrowse-action/onboard-action`:
+
+```yaml
+name: Onboard to MemBrowse
+on: workflow_dispatch
+
+jobs:
+  onboard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Historical analysis
+        uses: membrowse/membrowse-action/onboard-action@v1
+        with:
+          num_commits: 100
+          build_script: "make clean && make" # your build commands
+          elf: build/firmware.elf # your elf file
+          ld: "components.ld memory.ld" #your ld scripts 
+          target_name: my-target # the target name will be recognized by Membrowse
+          api_key: ${{ secrets.MEMBROWSE_API_KEY }}
+```
+
+## Local Installation
 
 ### From PyPI
 
@@ -31,16 +98,6 @@ pip install membrowse
 git clone https://github.com/membrowse/membrowse-action.git
 cd membrowse-action
 pip install -e .
-```
-
-### Verify Installation
-
-After installation, the `membrowse` command will be available:
-
-```bash
-membrowse --help              # Show main help
-membrowse report --help       # Help for report subcommand
-membrowse onboard --help      # Help for onboard subcommand
 ```
 
 ## Quick Start
@@ -153,190 +210,11 @@ membrowse onboard \
   your-membrowse-api-key
 ```
 
-
-## CI/CD Integration
-
-### GitHub Actions
-
-MemBrowse provides GitHub Actions for seamless CI integration. The main action is available on the [GitHub Marketplace](https://github.com/marketplace/actions/membrowse-pr-memory-report).
-
-#### PR/Push Analysis
-
-```yaml
-name: Memory Analysis
-on: [push, pull_request]
-
-jobs:
-  analyze:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-
-      - name: Build firmware
-        run: make all
-
-      - name: Analyze memory
-        id: analyze
-        uses: membrowse/membrowse-action@v1
-        with:
-          elf: build/firmware.elf
-          ld: "src/linker.ld"
-          target_name: stm32f4
-          api_key: ${{ secrets.MEMBROWSE_API_KEY }}
-          # Optional inputs:
-          # dont_fail_on_alerts: true           # Continue even if budget alerts are detected (default: false)
-          # verbose: INFO                       # Set logging level: DEBUG, INFO, or WARNING (default: WARNING)
-
-      - name: Post PR comment
-        if: github.event_name == 'pull_request'
-        uses: membrowse/membrowse-action/comment-action@v1
-        with:
-          json_files: ${{ steps.analyze.outputs.report_path }}
-```
-
-#### Multi-Target Combined Comments
-
-When analyzing multiple targets, use a matrix strategy with the comment action to post a single combined PR comment:
-
-```yaml
-name: Multi-Target Analysis
-on: pull_request
-
-jobs:
-  analyze:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        target: [esp32, stm32f4, nrf52]
-    steps:
-      - uses: actions/checkout@v3
-
-      - name: Build firmware
-        run: make TARGET=${{ matrix.target }}
-
-      - name: Analyze memory
-        id: analyze
-        uses: membrowse/membrowse-action@v1
-        with:
-          elf: build/${{ matrix.target }}/firmware.elf
-          ld: "linker/${{ matrix.target }}.ld"
-          target_name: ${{ matrix.target }}
-          api_key: ${{ secrets.MEMBROWSE_API_KEY }}
-
-      - name: Upload report artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: report-${{ matrix.target }}
-          path: ${{ steps.analyze.outputs.report_path }}
-
-  comment:
-    needs: analyze
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-
-      - name: Download all reports
-        uses: actions/download-artifact@v4
-        with:
-          path: reports
-          pattern: report-*
-          merge-multiple: true
-
-      - name: Post combined PR comment
-        uses: membrowse/membrowse-action/comment-action@v1
-        with:
-          json_files: "reports/*.json"
-```
-
-#### Historical Onboarding
-
-For onboarding historical commits, use the onboard action from the subdirectory:
-
-```yaml
-name: Onboard to MemBrowse
-on: workflow_dispatch
-
-jobs:
-  onboard:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-
-      - name: Historical analysis
-        uses: membrowse/membrowse-action/onboard-action@v1
-        with:
-          num_commits: 50
-          build_script: "make clean && make"
-          elf: build/firmware.elf
-          ld: "linker.ld"
-          target_name: my-target
-          api_key: ${{ secrets.MEMBROWSE_API_KEY }}
-```
-
-### Other CI/CD
-
-For other CI systems:
-
-```bash
-# Install MemBrowse
-pip install membrowse
-
-# Build your firmware
-make all
-
-# Analyze and upload memory report
-membrowse report \
-  build/firmware.elf \
-  "linker.ld" \
-  --upload \
-  --target-name my-target \
-  --api-key your-membrowse-api-key
-```
-
-## Advanced Usage
-
-### Custom GitHub Integration
-
-For custom GitHub integration (e.g., posting PR comments with custom formatting), use `--output-raw-response`:
-
-```bash
-# Output raw API response as JSON to stdout (for piping)
-membrowse report \
-  build/firmware.elf \
-  "src/linker.ld" \
-  --upload \
-  --github \
-  --target-name esp32 \
-  --api-key your-api-key \
-  --output-raw-response | python -m your_custom_pr_comment_script
-```
-
-This outputs a JSON object with:
-- `comparison_url`: URL to the build comparison page on MemBrowse
-- `api_response`: Full API response including memory changes and alerts
-- `target_name`: The target name specified
-
-### Verbose Logging
-
-Control logging verbosity with the global `-v/--verbose` flag (must come before the subcommand):
-
-```bash
-# Default (WARNING): Only warnings and errors
-membrowse report firmware.elf "linker.ld"
-
-# INFO: Show progress messages
-membrowse -v INFO report firmware.elf "linker.ld"
-
-# DEBUG: Show detailed analysis information
-membrowse --verbose DEBUG report firmware.elf "linker.ld"
-```
-
 ## Platform Support
 
-MemBrowse is **platform agnostic** and works with any embedded architecture that produces ELF files and uses GNU LD linker scripts. The tool automatically detects the target architecture and applies appropriate parsing strategies for optimal results.
-
+MemBrowse is with toolchains that produce ELF files and uses GNU LD linker scripts.
+If you found that you're not getting optimal results please contact us: support@membrowse.com 
+We are actively working on improving Membrowse.
 
 ## License
 
