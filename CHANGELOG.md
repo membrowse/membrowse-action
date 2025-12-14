@@ -5,6 +5,11 @@ All notable changes to MemBrowse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.5] - 2025-12-14
+
+### Changed
+- Updated action descriptions in action.yml files
+
 ## [0.0.1] - 2024-10-22
 
 ### Added
@@ -40,4 +45,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - RISC-V embedded targets
 - Any platform using ELF files and GNU LD linker scripts
 
+[1.0.5]: https://github.com/membrowse/membrowse-action/releases/tag/v1.0.5
 [0.0.1]: https://github.com/membrowse/membrowse-action/releases/tag/v0.0.1

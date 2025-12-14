@@ -1,5 +1,5 @@
-name: 'MemBrowse Onboard Historical Analysis'
-description: 'Analyze memory usage across historical commits for embedded firmware onboarding'
+name: 'MemBrowse - Historical Memory Baseline'
+description: 'Analyze memory usage across past commits to establish an initial baseline.'
 author: 'MemBrowse'
 
 inputs:

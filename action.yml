@@ -1,5 +1,5 @@
-name: 'MemBrowse PR Memory Report'
-description: 'Analyze memory footprint of embedded firmware and upload report to MemBrowse. For historical commit analysis, see the onboard-action in this repository.'
+name: 'MemBrowse - Firmware Memory Tracking'
+description: 'Track RAM and Flash usage across commits and PRs to catch memory regressions.'
 author: 'MemBrowse'
 
 inputs:
