@@ -1,5 +1,5 @@
-name: 'MemBrowse PR Comment'
-description: 'Post a combined PR comment with memory analysis results from multiple targets'
+name: 'MemBrowse - PR Memory Summary'
+description: 'Post a consolidated PR comment summarizing memory changes across targets.'
 author: 'MemBrowse'
 
 inputs:

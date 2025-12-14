@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "membrowse"
-version = "1.0.4"
+version = "1.0.5"
 description = "Memory footprint analysis tools for embedded firmware"
 readme = "README.md"
 authors = [
