@@ -19,22 +19,25 @@ MemBrowse provides a single `membrowse` command with subcommands for different o
 
 Core analysis tool that generates memory footprint reports from ELF files and linker scripts.
 
-**Local Mode (Default)** - Generate JSON report without Git metadata or uploading:
+**Local Mode (Default)** - Generate memory report without Git metadata or uploading:
 ```bash
-# Minimal usage - outputs JSON to stdout (quiet mode, only errors shown)
+# Minimal usage - outputs human-readable report (only warnings/errors shown)
 membrowse report firmware.elf "linker.ld"
 
-# Save to file
-membrowse report firmware.elf "linker.ld" > report.json
+# Output as JSON instead
+membrowse report firmware.elf "linker.ld" --json
+
+# Save JSON to file
+membrowse report firmware.elf "linker.ld" --json > report.json
 
 # With verbose output to see progress
-membrowse report firmware.elf "linker.ld" --verbose > report.json
+membrowse -v INFO report firmware.elf "linker.ld"
 
 # Multiple linker scripts
 membrowse report firmware.elf "mem.ld sections.ld"
 ```
 
-**Note**: By default, only errors are shown. Use `--verbose` to see progress messages.
+**Note**: By default, output is human-readable and only warnings/errors are logged. Use `-v INFO` or `-v DEBUG` before the subcommand to see progress messages.
 
 **Upload Mode** - Upload report to MemBrowse platform:
 ```bash
@@ -64,7 +67,7 @@ membrowse report firmware.elf "linker.ld" --upload --github \
 ```
 
 **Modes:**
-- **Local mode (default)**: Generates JSON report and outputs to stdout
+- **Local mode (default)**: Generates human-readable report to stdout (use `--json` for JSON output)
 - **Upload mode**: Uploads report to MemBrowse platform (requires `--upload` flag), auto-detects Git metadata from local git
 - **GitHub mode**: Use `--github` with `--upload` to detect Git metadata from GitHub Actions environment variables instead of local git
 
@@ -206,7 +209,7 @@ scripts/                            # Shell wrappers
 **`membrowse report`** - Core analysis command:
 - Parses linker scripts to extract memory regions
 - Analyzes ELF files to generate memory footprint reports
-- Outputs JSON to stdout (default) or uploads to platform
+- Outputs human-readable report to stdout (use `--json` for JSON), or uploads to platform with `--upload`
 - Git metadata is auto-detected by default when uploading (use `--no-git` to disable)
 - `--github` flag uses GitHub-specific Git metadata detection from environment variables
 
@@ -271,7 +274,10 @@ pylint membrowse/ tests/ --score=yes
 python -m membrowse.linker.cli path/to/linker.ld
 
 # Test report command - local mode (no Git, no upload)
-membrowse report firmware.elf "linker1.ld linker2.ld" > report.json
+membrowse report firmware.elf "linker1.ld linker2.ld"
+
+# Test report command - JSON output saved to file
+membrowse report firmware.elf "linker1.ld linker2.ld" --json > report.json
 
 # Test report command - upload mode
 membrowse report firmware.elf "linker.ld" --upload \
