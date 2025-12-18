@@ -288,7 +288,8 @@ def detect_github_metadata() -> Dict[str, Any]:
     if commit_sha:
         metadata['commit_hash'] = commit_sha
         # Re-fetch commit details for the GitHub commit SHA
-        commit_message, commit_timestamp, author_name, author_email = _get_commit_details(commit_sha)
+        (commit_message, commit_timestamp,
+         author_name, author_email) = _get_commit_details(commit_sha)
         metadata['commit_message'] = commit_message
         metadata['commit_timestamp'] = commit_timestamp
         metadata['author_name'] = author_name
