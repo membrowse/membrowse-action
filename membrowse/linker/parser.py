@@ -422,15 +422,22 @@ class ExpressionEvaluator:
 
     def _safe_arithmetic_eval(self, expr: str) -> int:
         """Safely evaluate arithmetic expressions without using eval"""
-        # Only allow safe arithmetic characters
-        if not re.match(r"^[0-9+\-*/() \t]+$", expr):
+        # Only allow safe arithmetic characters (including << and >> for bitshift)
+        if not re.match(r"^[0-9+\-*/<>() \t]+$", expr):
             raise ValueError(f"Invalid characters in expression: {expr}")
 
         # Use a simple recursive descent parser for arithmetic
         return self._parse_expression(expr.replace(" ", "").replace("\t", ""))
 
     def _parse_expression(self, expr: str) -> int:
-        """Parse arithmetic expression using recursive descent"""
+        """Parse arithmetic expression using recursive descent
+
+        Operator precedence (lowest to highest):
+        1. << >> (bitshift)
+        2. + - (addition, subtraction)
+        3. * / (multiplication, division)
+        4. unary +/-, parentheses
+        """
         index = [0]  # Use list to allow modification in nested functions
 
         def parse_number():
@@ -444,7 +451,7 @@ class ExpressionEvaluator:
         def parse_factor():
             if index[0] < len(expr) and expr[index[0]] == "(":
                 index[0] += 1  # Skip '('
-                result = parse_expr()
+                result = parse_shift()
                 if index[0] >= len(expr) or expr[index[0]] != ")":
                     raise ValueError("Missing closing parenthesis")
                 index[0] += 1  # Skip ')'
@@ -483,7 +490,24 @@ class ExpressionEvaluator:
                     result -= right
             return result
 
-        result = parse_expr()
+        def parse_shift():
+            """Parse bitshift operators (<< and >>)"""
+            result = parse_expr()
+            while index[0] < len(expr) - 1:
+                # Check for << or >>
+                if expr[index[0]:index[0] + 2] == "<<":
+                    index[0] += 2  # Skip '<<'
+                    right = parse_expr()
+                    result = result << right
+                elif expr[index[0]:index[0] + 2] == ">>":
+                    index[0] += 2  # Skip '>>'
+                    right = parse_expr()
+                    result = result >> right
+                else:
+                    break
+            return result
+
+        result = parse_shift()
         if index[0] < len(expr):
             raise ValueError(
                 f"Unexpected character at position {index[0]}: {expr[index[0]]}")
