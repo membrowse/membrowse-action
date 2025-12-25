@@ -29,6 +29,14 @@ inputs:
     description: 'Space-separated linker variable definitions (e.g., "__micropy_flash_size__=4096K RAM_START=0x20000000")'
     required: false
     default: ''
+  build_dirs:
+    description: 'Space-separated directories that trigger rebuilds. Commits with no changes in these directories upload metadata-only reports.'
+    required: false
+    default: ''
+  initial_commit:
+    description: 'Start processing from this commit hash. If the path to HEAD has fewer than num_commits, only those commits are processed.'
+    required: false
+    default: ''
   verbose:
     description: 'Set logging level: DEBUG, INFO, or WARNING (default: WARNING)'
     required: false
@@ -82,6 +90,16 @@ runs:
           for var in ${{ inputs.linker_vars }}; do
             ONBOARD_ARGS+=(--def "$var")
           done
+        fi
+
+        # Add build directories filter
+        if [ -n "${{ inputs.build_dirs }}" ]; then
+          ONBOARD_ARGS+=(--build-dirs ${{ inputs.build_dirs }})
+        fi
+
+        # Add initial commit
+        if [ -n "${{ inputs.initial_commit }}" ]; then
+          ONBOARD_ARGS+=(--initial-commit "${{ inputs.initial_commit }}")
         fi
 
         membrowse "${GLOBAL_ARGS[@]}" onboard "${ONBOARD_ARGS[@]}"

@@ -123,6 +123,13 @@ examples:
              'directories, upload metadata-only report with identical=True. '
              'Example: --build-dirs src/ lib/ include/'
     )
+    parser.add_argument(
+        '--initial-commit',
+        dest='initial_commit',
+        metavar='HASH',
+        help='Start processing from this commit hash. If specified and the path from '
+             'this commit to HEAD has fewer than num_commits, only those commits are processed.'
+    )
 
     return parser
 
@@ -158,19 +165,40 @@ def _get_repository_info():
     return current_branch, original_head, repo_name
 
 
-def _get_commit_list(num_commits: int):
+def _get_commit_list(num_commits: int, initial_commit: str = None):
     """
     Get list of commits to process.
 
     Args:
-        num_commits: Number of commits to retrieve
+        num_commits: Maximum number of commits to retrieve
+        initial_commit: Optional starting commit hash. If provided, only commits
+                        from this commit to HEAD are included (up to num_commits).
 
     Returns:
         List of commit hashes (oldest first) or None on error
     """
     logger.info("Getting commit history...")
-    commits_output = run_git_command(
-        ['log', '--format=%H', f'-n{num_commits}', '--reverse'])
+
+    if initial_commit:
+        # Get commits from initial_commit (inclusive) to HEAD, limited to num_commits
+        commits_output = run_git_command(
+            ['log', '--format=%H', f'-n{num_commits}', '--reverse', f'{initial_commit}^..HEAD'])
+        if not commits_output:
+            # If initial_commit^ fails (first commit in repo), try without ^
+            commits_output = run_git_command(
+                ['log', '--format=%H', f'-n{num_commits}', '--reverse', f'{initial_commit}..HEAD'])
+            if commits_output:
+                # Prepend initial_commit since it wasn't included
+                initial_hash = run_git_command(['rev-parse', initial_commit])
+                if initial_hash:
+                    commits_output = initial_hash + '\n' + commits_output
+            else:
+                # Fallback: just the initial commit itself
+                commits_output = run_git_command(['rev-parse', initial_commit])
+    else:
+        commits_output = run_git_command(
+            ['log', '--format=%H', f'-n{num_commits}', '--reverse'])
+
     if not commits_output:
         return None
 
@@ -298,7 +326,7 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
         return 1
 
     # Get commit list
-    commits = _get_commit_list(args.num_commits)
+    commits = _get_commit_list(args.num_commits, getattr(args, 'initial_commit', None))
     if not commits:
         logger.error("Failed to get commit history")
         return 1
