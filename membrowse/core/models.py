@@ -2,11 +2,16 @@
 """
 Data models for memory analysis.
 
-This module contains all the data classes used throughout the memory analysis system.
+This module contains all the data classes used throughout the memory analysis system,
+including TypedDict definitions for structured return types.
 """
 
 from dataclasses import dataclass
 from typing import Any, Dict, List
+try:
+    from typing import TypedDict
+except ImportError:
+    from typing_extensions import TypedDict
 
 
 @dataclass
@@ -75,3 +80,75 @@ class ELFMetadata:
     entry_point: int
     bit_width: int
     endianness: str
+
+
+# TypedDict definitions for structured return types
+# These provide better IDE support and type checking for report data
+
+class SymbolDict(TypedDict):
+    """Type definition for symbol data in reports.
+
+    This matches the dictionary representation of :class:`Symbol` objects
+    as returned in :meth:`ReportGenerator.generate_report`.
+    """
+    name: str
+    address: int
+    size: int
+    type: str
+    binding: str
+    section: str
+    source_file: str
+    visibility: str
+
+
+class ProgramHeaderDict(TypedDict):
+    """Type definition for ELF program header/segment data."""
+    type: str
+    offset: int
+    virt_addr: int
+    phys_addr: int
+    file_size: int
+    mem_size: int
+    flags: str
+    align: int
+
+
+class MemoryRegionDict(TypedDict):
+    """Type definition for memory region data in reports.
+
+    This matches the dictionary returned by :meth:`MemoryRegion.to_dict`.
+    """
+    address: int
+    limit_size: int
+    type: str
+    used_size: int
+    free_size: int
+    utilization_percent: float
+    sections: List[Dict[str, Any]]
+
+
+class MemoryReport(TypedDict):
+    """Type definition for the complete memory report.
+
+    This is the return type of :meth:`ReportGenerator.generate_report`.
+    Use this for type hints in your code::
+
+        from membrowse import ReportGenerator, MemoryReport
+
+        def analyze_firmware(elf_path: str) -> MemoryReport:
+            generator = ReportGenerator(elf_path)
+            return generator.generate_report()
+
+        report: MemoryReport = analyze_firmware("firmware.elf")
+        print(report['architecture'])  # IDE knows this is a str
+        for sym in report['symbols']:  # IDE knows sym is SymbolDict
+            print(sym['name'], sym['size'])
+    """
+    file_path: str
+    architecture: str
+    entry_point: int
+    file_type: str
+    machine: str
+    symbols: List[SymbolDict]
+    program_headers: List[ProgramHeaderDict]
+    memory_layout: Dict[str, MemoryRegionDict]
