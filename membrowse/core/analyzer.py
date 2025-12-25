@@ -22,14 +22,60 @@ from ..analysis.sections import SectionAnalyzer
 
 
 class ELFAnalyzer:  # pylint: disable=too-many-instance-attributes
-    """Handles ELF file analysis and data extraction with performance optimizations"""
+    """Low-level ELF file analysis and data extraction.
+
+    Use this class for direct access to ELF file contents including symbols,
+    sections, metadata, and program headers. For most use cases, prefer
+    :class:`ReportGenerator` which provides a higher-level interface.
+
+    Example::
+
+        import membrowse
+
+        analyzer = membrowse.ELFAnalyzer("firmware.elf")
+
+        # Get ELF metadata
+        meta = analyzer.get_metadata()
+        print(f"Architecture: {meta.architecture}")
+        print(f"Machine: {meta.machine}")
+        print(f"Entry point: 0x{meta.entry_point:08x}")
+
+        # Get all symbols
+        symbols = analyzer.get_symbols()
+        print(f"Total symbols: {len(symbols)}")
+
+        # Find largest functions
+        functions = [s for s in symbols if s.type == 'STT_FUNC']
+        largest = sorted(functions, key=lambda s: s.size, reverse=True)[:10]
+        for sym in largest:
+            print(f"{sym.name}: {sym.size} bytes ({sym.source_file})")
+
+        # Get sections
+        section_totals, sections = analyzer.get_sections()
+        for section in sections:
+            print(f"{section.name}: {section.size} bytes at 0x{section.address:08x}")
+
+    Note:
+        The analyzer opens the ELF file on initialization and keeps it open
+        for the lifetime of the object. The file is closed when the analyzer
+        is garbage collected.
+
+    Attributes:
+        elf_path: Path to the ELF file.
+        elffile: The underlying pyelftools ELFFile object.
+    """
 
     def __init__(self, elf_path: str, skip_line_program: bool = False):
         """Initialize ELF analyzer with file path and component setup.
 
         Args:
-            elf_path: Path to the ELF file to analyze
-            skip_line_program: Skip DWARF line program processing for faster analysis
+            elf_path: Path to the ELF file to analyze.
+            skip_line_program: Skip DWARF line program processing for faster
+                analysis. This improves speed by ~24-31% but reduces source
+                file mapping coverage from ~97% to ~88% (ARM) or ~76% to ~65% (ESP32).
+
+        Raises:
+            ELFAnalysisError: If the file doesn't exist or cannot be read.
         """
         self.elf_path = Path(elf_path)
         self.skip_line_program = skip_line_program
@@ -108,8 +154,18 @@ class ELFAnalyzer:  # pylint: disable=too-many-instance-attributes
         return True
 
     def get_metadata(self) -> ELFMetadata:
-        """Extract ELF metadata."""
+        """Extract ELF file metadata.
 
+        Returns:
+            ELFMetadata dataclass with fields:
+
+            - ``architecture``: "ELF32" or "ELF64"
+            - ``file_type``: e.g., "ET_EXEC", "ET_DYN", "ET_REL"
+            - ``machine``: e.g., "EM_ARM", "EM_XTENSA", "EM_RISCV"
+            - ``entry_point``: Entry point address (int)
+            - ``bit_width``: 32 or 64
+            - ``endianness``: "little" or "big"
+        """
         header = self.elffile.header
 
         return ELFMetadata(
@@ -122,11 +178,32 @@ class ELFAnalyzer:  # pylint: disable=too-many-instance-attributes
         )
 
     def get_sections(self) -> Tuple[Dict[str, int], List[MemorySection]]:
-        """Extract section information and calculate totals."""
+        """Extract ELF section information.
+
+        Returns:
+            Tuple of (section_totals, sections):
+
+            - ``section_totals``: Dict mapping section names to total sizes.
+            - ``sections``: List of MemorySection objects with fields:
+              name, address, size, type, end_address.
+        """
         return self._section_analyzer.analyze_sections()
 
     def get_symbols(self) -> List[Symbol]:
-        """Extract symbol information."""
+        """Extract symbols from the ELF file.
+
+        Returns:
+            List of Symbol dataclass objects with fields:
+
+            - ``name``: Symbol name (demangled for C++).
+            - ``address``: Symbol address.
+            - ``size``: Symbol size in bytes.
+            - ``type``: Symbol type, e.g., "STT_FUNC", "STT_OBJECT", "STT_NOTYPE".
+            - ``binding``: Symbol binding, e.g., "STB_GLOBAL", "STB_LOCAL".
+            - ``section``: Section name, e.g., ".text", ".data", ".bss".
+            - ``source_file``: Source file path (if DWARF info available).
+            - ``visibility``: Symbol visibility.
+        """
         return self._symbol_extractor.extract_symbols(self._source_resolver)
 
     def get_program_headers(self) -> List[Dict[str, Any]]:

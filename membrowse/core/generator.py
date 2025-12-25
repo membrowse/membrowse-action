@@ -9,7 +9,7 @@ the generation of comprehensive memory reports from ELF files and memory regions
 import time
 import logging
 from typing import Dict, Any
-from .models import MemoryRegion
+from .models import MemoryRegion, MemoryReport
 from .analyzer import ELFAnalyzer
 from ..analysis.mapper import MemoryMapper
 from .exceptions import ELFAnalysisError
@@ -19,7 +19,36 @@ logger = logging.getLogger(__name__)
 
 
 class ReportGenerator:  # pylint: disable=too-few-public-methods
-    """Main class for generating comprehensive memory reports"""
+    """Main class for generating comprehensive memory reports.
+
+    This is the primary entry point for generating memory footprint reports
+    from ELF files. It coordinates ELF analysis, linker script parsing,
+    and report generation.
+
+    Example::
+
+        import membrowse
+
+        # Parse linker scripts first
+        regions = membrowse.parse_linker_scripts(["linker.ld"])
+
+        # Generate report
+        generator = membrowse.ReportGenerator(
+            elf_path="firmware.elf",
+            memory_regions_data=regions
+        )
+        report = generator.generate_report()
+
+        # Access results
+        print(f"Architecture: {report['architecture']}")
+        print(f"Symbols: {len(report['symbols'])}")
+        for name, region in report['memory_layout'].items():
+            print(f"{name}: {region['utilization_percent']:.1f}% used")
+
+    Attributes:
+        elf_path: Path to the ELF file being analyzed.
+        elf_analyzer: The underlying ELFAnalyzer instance.
+    """
 
     def __init__(self,
                  elf_path: str,
@@ -30,9 +59,12 @@ class ReportGenerator:  # pylint: disable=too-few-public-methods
         """Initialize the report generator.
 
         Args:
-            elf_path: Path to the ELF file to analyze
-            memory_regions_data: Dictionary of memory region definitions (optional)
-            skip_line_program: Skip DWARF line program processing for faster analysis (optional)
+            elf_path: Path to the ELF file to analyze.
+            memory_regions_data: Dictionary of memory region definitions from
+                :func:`membrowse.parse_linker_scripts`. If not provided, the report
+                will not include memory layout utilization data.
+            skip_line_program: Skip DWARF line program processing for faster
+                analysis at the cost of reduced source file coverage (~24-31% faster).
         """
         self.elf_analyzer = ELFAnalyzer(
             elf_path, skip_line_program=skip_line_program)
@@ -40,14 +72,39 @@ class ReportGenerator:  # pylint: disable=too-few-public-methods
         self.elf_path = elf_path
         self.skip_line_program = skip_line_program
 
-    def generate_report(self) -> Dict[str, Any]:
-        """Generate comprehensive memory report with performance tracking.
-
-        Args:
-            verbose: Whether to print detailed performance statistics
+    def generate_report(self) -> MemoryReport:
+        """Generate comprehensive memory report.
 
         Returns:
-            Dictionary containing the complete memory analysis report
+            MemoryReport TypedDict containing the complete memory analysis report with keys:
+
+            - ``file_path`` (str): Path to the analyzed ELF file.
+            - ``architecture`` (str): ELF architecture, e.g., "ELF32" or "ELF64".
+            - ``machine`` (str): Target machine, e.g., "EM_ARM", "EM_XTENSA".
+            - ``entry_point`` (int): Entry point address.
+            - ``file_type`` (str): ELF file type, e.g., "ET_EXEC".
+            - ``symbols`` (list): List of symbol dicts with keys: name, address,
+              size, type, binding, section, source_file, visibility.
+            - ``program_headers`` (list): ELF program headers/segments.
+            - ``memory_layout`` (dict): Memory region utilization data (only if
+              memory_regions_data was provided). Maps region names to dicts with:
+              address, limit_size, used_size, free_size, utilization_percent, sections.
+
+        Raises:
+            ELFAnalysisError: If ELF analysis fails.
+
+        Example::
+
+            report = generator.generate_report()
+
+            # Find largest functions
+            functions = [s for s in report['symbols'] if s['type'] == 'STT_FUNC']
+            largest = sorted(functions, key=lambda s: s['size'], reverse=True)[:5]
+
+            # Check memory utilization
+            if 'FLASH' in report['memory_layout']:
+                flash = report['memory_layout']['FLASH']
+                print(f"FLASH: {flash['utilization_percent']:.1f}% used")
         """
         report_start_time = time.time()
         try:
