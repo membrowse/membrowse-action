@@ -472,6 +472,7 @@ def upload_report(  # pylint: disable=too-many-arguments
     *,
     api_url: str = DEFAULT_API_URL,
     build_failed: bool = None,
+    identical: bool = False,
     is_github_mode: bool = False
 ) -> tuple[dict, str]:
     """
@@ -496,6 +497,8 @@ def upload_report(  # pylint: disable=too-many-arguments
         api_url: MemBrowse API base URL (e.g., 'https://www.membrowse.com')
                  The /api/upload endpoint suffix is added automatically
         build_failed: Whether the build failed (keyword-only)
+        identical: Whether this commit has identical memory footprint to previous
+                   (no changes in build directories, metadata-only report)
         is_github_mode: Whether --github flag is set (enables tokenless for fork PRs)
 
     Returns:
@@ -518,7 +521,7 @@ def upload_report(  # pylint: disable=too-many-arguments
     logger.info("%s: Target: %s", log_prefix, target_name)
 
     # Build and enrich report
-    enriched_report = _build_enriched_report(report, commit_info, target_name, build_failed)
+    enriched_report = _build_enriched_report(report, commit_info, target_name, build_failed, identical)
 
     # Upload to MemBrowse
     response_data = _perform_upload(
@@ -546,7 +549,8 @@ def _build_enriched_report(
     report: dict,
     commit_info: dict,
     target_name: str,
-    build_failed: bool = None
+    build_failed: bool = None,
+    identical: bool = False
 ) -> dict:
     """Build enriched report with metadata."""
     metadata = {
@@ -559,6 +563,9 @@ def _build_enriched_report(
     # Add build_failed directly to metadata if provided
     if build_failed is not None:
         metadata['build_failed'] = build_failed
+
+    # Add identical flag (commit has no changes in build directories)
+    metadata['identical'] = identical
 
     return {
         'metadata': metadata,

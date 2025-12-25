@@ -114,6 +114,15 @@ examples:
         help='Define linker script variable (can be specified multiple times, '
              'e.g., --def __flash_size__=4096K)'
     )
+    parser.add_argument(
+        '--build-dirs',
+        dest='build_dirs',
+        nargs='+',
+        metavar='DIR',
+        help='Directories that trigger rebuilds. If a commit has no changes in these '
+             'directories, upload metadata-only report with identical=True. '
+             'Example: --build-dirs src/ lib/ include/'
+    )
 
     return parser
 
@@ -166,6 +175,65 @@ def _get_commit_list(num_commits: int):
         return None
 
     return [c.strip() for c in commits_output.split('\n') if c.strip()]
+
+
+def _commit_has_changes_in_dirs(commit: str, build_dirs: list[str]) -> bool:
+    """
+    Check if a commit has changes in any of the specified directories.
+
+    Args:
+        commit: Commit hash to check
+        build_dirs: List of directory paths to check for changes
+
+    Returns:
+        True if commit has changes in any of the build_dirs, False otherwise
+    """
+    # Get parent commit (handle first commit case)
+    parent = run_git_command(['rev-parse', f'{commit}^'])
+    if not parent:
+        # First commit - always consider as having changes
+        return True
+
+    # Get list of changed files between parent and commit
+    changed_files = run_git_command(['diff', '--name-only', parent, commit])
+    if not changed_files:
+        return False
+
+    changed_list = [f.strip() for f in changed_files.split('\n') if f.strip()]
+
+    # Check if any changed file is in one of the build directories
+    for changed_file in changed_list:
+        for build_dir in build_dirs:
+            # Normalize: ensure build_dir ends with / for prefix matching
+            normalized_dir = build_dir.rstrip('/') + '/'
+            if changed_file.startswith(normalized_dir) or changed_file == build_dir.rstrip('/'):
+                return True
+
+    return False
+
+
+def _create_metadata_only_report(elf_path: str) -> dict:
+    """
+    Create a minimal report for commits with no build-relevant changes.
+
+    Contains only structural fields, no actual analysis.
+
+    Args:
+        elf_path: Path to the ELF file (used in report metadata)
+
+    Returns:
+        Minimal report dictionary for identical commits
+    """
+    return {
+        'file_path': elf_path,
+        'architecture': None,
+        'entry_point': None,
+        'file_type': None,
+        'machine': None,
+        'symbols': [],
+        'program_headers': [],
+        'memory_layout': {}
+    }
 
 
 def _handle_build_failure(result, log_prefix, elf_path):
@@ -273,6 +341,47 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
         logger.info("")
         logger.info("Processing commit %d/%d: %s",
                        commit_count, total_commits, commit[:8])
+
+        # Check if we need to build this commit (when --build-dirs is specified)
+        # First commit is always built to establish baseline
+        build_dirs = getattr(args, 'build_dirs', None)
+        if build_dirs and commit_count > 1 and not _commit_has_changes_in_dirs(commit, build_dirs):
+            # No changes in build directories - upload metadata-only with identical=True
+            logger.info("%s: No changes in build directories, marking as identical", log_prefix)
+
+            metadata = get_commit_metadata(commit)
+            report = _create_metadata_only_report(args.elf_path)
+            commit_info = {
+                'commit_hash': metadata['commit_sha'],
+                'base_commit_hash': metadata.get('base_sha'),
+                'branch_name': current_branch,
+                'repository': repo_name,
+                'commit_message': metadata['commit_message'],
+                'commit_timestamp': metadata['commit_timestamp'],
+                'author_name': metadata.get('author_name'),
+                'author_email': metadata.get('author_email'),
+                'pr_number': None
+            }
+
+            try:
+                upload_report(
+                    report=report,
+                    commit_info=commit_info,
+                    target_name=args.target_name,
+                    api_key=args.api_key,
+                    api_url=args.api_url,
+                    identical=True
+                )
+                logger.info("%s: Identical report uploaded (commit %d of %d)",
+                            log_prefix, commit_count, total_commits)
+                successful_uploads += 1
+            except (ValueError, RuntimeError) as e:
+                logger.error("%s: Failed to upload identical report", log_prefix)
+                logger.error("%s: Error: %s", log_prefix, e)
+                failed_uploads += 1
+                return finalize_and_return(1)
+
+            continue  # Skip to next commit - no checkout/build needed
 
         # Checkout the commit
         logger.info("%s: Checking out commit...", log_prefix)
