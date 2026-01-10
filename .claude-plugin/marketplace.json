@@ -1,0 +1,14 @@
+{
+  "name": "membrowse-marketplace",
+  "owner": {
+    "name": "MemBrowse"
+  },
+  "plugins": [
+    {
+      "name": "membrowse",
+      "source": ".",
+      "description": "MemBrowse memory tracking integration for embedded firmware projects",
+      "version": "1.0.5"
+    }
+  ]
+}
