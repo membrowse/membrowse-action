@@ -127,8 +127,9 @@ examples:
         '--initial-commit',
         dest='initial_commit',
         metavar='HASH',
-        help='Start processing from this commit hash. If specified and the path from '
-             'this commit to HEAD has fewer than num_commits, only those commits are processed.'
+        help='Start processing from this commit hash (must be on the main branch, not a '
+             'feature branch commit). If specified and the path from this commit to HEAD '
+             'has fewer than num_commits, only those commits are processed.'
     )
 
     return parser
@@ -181,12 +182,15 @@ def _get_commit_list(num_commits: int, initial_commit: str = None):
 
     if initial_commit:
         # Get commits from initial_commit (inclusive) to HEAD, limited to num_commits
+        # Use --first-parent to follow only the main branch (not feature branch commits)
         commits_output = run_git_command(
-            ['log', '--format=%H', f'-n{num_commits}', '--reverse', f'{initial_commit}^..HEAD'])
+            ['log', '--first-parent', '--format=%H', f'-n{num_commits}',
+             '--reverse', f'{initial_commit}^..HEAD'])
         if not commits_output:
             # If initial_commit^ fails (first commit in repo), try without ^
             commits_output = run_git_command(
-                ['log', '--format=%H', f'-n{num_commits}', '--reverse', f'{initial_commit}..HEAD'])
+                ['log', '--first-parent', '--format=%H', f'-n{num_commits}',
+                 '--reverse', f'{initial_commit}..HEAD'])
             if commits_output:
                 # Prepend initial_commit since it wasn't included
                 initial_hash = run_git_command(['rev-parse', initial_commit])
@@ -196,8 +200,9 @@ def _get_commit_list(num_commits: int, initial_commit: str = None):
                 # Fallback: just the initial commit itself
                 commits_output = run_git_command(['rev-parse', initial_commit])
     else:
+        # Use --first-parent to follow only the main branch (not feature branch commits)
         commits_output = run_git_command(
-            ['log', '--format=%H', f'-n{num_commits}', '--reverse'])
+            ['log', '--first-parent', '--format=%H', f'-n{num_commits}', '--reverse'])
 
     if not commits_output:
         return None
