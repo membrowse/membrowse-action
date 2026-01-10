@@ -1,0 +1,10 @@
+{
+  "name": "membrowse",
+  "description": "MemBrowse memory tracking integration for embedded firmware projects. Automatically sets up GitHub workflows for RAM/Flash analysis.",
+  "version": "1.0.5",
+  "author": {
+    "name": "MemBrowse"
+  },
+  "repository": "https://github.com/membrowse/membrowse-action",
+  "keywords": ["embedded", "memory", "firmware", "elf", "arm", "esp32", "stm32", "rp2040"]
+}
