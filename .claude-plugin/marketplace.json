@@ -6,7 +6,10 @@
   "plugins": [
     {
       "name": "membrowse",
-      "source": ".",
+      "source": {
+        "source": "github",
+        "repo": "membrowse/membrowse-action"
+      },
       "description": "MemBrowse memory tracking integration for embedded firmware projects",
       "version": "1.0.5"
     }
