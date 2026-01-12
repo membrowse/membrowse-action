@@ -286,44 +286,32 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
             List of CUs that contain at least one target symbol address
         """
 
-        # Check if most CUs have the full address range (no specific ranges)
-        full_range_count = sum(
-            1 for start,
-            end,
-            _ in cu_index if start == 0 and end == MAX_ADDRESS)
-        total_cus = len(cu_index)
+        # Check if any CUs have full address range (no specific ranges)
+        # Full-range CUs can contain any symbol, so binary search optimization
+        # doesn't work reliably when they exist (e.g., C++ <artificial> CUs)
+        has_full_range = any(
+            start == 0 and end == MAX_ADDRESS
+            for start, end, _ in cu_index
+        )
 
-        # If more than 80% of CUs have full range, process all (optimization
-        # doesn't help)
-        if full_range_count > 0.8 * total_cus:
-            logger.debug(
-                "Most CUs (%d/%d) have full range, processing all CUs",
-                full_range_count, total_cus)
+        if has_full_range:
+            logger.debug("Found full-range CUs, processing all %d CUs", len(cu_index))
             return [cu for _, _, cu in cu_index]
 
-        # Use binary search optimization when CUs have meaningful ranges
-        logger.debug(
-            "Using binary search optimization: %d/%d CUs have full range",
-            full_range_count, total_cus)
+        # Use binary search optimization only when all CUs have specific ranges
+        logger.debug("Using binary search optimization for %d CUs", len(cu_index))
 
         relevant_cus = []
-        relevant_cu_set = set()  # Track CUs we've already added for O(1) lookup
-        symbol_addr_list = sorted(self.symbol_addresses)
+        relevant_cu_set = set()
+        start_addresses = [start for start, _, _ in cu_index]
 
-        # Pre-extract start addresses for binary search
-        start_addresses = [start_addr for start_addr, _, _ in cu_index]
-
-        for symbol_addr in symbol_addr_list:
-            # Use binary search to find the rightmost CU start address <=
-            # symbol_addr
+        for symbol_addr in self.symbol_addresses:
             pos = bisect.bisect_right(start_addresses, symbol_addr) - 1
-
             if pos >= 0:
                 start_addr, end_addr, cu = cu_index[pos]
-                if start_addr <= symbol_addr <= end_addr:
-                    if cu not in relevant_cu_set:
-                        relevant_cus.append(cu)
-                        relevant_cu_set.add(cu)
+                if start_addr <= symbol_addr <= end_addr and cu not in relevant_cu_set:
+                    relevant_cus.append(cu)
+                    relevant_cu_set.add(cu)
 
         return relevant_cus
 
@@ -416,6 +404,71 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
             logger.error("Failed to extract string value: %s", e)
             raise DWARFAttributeError(
                 f"Failed to extract string value: {e}") from e
+
+    def _get_die_name_and_spec(self, die) -> Tuple[Optional[str], Optional[Any]]:
+        """Extract symbol name from DIE, following abstract_origin/specification chain.
+
+        For C++ templates and inlined functions, DWARF uses reference chains:
+        concrete DIE (with address) -> abstract_origin -> specification -> name
+
+        Args:
+            die: Debug Information Entry to extract name from
+
+        Returns:
+            Tuple of (name, spec_die) where spec_die is the DIE containing
+            the name (for later attribute lookups like decl_file)
+        """
+        if not die.attributes:
+            return None, None
+
+        # Try direct name first
+        name_attr = die.attributes.get('DW_AT_name')
+        if name_attr and hasattr(name_attr, 'value'):
+            return self._extract_string_value(name_attr.value), None
+
+        # Follow abstract_origin (C++ template instantiations, inlined functions)
+        ref_die = die
+        spec_die = None
+        if 'DW_AT_abstract_origin' in die.attributes:
+            abstract_die = die.get_DIE_from_attribute('DW_AT_abstract_origin')
+            if abstract_die and abstract_die.attributes:
+                name_attr = abstract_die.attributes.get('DW_AT_name')
+                if name_attr and hasattr(name_attr, 'value'):
+                    return self._extract_string_value(name_attr.value), abstract_die
+                ref_die = abstract_die
+                spec_die = abstract_die
+
+        # Follow specification (C++ method definitions)
+        if 'DW_AT_specification' in ref_die.attributes:
+            spec_die = ref_die.get_DIE_from_attribute('DW_AT_specification')
+            if spec_die and spec_die.attributes:
+                name_attr = spec_die.attributes.get('DW_AT_name')
+                if name_attr and hasattr(name_attr, 'value'):
+                    return self._extract_string_value(name_attr.value), spec_die
+
+        return None, spec_die
+
+    def _get_die_decl_file(
+            self, die, spec_die, file_entries: Dict[int, str]) -> Optional[str]:
+        """Extract declaration file from DIE or its specification DIE.
+
+        Args:
+            die: Primary DIE to check
+            spec_die: Specification DIE (from _get_die_name_and_spec)
+            file_entries: Mapping of file indices to file paths
+
+        Returns:
+            Declaration file path or None
+        """
+        # Check primary DIE first
+        for check_die in [die, spec_die]:
+            if check_die and check_die.attributes:
+                decl_file_attr = check_die.attributes.get('DW_AT_decl_file')
+                if decl_file_attr and hasattr(decl_file_attr, 'value'):
+                    file_idx = decl_file_attr.value
+                    if file_idx in file_entries:
+                        return file_entries[file_idx]
+        return None
 
     def _parse_location_expression(self, location_value) -> Optional[int]:
         """Parse DWARF location expression to extract address from DW_OP_addr.
@@ -646,68 +699,32 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
 
             attrs = die.attributes
 
-            # Get symbol name - may be in specification
-            die_name = None
-            name_attr = attrs.get('DW_AT_name')
-            if name_attr and hasattr(name_attr, 'value'):
-                die_name = self._extract_string_value(name_attr.value)
-
-            # If no name, check if there's a specification reference
-            spec_die = None
-            if not die_name:
-                spec_attr = attrs.get('DW_AT_specification')
-                if spec_attr:
-                    # Follow the specification reference to get name and other
-                    # attributes
-                    spec_die = die.get_DIE_from_attribute(
-                        'DW_AT_specification')
-                    if spec_die and spec_die.attributes:
-                        name_attr = spec_die.attributes.get('DW_AT_name')
-                        if name_attr and hasattr(name_attr, 'value'):
-                            die_name = self._extract_string_value(
-                                name_attr.value)
-
+            # Get symbol name (follows abstract_origin/specification chain for C++)
+            die_name, spec_die = self._get_die_name_and_spec(die)
             if not die_name:
                 return
 
-            # Get address
+            # Get address from low_pc or location expression
             die_address = None
             low_pc_attr = attrs.get('DW_AT_low_pc')
             if low_pc_attr and hasattr(low_pc_attr, 'value'):
                 try:
                     die_address = int(low_pc_attr.value)
-                except (ValueError, TypeError) as e:
-                    logger.debug(
-                        "Could not parse DW_AT_low_pc value '%s' for symbol '%s': %s",
-                        low_pc_attr.value, die_name, e)
+                except (ValueError, TypeError):
+                    pass
 
             if not die_address:
                 location_attr = attrs.get('DW_AT_location')
                 if location_attr and hasattr(location_attr, 'value'):
-                    # DW_AT_location contains DWARF expressions, parse them
-                    die_address = self._parse_location_expression(
-                        location_attr.value)
-                    if not die_address:
-                        logger.debug(
-                            "Could not parse DW_AT_location expression for symbol '%s' "
-                            "(not a simple DW_OP_addr or unsupported expression type)", die_name)
+                    die_address = self._parse_location_expression(location_attr.value)
 
             # Only process if this address is in our symbol table
             if die_address and not self._is_address_in_symbol_set_with_tolerance(
                     die_address):
                 return
 
-            # Track found symbols for early termination (only count after full processing)
-            # We'll add to found_symbols at the end of processing to ensure
-            # mapping is complete
-
-            # Get declaration file
-            decl_file = None
-            decl_file_attr = attrs.get('DW_AT_decl_file')
-            if decl_file_attr and hasattr(decl_file_attr, 'value'):
-                file_idx = decl_file_attr.value
-                if file_idx in file_entries:
-                    decl_file = file_entries[file_idx]
+            # Get declaration file (checks DIE and spec_die)
+            decl_file = self._get_die_decl_file(die, spec_die, file_entries)
 
             # Determine best source file
             is_declaration = 'DW_AT_declaration' in attrs
