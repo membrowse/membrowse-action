@@ -83,6 +83,29 @@ jobs:
           api_key: ${{ secrets.MEMBROWSE_API_KEY }}
 ```
 
+### Claude Code Integration
+
+If you use [Claude Code](https://claude.ai/code), you can automatically set up MemBrowse integration using the membrowse-integrate skill.
+
+First, add the MemBrowse plugin to Claude Code:
+
+```
+/plugin marketplace add membrowse@membrowse-action
+```
+
+Then run the skill in your project:
+
+```
+/membrowse-integrate
+```
+
+This will:
+- Analyze your project's build system and targets
+- Verify builds and linker scripts work locally
+- Create `membrowse-targets.json` configuration
+- Set up GitHub Actions workflows for PR analysis and onboarding
+- Add a MemBrowse badge to your README
+
 ## Local Installation
 
 ### From PyPI
