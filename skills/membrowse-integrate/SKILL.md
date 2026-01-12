@@ -1,12 +1,12 @@
 ---
 name: membrowse-integrate
-description: Integrate MemBrowse memory tracking into an embedded firmware project. Use when the user wants to set up MemBrowse, add memory analysis GitHub workflows, or create membrowse-targets.json for tracking RAM/Flash usage.
+description: Integrate MemBrowse memory tracking into an embedded firmware project. Use when the user wants to set up MemBrowse, add memory analysis GitHub workflows, create membrowse-targets.json for tracking RAM/Flash usage, or add a MemBrowse badge to the README.
 allowed-tools: Read, Glob, Grep, Write, Edit, Bash, Task, AskUserQuestion
 ---
 
 # MemBrowse Integration Skill
 
-You are integrating MemBrowse memory analysis into an embedded firmware project. Follow these steps to identify build targets, create the configuration file, and set up GitHub workflows.
+You are integrating MemBrowse memory analysis into an embedded firmware project. Follow these steps to identify build targets, create the configuration file, set up GitHub workflows, and add a MemBrowse badge to the README.
 
 ## Step 1: Explore the Codebase to Identify Build Targets
 
@@ -103,9 +103,53 @@ Before creating files, present the discovered targets to the user and ask them t
 - Any missing setup commands?
 - What is the default branch name (main/master)?
 
-## Step 4: Create membrowse-targets.json
+## Step 4: Verify Targets Locally
 
-Create `.github/membrowse-targets.json` with the confirmed targets:
+Before adding targets to the configuration file, verify that each target builds correctly and the linker scripts are valid.
+
+### 4.1 Test Build Locally
+
+For each target, run the build command locally to ensure it works:
+
+```bash
+# Run the setup command (if needed)
+# Then run the build command
+make clean && make BOARD=PYBV10  # example
+
+# Verify the ELF file exists at the expected path
+ls -la build/firmware.elf
+```
+
+### 4.2 Verify Linker Scripts
+
+Check that the linker scripts specified in `ld` are correct:
+
+```bash
+# Verify linker scripts exist
+ls -la path/to/linker.ld
+
+# Test that membrowse can parse the linker scripts
+pip install membrowse  # if not installed
+membrowse report path/to/firmware.elf "path/to/linker.ld"
+```
+
+If the linker scripts are incorrect or missing:
+- Check the build system for the actual linker script paths used
+- Look for `-T` flags in the build output
+- Some projects generate linker scripts during build (check `build/` directory)
+
+### 4.3 Ask User to Verify
+
+Ask the user to confirm:
+- Did the build succeed?
+- Does the ELF file exist at the expected path?
+- Are the linker scripts correct?
+
+Only proceed to create the configuration file after successful local verification.
+
+## Step 5: Create membrowse-targets.json
+
+Create `.github/membrowse-targets.json` with the verified targets:
 
 ```json
 [
@@ -129,11 +173,11 @@ Create `.github/membrowse-targets.json` with the confirmed targets:
 - `linker_vars`: Only needed if linker scripts use undefined variables
 - `port` and `board`: Used for ccache keys, can be empty strings
 
-## Step 5: Create GitHub Workflows
+## Step 6: Create GitHub Workflows
 
 Create three workflow files in `.github/workflows/`:
 
-### 5.1 membrowse-report.yml
+### 6.1 membrowse-report.yml
 
 ```yaml
 name: Membrowse Memory Report
@@ -208,7 +252,7 @@ jobs:
           path: ${{ steps.analyze.outputs.report_path }}
 ```
 
-### 5.2 membrowse-comment.yml
+### 6.2 membrowse-comment.yml
 
 ```yaml
 name: Membrowse PR Comment
@@ -281,7 +325,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
 
-### 5.3 membrowse-onboard.yml
+### 6.3 membrowse-onboard.yml
 
 ```yaml
 name: Onboard to Membrowse
@@ -292,7 +336,7 @@ on:
       num_commits:
         description: 'Number of commits to process'
         required: true
-        default: '100'
+        default: '10'
         type: string
 
 jobs:
@@ -344,7 +388,7 @@ jobs:
           api_url: ${{ vars.MEMBROWSE_API_URL }}
 ```
 
-## Step 6: Inform User About Secrets
+## Step 7: Inform User About Secrets
 
 After creating the files, tell the user they need to configure:
 
@@ -353,12 +397,72 @@ After creating the files, tell the user they need to configure:
 
 Location: Repository Settings → Secrets and variables → Actions
 
-## Step 7: Provide Testing Instructions
+## Step 8: Provide Testing Instructions
 
 Tell the user how to test:
 
 1. **Test Report Workflow**: Create a PR to trigger `membrowse-report.yml`
 2. **Test Onboard Workflow**: Go to Actions → "Onboard to Membrowse" → Run workflow with 10 commits first
+3. **Verify Badge**: After the first successful report, the badge will show memory usage data
+
+## Step 9: Add MemBrowse Badge to README
+
+Add a MemBrowse badge to the project's README to show memory tracking status.
+
+### 9.1 Find the README File
+
+```bash
+# Look for README files
+ls -la README* readme* 2>/dev/null
+```
+
+### 9.2 Determine the Badge URL
+
+The badge URL format is:
+```
+[![MemBrowse](https://membrowse.com/badge.svg)](https://membrowse.com/public/{owner}/{repo})
+```
+
+Get the owner and repo name from the git remote:
+```bash
+git remote get-url origin
+```
+
+Parse the URL to extract `{owner}/{repo}` (e.g., `micropython/micropython`).
+
+### 9.3 Add the Badge
+
+Add the badge near the top of the README, typically:
+- After the main title/heading
+- Alongside other badges if present
+- Before the project description
+
+**Example placement:**
+
+```markdown
+# Project Name
+
+[![MemBrowse](https://membrowse.com/badge.svg)](https://membrowse.com/public/owner/repo)
+
+Project description here...
+```
+
+**If other badges exist, add it inline:**
+
+```markdown
+# Project Name
+
+[![Build](https://img.shields.io/...)](...)
+[![License](https://img.shields.io/...)](...)
+[![MemBrowse](https://membrowse.com/badge.svg)](https://membrowse.com/public/owner/repo)
+```
+
+### 9.4 Ask User for Confirmation
+
+Before modifying the README:
+- Show the user the badge that will be added
+- Ask where they want it placed (if multiple badge locations exist)
+- Confirm the owner/repo extracted from git remote is correct
 
 ## Troubleshooting Reference
 
