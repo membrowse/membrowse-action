@@ -1063,6 +1063,241 @@ class TestUserVariables(unittest.TestCase):
         self.assertEqual(regions['APP']['limit_size'], expected_length)
 
 
+class TestAbsoluteFunction(unittest.TestCase):
+    """Test ABSOLUTE() function support in linker script parser"""
+
+    def setUp(self):
+        """Set up test environment"""
+        self.temp_dir = tempfile.mkdtemp()
+        self.temp_files = []
+
+    def tearDown(self):
+        """Clean up temporary files"""
+        for temp_file in self.temp_files:
+            try:
+                os.unlink(temp_file)
+            except OSError:
+                pass
+        try:
+            os.rmdir(self.temp_dir)
+        except OSError:
+            pass
+
+    def create_temp_linker_script(self, content: str) -> str:
+        """Create a temporary linker script file with given content"""
+        temp_file = os.path.join(
+            self.temp_dir,
+            f"test_{len(self.temp_files)}.ld")
+        with open(temp_file, 'w', encoding='utf-8') as f:
+            f.write(content)
+        self.temp_files.append(temp_file)
+        return temp_file
+
+    def test_absolute_simple_value(self):
+        """Test ABSOLUTE() with a simple numeric value"""
+        script_content = """
+        flash_size = ABSOLUTE(0x100000);
+
+        MEMORY
+        {
+            FLASH (rx) : ORIGIN = 0x08000000, LENGTH = flash_size
+        }
+        """
+
+        script_path = self.create_temp_linker_script(script_content)
+        parser = LinkerScriptParser([script_path])
+        regions = parser.parse_memory_regions()
+
+        self.assertEqual(len(regions), 1)
+        self.assertEqual(regions['FLASH']['limit_size'], 0x100000)
+
+    def test_absolute_with_variable(self):
+        """Test ABSOLUTE() with a variable reference"""
+        script_content = """
+        BASE_SIZE = 0x80000;
+        ACTUAL_SIZE = ABSOLUTE(BASE_SIZE);
+
+        MEMORY
+        {
+            FLASH (rx) : ORIGIN = 0x08000000, LENGTH = ACTUAL_SIZE
+        }
+        """
+
+        script_path = self.create_temp_linker_script(script_content)
+        parser = LinkerScriptParser([script_path])
+        regions = parser.parse_memory_regions()
+
+        self.assertEqual(len(regions), 1)
+        self.assertEqual(regions['FLASH']['limit_size'], 0x80000)
+
+    def test_absolute_in_ternary_expression(self):
+        """Test ABSOLUTE() in ternary conditional expressions (FSP-style pattern)"""
+        script_content = """
+        QSPI_FLASH_SIZE = 0x400000;
+        QSPI_FLASH_LENGTH = 0x200000;
+        QSPI_FLASH_START = 0x60000000;
+
+        QSPI_FLASH_PRV_LENGTH = DEFINED(QSPI_FLASH_SIZE) ? ABSOLUTE(QSPI_FLASH_SIZE) : ABSOLUTE(QSPI_FLASH_LENGTH);
+
+        MEMORY
+        {
+            QSPI_FLASH (rx) : ORIGIN = QSPI_FLASH_START, LENGTH = QSPI_FLASH_PRV_LENGTH
+        }
+        """
+
+        script_path = self.create_temp_linker_script(script_content)
+        parser = LinkerScriptParser([script_path])
+        regions = parser.parse_memory_regions()
+
+        self.assertEqual(len(regions), 1)
+        self.assertEqual(regions['QSPI_FLASH']['address'], 0x60000000)
+        # QSPI_FLASH_SIZE is defined, so should use its value (0x400000)
+        self.assertEqual(regions['QSPI_FLASH']['limit_size'], 0x400000)
+
+    def test_absolute_in_ternary_undefined(self):
+        """Test ABSOLUTE() in ternary with undefined variable (uses false branch)"""
+        script_content = """
+        QSPI_FLASH_LENGTH = 0x200000;
+        QSPI_FLASH_START = 0x60000000;
+
+        QSPI_FLASH_PRV_LENGTH = DEFINED(QSPI_FLASH_SIZE) ? ABSOLUTE(QSPI_FLASH_SIZE) : ABSOLUTE(QSPI_FLASH_LENGTH);
+
+        MEMORY
+        {
+            QSPI_FLASH (rx) : ORIGIN = QSPI_FLASH_START, LENGTH = QSPI_FLASH_PRV_LENGTH
+        }
+        """
+
+        script_path = self.create_temp_linker_script(script_content)
+        parser = LinkerScriptParser([script_path])
+        regions = parser.parse_memory_regions()
+
+        self.assertEqual(len(regions), 1)
+        # QSPI_FLASH_SIZE is NOT defined, so should use QSPI_FLASH_LENGTH (0x200000)
+        self.assertEqual(regions['QSPI_FLASH']['limit_size'], 0x200000)
+
+    def test_absolute_nested(self):
+        """Test nested ABSOLUTE() calls"""
+        script_content = """
+        INNER_VALUE = 0x50000;
+        OUTER_VALUE = ABSOLUTE(ABSOLUTE(INNER_VALUE));
+
+        MEMORY
+        {
+            RAM (rwx) : ORIGIN = 0x20000000, LENGTH = OUTER_VALUE
+        }
+        """
+
+        script_path = self.create_temp_linker_script(script_content)
+        parser = LinkerScriptParser([script_path])
+        regions = parser.parse_memory_regions()
+
+        self.assertEqual(len(regions), 1)
+        self.assertEqual(regions['RAM']['limit_size'], 0x50000)
+
+    def test_absolute_multiple_in_expression(self):
+        """Test multiple ABSOLUTE() calls in a single expression"""
+        script_content = """
+        SIZE_A = 0x10000;
+        SIZE_B = 0x20000;
+        TOTAL_SIZE = ABSOLUTE(SIZE_A) + ABSOLUTE(SIZE_B);
+
+        MEMORY
+        {
+            FLASH (rx) : ORIGIN = 0x08000000, LENGTH = TOTAL_SIZE
+        }
+        """
+
+        script_path = self.create_temp_linker_script(script_content)
+        parser = LinkerScriptParser([script_path])
+        regions = parser.parse_memory_regions()
+
+        self.assertEqual(len(regions), 1)
+        self.assertEqual(regions['FLASH']['limit_size'], 0x10000 + 0x20000)
+
+    def test_absolute_in_memory_definition_directly(self):
+        """Test ABSOLUTE() used directly in MEMORY definition"""
+        script_content = """
+        FLASH_SIZE = 512K;
+
+        MEMORY
+        {
+            FLASH (rx) : ORIGIN = 0x08000000, LENGTH = ABSOLUTE(FLASH_SIZE)
+        }
+        """
+
+        script_path = self.create_temp_linker_script(script_content)
+        parser = LinkerScriptParser([script_path])
+        regions = parser.parse_memory_regions()
+
+        self.assertEqual(len(regions), 1)
+        self.assertEqual(regions['FLASH']['limit_size'], 512 * 1024)
+
+    def test_absolute_fsp_style_multiple_regions(self):
+        """Test FSP-style linker script with multiple regions using ABSOLUTE()"""
+        # This mimics the real-world FSP linker script pattern from the issue
+        script_content = """
+        QSPI_FLASH_SIZE = 0x400000;
+        QSPI_FLASH_LENGTH = 0x200000;
+        QSPI_FLASH_START = 0x60000000;
+
+        OSPI_DEVICE_0_SIZE = 0x800000;
+        OSPI_DEVICE_0_LENGTH = 0x100000;
+        OSPI_DEVICE_0_START = 0x68000000;
+
+        OSPI_DEVICE_1_LENGTH = 0x100000;
+        OSPI_DEVICE_1_START = 0x70000000;
+
+        QSPI_FLASH_PRV_LENGTH = DEFINED(QSPI_FLASH_SIZE) ? ABSOLUTE(QSPI_FLASH_SIZE) : ABSOLUTE(QSPI_FLASH_LENGTH);
+        OSPI_DEVICE_0_PRV_LENGTH = DEFINED(OSPI_DEVICE_0_SIZE) ? ABSOLUTE(OSPI_DEVICE_0_SIZE) : ABSOLUTE(OSPI_DEVICE_0_LENGTH);
+        OSPI_DEVICE_1_PRV_LENGTH = DEFINED(OSPI_DEVICE_1_SIZE) ? ABSOLUTE(OSPI_DEVICE_1_SIZE) : ABSOLUTE(OSPI_DEVICE_1_LENGTH);
+
+        MEMORY
+        {
+            QSPI_FLASH (rx)    : ORIGIN = QSPI_FLASH_START, LENGTH = QSPI_FLASH_PRV_LENGTH
+            OSPI_DEVICE_0 (rx) : ORIGIN = OSPI_DEVICE_0_START, LENGTH = OSPI_DEVICE_0_PRV_LENGTH
+            OSPI_DEVICE_1 (rx) : ORIGIN = OSPI_DEVICE_1_START, LENGTH = OSPI_DEVICE_1_PRV_LENGTH
+        }
+        """
+
+        script_path = self.create_temp_linker_script(script_content)
+        parser = LinkerScriptParser([script_path])
+        regions = parser.parse_memory_regions()
+
+        self.assertEqual(len(regions), 3)
+
+        # QSPI_FLASH_SIZE is defined, use it
+        self.assertEqual(regions['QSPI_FLASH']['address'], 0x60000000)
+        self.assertEqual(regions['QSPI_FLASH']['limit_size'], 0x400000)
+
+        # OSPI_DEVICE_0_SIZE is defined, use it
+        self.assertEqual(regions['OSPI_DEVICE_0']['address'], 0x68000000)
+        self.assertEqual(regions['OSPI_DEVICE_0']['limit_size'], 0x800000)
+
+        # OSPI_DEVICE_1_SIZE is NOT defined, use OSPI_DEVICE_1_LENGTH
+        self.assertEqual(regions['OSPI_DEVICE_1']['address'], 0x70000000)
+        self.assertEqual(regions['OSPI_DEVICE_1']['limit_size'], 0x100000)
+
+    def test_absolute_with_size_suffix(self):
+        """Test ABSOLUTE() with size suffix values"""
+        script_content = """
+        SIZE_VAR = 256K;
+        RESOLVED_SIZE = ABSOLUTE(SIZE_VAR);
+
+        MEMORY
+        {
+            RAM (rwx) : ORIGIN = 0x20000000, LENGTH = RESOLVED_SIZE
+        }
+        """
+
+        script_path = self.create_temp_linker_script(script_content)
+        parser = LinkerScriptParser([script_path])
+        regions = parser.parse_memory_regions()
+
+        self.assertEqual(len(regions), 1)
+        self.assertEqual(regions['RAM']['limit_size'], 256 * 1024)
+
+
 if __name__ == '__main__':
     # Configure test output
     import logging
