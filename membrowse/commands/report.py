@@ -20,8 +20,8 @@ from ..auth.strategy import determine_auth_strategy
 # Set up logger
 logger = logging.getLogger(__name__)
 
-# Default MemBrowse API base URL (automatically appends /api/upload)
-DEFAULT_API_URL = 'https://www.membrowse.com'
+# Default MemBrowse API base URL (automatically appends /upload)
+DEFAULT_API_URL = 'https://api.membrowse.com'
 
 
 def print_upload_response(response_data: dict) -> str:
@@ -287,7 +287,7 @@ examples:
   # Upload to MemBrowse (Git metadata auto-detected by default)
   membrowse report firmware.elf "linker.ld" --upload \\
       --api-key "$API_KEY" --target-name esp32 \\
-      --api-url https://www.membrowse.com
+      --api-url https://api.membrowse.com
 
   # Upload without Git metadata
   membrowse report firmware.elf "linker.ld" --upload --no-git \\
@@ -335,7 +335,7 @@ examples:
     upload_group.add_argument(
         '--api-url',
         default=DEFAULT_API_URL,
-        help='MemBrowse API base URL (default: %(default)s, /api/upload appended automatically)'
+        help='MemBrowse API base URL (default: %(default)s, /upload appended automatically)'
     )
 
     # Optional Git metadata (overrides auto-detected values)
@@ -494,8 +494,8 @@ def upload_report(  # pylint: disable=too-many-arguments
             }
         target_name: Build configuration/target (e.g., esp32, stm32, x86)
         api_key: MemBrowse API key (None for tokenless fork PR uploads)
-        api_url: MemBrowse API base URL (e.g., 'https://www.membrowse.com')
-                 The /api/upload endpoint suffix is added automatically
+        api_url: MemBrowse API base URL (e.g., 'https://api.membrowse.com')
+                 The /upload endpoint suffix is added automatically
         build_failed: Whether the build failed (keyword-only)
         identical: Whether this commit has identical memory footprint to previous
                    (no changes in build directories, metadata-only report)
@@ -581,7 +581,7 @@ def _perform_upload(
     is_github_mode: bool = False
 ) -> dict:
     """Perform the actual upload to MemBrowse."""
-    # Normalize API URL (append /api/upload)
+    # Normalize API URL (append /upload)
     upload_endpoint = normalize_api_url(api_url)
 
     try:

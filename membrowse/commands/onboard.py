@@ -102,7 +102,7 @@ examples:
         'api_url',
         nargs='?',
         default=DEFAULT_API_URL,
-        help='MemBrowse API base URL (default: %(default)s, /api/upload appended automatically)'
+        help='MemBrowse API base URL (default: %(default)s, /upload appended automatically)'
     )
 
     # Optional flags
