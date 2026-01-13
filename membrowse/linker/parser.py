@@ -237,9 +237,8 @@ class ExpressionEvaluator:
             self._replace_defined,
             expr)
 
-        # Handle conditional expressions: condition ? value1 : value2
-        conditional_pattern = r"([^?]+)\s*\?\s*([^:]+)\s*:\s*([^;,}]+)"
-        expr = re.sub(conditional_pattern, self._replace_conditional, expr)
+        # Handle conditional expressions (ternary) with proper nesting support
+        expr = self._evaluate_ternary(expr)
 
         # Handle ORIGIN() and LENGTH() functions
         expr = re.sub(
@@ -266,42 +265,186 @@ class ExpressionEvaluator:
 
         return expr
 
+    # Maximum nesting depth for ternary expressions (security limit)
+    MAX_TERNARY_DEPTH = 50
+
+    def _evaluate_ternary(self, expr: str, depth: int = 0) -> str:
+        """Evaluate ternary expressions with proper nesting support.
+
+        Handles patterns like:
+        - Simple: DEFINED(X) ? A : B
+        - Nested: DEFINED(X) ? A : DEFINED(Y) ? B : C
+        - Chained: !DEFINED(X) ? A : Y == 1 ? B : C
+
+        Ternary operators are right-associative, so:
+        a ? b : c ? d : e  is parsed as  a ? b : (c ? d : e)
+        """
+        if depth > self.MAX_TERNARY_DEPTH:
+            raise ExpressionEvaluationError(
+                f"Ternary nesting depth exceeds limit ({self.MAX_TERNARY_DEPTH})")
+
+        expr = expr.strip()
+
+        # Find the first '?' that's not inside parentheses
+        question_pos = self._find_operator_outside_parens(expr, '?')
+        if question_pos == -1:
+            return expr  # No ternary operator
+
+        # Extract condition (everything before '?')
+        condition = expr[:question_pos].strip()
+
+        # Find the matching ':' for this '?'
+        # We need to count nested '?' and ':' pairs
+        rest = expr[question_pos + 1:]
+        colon_pos = self._find_matching_colon(rest)
+
+        if colon_pos == -1:
+            return expr  # Malformed ternary, return as-is
+
+        true_value = rest[:colon_pos].strip()
+        false_value = rest[colon_pos + 1:].strip()
+
+        # Recursively evaluate nested ternaries in the false branch
+        # (ternary is right-associative)
+        false_value = self._evaluate_ternary(false_value, depth + 1)
+
+        # Evaluate the condition
+        cond_result = self._evaluate_condition(condition)
+
+        # Return the appropriate branch
+        if cond_result:
+            return true_value
+        return false_value
+
+    def _find_operator_outside_parens(self, expr: str, op: str) -> int:
+        """Find the position of an operator that's not inside parentheses."""
+        paren_depth = 0
+        for i, char in enumerate(expr):
+            if char == '(':
+                paren_depth += 1
+            elif char == ')':
+                paren_depth -= 1
+            elif char == op and paren_depth == 0:
+                return i
+        return -1
+
+    def _find_matching_colon(self, expr: str) -> int:
+        """Find the colon that matches the current ternary level.
+
+        For nested ternaries like "A : B ? C : D", we need to find the first ':'
+        at depth 0 (not counting nested ternaries).
+        """
+        paren_depth = 0
+        ternary_depth = 0
+
+        for i, char in enumerate(expr):
+            if char == '(':
+                paren_depth += 1
+            elif char == ')':
+                paren_depth -= 1
+            elif char == '?' and paren_depth == 0:
+                ternary_depth += 1
+            elif char == ':' and paren_depth == 0:
+                if ternary_depth == 0:
+                    return i
+                ternary_depth -= 1
+
+        return -1
+
+    def _evaluate_condition(self, condition: str) -> bool:
+        """Evaluate a ternary condition to a boolean result."""
+        condition, negated = self._strip_negation(condition.strip())
+
+        handlers = [
+            self._eval_numeric_literal,
+            self._eval_defined,
+            self._eval_comparison,
+            self._eval_variable,
+        ]
+
+        for handler in handlers:
+            result = handler(condition)
+            if result is not None:
+                return not result if negated else result
+
+        return negated  # Unknown condition = false
+
+    def _strip_negation(self, condition: str) -> tuple:
+        """Strip leading ! and return (condition, is_negated)."""
+        if condition.startswith('!'):
+            return condition[1:].strip(), True
+        return condition, False
+
+    def _eval_numeric_literal(self, condition: str) -> Optional[bool]:
+        """Evaluate numeric literals 0 and 1."""
+        if condition in ["0", "1"]:
+            return int(condition) != 0
+        return None
+
+    def _eval_defined(self, condition: str) -> Optional[bool]:
+        """Evaluate DEFINED() function."""
+        if "DEFINED(" not in condition:
+            return None
+        match = re.search(r"DEFINED\s*\(\s*([^)]+)\s*\)", condition)
+        if match:
+            symbol = match.group(1).strip()
+            return symbol in self.variables
+        return None
+
+    def _eval_comparison(self, condition: str) -> Optional[bool]:
+        """Evaluate == and != comparisons."""
+        for op, func in [("==", lambda a, b: a == b), ("!=", lambda a, b: a != b)]:
+            if op in condition:
+                match = re.match(rf"(.+?)\s*{op}\s*(.+)", condition)
+                if match:
+                    try:
+                        left_val = self._get_value(match.group(1).strip())
+                        right_val = self._get_value(match.group(2).strip())
+                        return func(left_val, right_val)
+                    except (ValueError, ExpressionEvaluationError):
+                        pass
+        return None
+
+    def _eval_variable(self, condition: str) -> Optional[bool]:
+        """Evaluate variable lookup or numeric expression."""
+        # Direct variable lookup
+        if condition in self.variables:
+            var_val = self.variables[condition]
+            if isinstance(var_val, (int, float)):
+                return var_val != 0
+
+        # Try as numeric expression
+        try:
+            return self._get_value(condition) != 0
+        except (ValueError, ExpressionEvaluationError):
+            return None
+
+    def _get_value(self, expr: str) -> int:
+        """Get numeric value from expression or variable."""
+        expr = expr.strip()
+
+        # Try as variable
+        if expr in self.variables:
+            val = self.variables[expr]
+            if isinstance(val, (int, float)):
+                return int(val)
+
+        # Try as hex literal
+        if expr.startswith('0x') or expr.startswith('0X'):
+            return int(expr, 16)
+
+        # Try as decimal literal
+        try:
+            return int(expr)
+        except ValueError:
+            pass
+
+        raise ValueError(f"Cannot evaluate: {expr}")
+
     def _replace_defined(self, match: re.Match) -> str:
         """Replace DEFINED() function with 1 or 0"""
         symbol = match.group(1).strip()
         return "1" if symbol in self.variables else "0"
-
-    def _replace_conditional(self, match: re.Match) -> str:
-        """Replace conditional expressions"""
-        condition = match.group(1).strip()
-        true_value = match.group(2).strip()
-        false_value = match.group(3).strip()
-
-        try:
-            # Evaluate condition
-            if condition in ["0", "1"]:
-                cond_result = int(condition)
-            elif condition in self.variables:
-                var_val = self.variables[condition]
-                cond_result = var_val if isinstance(
-                    var_val, (int, float)) else 0
-            elif "DEFINED(" in condition:
-                # Extract the symbol name from DEFINED(symbol)
-                defined_match = re.search(
-                    r"DEFINED\s*\(\s*([^)]+)\s*\)", condition)
-                if defined_match:
-                    symbol = defined_match.group(1).strip()
-                    cond_result = 1 if symbol in self.variables else 0
-                else:
-                    cond_result = 0
-            else:
-                # Cannot evaluate condition - assume false for safety
-                cond_result = 0
-
-            return true_value if cond_result != 0 else false_value
-        except (ExpressionEvaluationError, KeyError, ValueError):
-            # If condition can't be evaluated, use false value for safety
-            return false_value
 
     def _replace_origin(self, match: re.Match) -> str:
         """Replace ORIGIN() function with actual address"""
