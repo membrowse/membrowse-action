@@ -51,7 +51,7 @@ examples:
 
   # Onboard - analyze and upload last 50 commits
   membrowse onboard 50 "make build" build/firmware.elf "linker.ld" \\
-      esp32 "$API_KEY" https://www.membrowse.com
+      esp32 "$API_KEY" https://api.membrowse.com
 
 For more help on a subcommand:
   membrowse report --help

@@ -84,7 +84,7 @@ Analyzes memory footprints across multiple historical commits and uploads them t
 membrowse onboard 50 "make clean && make" build/firmware.elf "linker.ld" \
     stm32f4 "$API_KEY" https://membrowse.com
 
-# ESP-IDF project (API URL is optional, defaults to https://www.membrowse.com)
+# ESP-IDF project (API URL is optional, defaults to https://api.membrowse.com)
 membrowse onboard 25 "idf.py build" build/firmware.elf \
     "build/esp-idf/esp32/esp32.project.ld" esp32 "$API_KEY"
 ```

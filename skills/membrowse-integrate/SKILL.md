@@ -393,7 +393,7 @@ jobs:
 After creating the files, tell the user they need to configure:
 
 1. **Repository Secret**: `MEMBROWSE_API_KEY` - API key from MemBrowse dashboard
-2. **Repository Variable**: `MEMBROWSE_API_URL` - API URL (optional, defaults to `https://www.membrowse.com`)
+2. **Repository Variable**: `MEMBROWSE_API_URL` - API URL (optional, defaults to `https://api.membrowse.com`)
 
 Location: Repository Settings → Secrets and variables → Actions
 
