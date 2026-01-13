@@ -230,7 +230,12 @@ class ExpressionEvaluator:
         return expr
 
     def _handle_linker_functions(self, expr: str) -> str:
-        """Handle linker script functions like DEFINED(), ORIGIN(), LENGTH(), ADDR(), SIZEOF()"""
+        """Handle linker script functions like DEFINED(), ORIGIN(), LENGTH(), etc."""
+        # Handle ABSOLUTE() function - simply extracts the inner expression
+        # ABSOLUTE() ensures a value is treated as an absolute address,
+        # but for our purposes it's a no-op that just returns the inner value
+        expr = self._replace_absolute(expr)
+
         # Handle DEFINED() function
         expr = re.sub(
             r"DEFINED\s*\(\s*([^)]+)\s*\)",
@@ -485,6 +490,48 @@ class ExpressionEvaluator:
         # Cannot resolve - raise error
         raise ExpressionEvaluationError(
             f"SIZEOF({region_name}): region '{region_name}' not found")
+
+    def _replace_absolute(self, expr: str) -> str:
+        """Replace ABSOLUTE() function calls with their inner expressions.
+
+        ABSOLUTE() in linker scripts ensures a value is treated as an absolute
+        address rather than relative. For our parsing purposes, it's essentially
+        a no-op - we just extract and return the inner expression.
+
+        Handles nested ABSOLUTE() calls and complex inner expressions with
+        nested parentheses.
+        """
+        max_iterations = 10  # Prevent infinite loops
+
+        for _ in range(max_iterations):
+            # Find ABSOLUTE( and then match the balanced parentheses
+            match = re.search(r'ABSOLUTE\s*\(', expr)
+            if not match:
+                break
+
+            inner_start = match.end()
+
+            # Find matching closing parenthesis
+            paren_depth = 1
+            pos = inner_start
+            while pos < len(expr) and paren_depth > 0:
+                if expr[pos] == '(':
+                    paren_depth += 1
+                elif expr[pos] == ')':
+                    paren_depth -= 1
+                pos += 1
+
+            if paren_depth != 0:
+                # Unbalanced parentheses, stop processing
+                break
+
+            # Extract the inner expression (excluding the closing paren)
+            inner_expr = expr[inner_start:pos - 1].strip()
+
+            # Replace ABSOLUTE(...) with just the inner expression
+            expr = expr[:match.start()] + inner_expr + expr[pos:]
+
+        return expr
 
     def _resolve_parenthesized_expressions(self, expr: str) -> str:
         """Resolve parenthesized arithmetic expressions"""
