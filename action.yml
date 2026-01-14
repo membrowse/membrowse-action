@@ -4,11 +4,11 @@ author: 'MemBrowse'
 
 inputs:
   elf:
-    description: 'Path to ELF file'
-    required: true
+    description: 'Path to ELF file (not required when identical=true)'
+    required: false
   ld:
-    description: 'Space-separated list of linker script paths'
-    required: true
+    description: 'Space-separated list of linker script paths (not required when identical=true)'
+    required: false
   target_name:
     description: 'Target name like esp32, stm32f4'
     required: true
@@ -39,6 +39,10 @@ inputs:
     description: 'PR author email (auto-detected from GitHub event if not provided)'
     required: false
     default: ''
+  identical:
+    description: 'Mark this commit as having identical memory footprint to previous (metadata-only upload)'
+    required: false
+    default: 'false'
 
 outputs:
   report_path:
@@ -70,10 +74,19 @@ runs:
           GLOBAL_ARGS+=(--verbose "${{ inputs.verbose }}")
         fi
 
-        # Subcommand args
-        ARGS=(
-          "${{ inputs.elf }}"
-          "${{ inputs.ld }}"
+        # Subcommand args - start with positional args if provided
+        ARGS=()
+
+        # Add elf and ld only if provided (not required when identical=true)
+        if [ -n "${{ inputs.elf }}" ]; then
+          ARGS+=("${{ inputs.elf }}")
+        fi
+        if [ -n "${{ inputs.ld }}" ]; then
+          ARGS+=("${{ inputs.ld }}")
+        fi
+
+        # Add required flags
+        ARGS+=(
           --upload
           --github
           --target-name "${{ inputs.target_name }}"
@@ -87,6 +100,10 @@ runs:
 
         if [ "${{ inputs.dont_fail_on_alerts }}" = "true" ]; then
           ARGS+=(--dont-fail-on-alerts)
+        fi
+
+        if [ "${{ inputs.identical }}" = "true" ]; then
+          ARGS+=(--identical)
         fi
 
         # Add linker variable definitions
