@@ -299,11 +299,17 @@ examples:
         """
     )
 
-    # Required arguments
-    parser.add_argument('elf_path', help='Path to ELF file')
+    # Positional arguments (optional when --identical is used)
+    parser.add_argument(
+        'elf_path',
+        nargs='?',
+        default=None,
+        help='Path to ELF file (not required with --identical)')
     parser.add_argument(
         'ld_scripts',
-        help='Space-separated linker script paths (quoted)')
+        nargs='?',
+        default=None,
+        help='Space-separated linker script paths (not required with --identical)')
 
     # Mode flags
     mode_group = parser.add_argument_group('mode options')
@@ -336,6 +342,12 @@ examples:
         '--api-url',
         default=DEFAULT_API_URL,
         help='MemBrowse API base URL (default: %(default)s, /upload appended automatically)'
+    )
+    upload_group.add_argument(
+        '--identical',
+        action='store_true',
+        help='Mark this commit as having identical memory footprint to previous '
+             '(metadata-only upload, no build analysis required)'
     )
 
     # Optional Git metadata (overrides auto-detected values)
@@ -462,6 +474,27 @@ def generate_report(
 
     logger.info("Memory report generated successfully")
     return report
+
+
+def _create_metadata_only_report() -> dict:
+    """
+    Create a minimal report for identical commits (no build-relevant changes).
+
+    Contains only structural fields, no actual analysis.
+
+    Returns:
+        Minimal report dictionary for identical commits
+    """
+    return {
+        'file_path': None,
+        'architecture': None,
+        'entry_point': None,
+        'file_type': None,
+        'machine': None,
+        'symbols': [],
+        'program_headers': [],
+        'memory_layout': {}
+    }
 
 
 def upload_report(  # pylint: disable=too-many-arguments
@@ -676,6 +709,7 @@ def _handle_upload_and_alerts(
             target_name=getattr(args, 'target_name', None),
             api_key=getattr(args, 'api_key', None),
             api_url=getattr(args, 'api_url', DEFAULT_API_URL),
+            identical=getattr(args, 'identical', False),
             is_github_mode=getattr(args, 'github', False),
         )
 
@@ -722,23 +756,40 @@ def run_report(args: argparse.Namespace) -> int:
     Returns:
         Exit code (0 for success, 1 for error)
     """
-    # Parse linker variable definitions
-    linker_variables = _parse_linker_definitions(getattr(args, 'linker_defs', None))
+    # Check if identical mode (metadata-only upload, no ELF analysis)
+    identical_mode = getattr(args, 'identical', False)
+    upload_mode = getattr(args, 'upload', False)
 
-    # Generate report
-    try:
-        report = generate_report(
-            elf_path=args.elf_path,
-            ld_scripts=args.ld_scripts,
-            skip_line_program=getattr(args, 'skip_line_program', False),
-            linker_variables=linker_variables
-        )
-    except ValueError as e:
-        logger.error("Failed to generate report: %s", e)
+    # Validate: --identical requires --upload
+    if identical_mode and not upload_mode:
+        logger.error("--identical requires --upload flag")
         return 1
 
-    # Check if upload mode is enabled (--upload required, --github only affects metadata detection)
-    upload_mode = getattr(args, 'upload', False)
+    # Validate: elf_path and ld_scripts required unless --identical
+    if not identical_mode:
+        if not args.elf_path or not args.ld_scripts:
+            logger.error("elf_path and ld_scripts are required (unless using --identical)")
+            return 1
+
+    # Handle identical mode: create metadata-only report, skip ELF analysis
+    if identical_mode:
+        logger.info("Identical mode: skipping ELF analysis, uploading metadata only")
+        report = _create_metadata_only_report()
+    else:
+        # Parse linker variable definitions
+        linker_variables = _parse_linker_definitions(getattr(args, 'linker_defs', None))
+
+        # Generate report
+        try:
+            report = generate_report(
+                elf_path=args.elf_path,
+                ld_scripts=args.ld_scripts,
+                skip_line_program=getattr(args, 'skip_line_program', False),
+                linker_variables=linker_variables
+            )
+        except ValueError as e:
+            logger.error("Failed to generate report: %s", e)
+            return 1
 
     # If not uploading, output report to stdout
     if not upload_mode:
