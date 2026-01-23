@@ -80,13 +80,17 @@ membrowse report firmware.elf "linker.ld" --upload --github \
 
 Analyzes memory footprints across multiple historical commits and uploads them to the MemBrowse platform:
 ```bash
-# Analyze last 50 commits and upload to MemBrowse
-membrowse onboard 50 "make clean && make" build/firmware.elf "linker.ld" \
-    stm32f4 "$API_KEY" https://membrowse.com
+# Analyze last 50 commits with linker scripts
+membrowse onboard 50 "make clean && make" build/firmware.elf \
+    stm32f4 "$API_KEY" https://membrowse.com --ld-scripts "linker.ld"
+
+# Without linker scripts (uses default Code/Data regions)
+membrowse onboard 50 "make clean && make" build/firmware.elf \
+    stm32f4 "$API_KEY"
 
 # ESP-IDF project (API URL is optional, defaults to https://api.membrowse.com)
 membrowse onboard 25 "idf.py build" build/firmware.elf \
-    "build/esp-idf/esp32/esp32.project.ld" esp32 "$API_KEY"
+    esp32 "$API_KEY" --ld-scripts "build/esp-idf/esp32/esp32.project.ld"
 ```
 
 ### Performance Options
@@ -293,8 +297,8 @@ membrowse report firmware.elf "linker.ld" --upload --github \
     --api-key "$API_KEY"
 
 # Test onboard command (analyzes and uploads historical commits)
-membrowse onboard 10 "make build" build/firmware.elf "src/linker.ld" \
-    stm32f4 "$API_KEY" https://membrowse.com
+membrowse onboard 10 "make build" build/firmware.elf \
+    stm32f4 "$API_KEY" https://membrowse.com --ld-scripts "src/linker.ld"
 ```
 
 ## Common Patterns

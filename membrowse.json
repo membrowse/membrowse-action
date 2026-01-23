@@ -1,0 +1,13 @@
+{
+  "targets": [
+    {
+      "name": "firmware",
+      "elfPath": "vscode-extension/test-firmware/firmware.elf",
+      "linkerScripts": [
+        "vscode-extension/test-firmware/linker.ld"
+      ],
+      "enabled": true
+    }
+  ],
+  "autoRefresh": true
+}
