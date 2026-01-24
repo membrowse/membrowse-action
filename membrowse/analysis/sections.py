@@ -16,6 +16,12 @@ SHF_ALLOC = elftools.elf.constants.SH_FLAGS.SHF_ALLOC
 SHF_WRITE = elftools.elf.constants.SH_FLAGS.SHF_WRITE
 SHF_EXECINSTR = elftools.elf.constants.SH_FLAGS.SHF_EXECINSTR
 
+# Section type constants
+SECTION_TYPE_CODE = 'code'
+SECTION_TYPE_DATA = 'data'
+SECTION_TYPE_RODATA = 'rodata'
+SECTION_TYPE_UNKNOWN = 'unknown'
+
 
 class SectionAnalyzer:  # pylint: disable=too-few-public-methods
     """Handles ELF section analysis and categorization"""
@@ -68,13 +74,14 @@ class SectionAnalyzer:  # pylint: disable=too-few-public-methods
             section: MemorySection object
 
         Returns:
-            type: 'code', 'data', 'rodata', or 'unknown'
+            type: SECTION_TYPE_CODE, SECTION_TYPE_DATA, SECTION_TYPE_RODATA,
+                  or SECTION_TYPE_UNKNOWN
         """
         flags = section['sh_flags']
         if flags & SHF_ALLOC:
             if flags & SHF_WRITE:
-                return 'data'
+                return SECTION_TYPE_DATA
             if flags & SHF_EXECINSTR:
-                return 'code'
-            return 'rodata'
-        return 'unknown'
+                return SECTION_TYPE_CODE
+            return SECTION_TYPE_RODATA
+        return SECTION_TYPE_UNKNOWN

@@ -13,8 +13,9 @@ inputs:
     description: 'Path to generated ELF file after build'
     required: true
   ld:
-    description: 'Space-separated list of linker script paths'
-    required: true
+    description: 'Space-separated list of linker script paths (optional - if omitted, uses default Code/Data regions)'
+    required: false
+    default: ''
   target_name:
     description: 'Target platform name'
     required: true
@@ -70,12 +71,11 @@ runs:
           GLOBAL_ARGS+=(--verbose "${{ inputs.verbose }}")
         fi
 
-        # Subcommand args
+        # Subcommand args - positional args
         ONBOARD_ARGS=(
           "${{ inputs.num_commits }}"
           "${{ inputs.build_script }}"
           "${{ inputs.elf }}"
-          "${{ inputs.ld }}"
           "${{ inputs.target_name }}"
           "${{ inputs.api_key }}"
         )
@@ -83,6 +83,11 @@ runs:
         # Only pass api_url if explicitly provided and non-empty
         if [ -n "${{ inputs.api_url }}" ]; then
           ONBOARD_ARGS+=("${{ inputs.api_url }}")
+        fi
+
+        # Add ld scripts if provided (optional - uses default Code/Data regions if omitted)
+        if [ -n "${{ inputs.ld }}" ]; then
+          ONBOARD_ARGS+=(--ld-scripts "${{ inputs.ld }}")
         fi
 
         # Add linker variable definitions

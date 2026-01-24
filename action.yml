@@ -7,7 +7,7 @@ inputs:
     description: 'Path to ELF file (not required when identical=true)'
     required: false
   ld:
-    description: 'Space-separated list of linker script paths (not required when identical=true)'
+    description: 'Space-separated list of linker script paths (optional - if omitted, uses default Code/Data regions)'
     required: false
   target_name:
     description: 'Target name like esp32, stm32f4'

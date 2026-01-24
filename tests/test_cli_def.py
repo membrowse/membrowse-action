@@ -275,9 +275,9 @@ class TestOnboardDefArgument(unittest.TestCase):
             '10',
             'make',
             'build/firmware.elf',
-            'linker.ld',
             'esp32',
             'api_key',
+            '--ld-scripts', 'linker.ld',
             '--def', 'FLASH_SIZE=4M'
         ])
 
@@ -295,10 +295,10 @@ class TestOnboardDefArgument(unittest.TestCase):
             '25',
             'make clean && make',
             'build/firmware.elf',
-            'mem.ld sections.ld',
             'stm32f4',
             'test_api_key',
             'https://membrowse.com',
+            '--ld-scripts', 'mem.ld sections.ld',
             '--def', 'FLASH_SIZE=512K',
             '--def', 'RAM_SIZE=128K',
         ])
@@ -318,9 +318,9 @@ class TestOnboardDefArgument(unittest.TestCase):
             '10',
             'make',
             'firmware.elf',
-            'linker.ld',
             'esp32',
-            'api_key'
+            'api_key',
+            '--ld-scripts', 'linker.ld'
         ])
 
         # linker_defs should be None when not provided
@@ -338,9 +338,9 @@ class TestOnboardDefArgument(unittest.TestCase):
             '10',
             'make',
             'firmware.elf',
-            'linker.ld',
             'esp32',
-            'api_key'
+            'api_key',
+            '--ld-scripts', 'linker.ld'
         ])
         self.assertEqual(args1.linker_defs[0], 'VAR1=value1')
 
@@ -350,9 +350,9 @@ class TestOnboardDefArgument(unittest.TestCase):
             '10',
             'make',
             'firmware.elf',
-            'linker.ld',
             'esp32',
             'api_key',
+            '--ld-scripts', 'linker.ld',
             '--def', 'VAR2=value2'
         ])
         self.assertEqual(args2.linker_defs[0], 'VAR2=value2')

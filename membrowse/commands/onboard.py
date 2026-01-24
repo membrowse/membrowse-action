@@ -72,17 +72,21 @@ Requirements:
         """,
         epilog="""
 examples:
-  # Analyze last 50 commits (uses default API URL)
-  membrowse onboard 50 "make clean && make" build/firmware.elf "linker.ld" \\
+  # Analyze last 50 commits with linker scripts
+  membrowse onboard 50 "make clean && make" build/firmware.elf \\
+      stm32f4 "$API_KEY" --ld-scripts "linker.ld"
+
+  # Without linker scripts (uses default Code/Data regions)
+  membrowse onboard 50 "make clean && make" build/firmware.elf \\
       stm32f4 "$API_KEY"
 
   # ESP-IDF project with custom API URL
   membrowse onboard 25 "idf.py build" build/firmware.elf \\
-      "build/esp-idf/esp32/esp32.project.ld" esp32 "$API_KEY" \\
-      https://custom-api.example.com
+      esp32 "$API_KEY" https://custom-api.example.com \\
+      --ld-scripts "build/esp-idf/esp32/esp32.project.ld"
         """)
 
-    # Required arguments
+    # Required positional arguments
     parser.add_argument(
         'num_commits',
         type=int,
@@ -91,9 +95,6 @@ examples:
         'build_script',
         help='Shell command to build firmware (quoted)')
     parser.add_argument('elf_path', help='Path to ELF file after build')
-    parser.add_argument(
-        'ld_scripts',
-        help='Space-separated linker script paths (quoted)')
     parser.add_argument(
         'target_name',
         help='Build configuration/target (e.g., esp32, stm32, x86)')
@@ -106,6 +107,13 @@ examples:
     )
 
     # Optional flags
+    parser.add_argument(
+        '--ld-scripts',
+        dest='ld_scripts',
+        default=None,
+        metavar='SCRIPTS',
+        help='Space-separated linker script paths (if omitted, uses default '
+             'Code/Data regions based on ELF section flags)')
     parser.add_argument(
         '--def',
         dest='linker_defs',
@@ -316,7 +324,10 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
     logger.info("Processing last %d commits", args.num_commits)
     logger.info("Build script: %s", args.build_script)
     logger.info("ELF file: %s", args.elf_path)
-    logger.info("Linker scripts: %s", args.ld_scripts)
+    if args.ld_scripts:
+        logger.info("Linker scripts: %s", args.ld_scripts)
+    else:
+        logger.info("Using default Code/Data regions (no linker scripts)")
 
     # Parse linker variable definitions
     linker_variables = _parse_linker_definitions(getattr(args, 'linker_defs', None))

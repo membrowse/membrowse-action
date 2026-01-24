@@ -14,8 +14,14 @@ from ..utils.formatter import format_report_human_readable
 from ..utils.github import is_fork_pr
 from ..linker.parser import LinkerScriptParser
 from ..core.generator import ReportGenerator
+from ..core.models import MemoryRegion
 from ..api.client import MemBrowseUploader
 from ..auth.strategy import determine_auth_strategy
+from ..analysis.defaults import (
+    create_default_memory_regions,
+    map_sections_to_default_regions
+)
+from ..analysis.mapper import MemoryMapper
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -309,7 +315,8 @@ examples:
         'ld_scripts',
         nargs='?',
         default=None,
-        help='Space-separated linker script paths (not required with --identical)')
+        help='Space-separated linker script paths (optional - if omitted, '
+             'uses default Code/Data regions)')
 
     # Mode flags
     mode_group = parser.add_argument_group('mode options')
@@ -416,18 +423,59 @@ examples:
     return parser
 
 
+def _apply_default_regions(generator: ReportGenerator, report: dict) -> None:
+    """
+    Apply default Code/Data regions to report when no linker scripts provided.
+
+    Args:
+        generator: ReportGenerator with ELF analyzer
+        report: Report dict to update with memory_layout
+    """
+    sections = generator.elf_analyzer.get_sections()
+    default_regions_data = create_default_memory_regions(sections)
+
+    if not default_regions_data:
+        logger.warning(
+            "No memory regions created - all sections have address 0 or "
+            "no allocatable sections found"
+        )
+
+    logger.debug("Created default regions: %s", list(default_regions_data.keys()))
+
+    # Convert to MemoryRegion objects
+    memory_regions = {}
+    for name, data in default_regions_data.items():
+        memory_regions[name] = MemoryRegion(
+            address=data['address'],
+            limit_size=data['limit_size'],
+            type=data.get('attributes', 'UNKNOWN')
+        )
+
+    # Map sections to default regions by type (not by address)
+    # This is necessary because default regions have limit_size=0
+    map_sections_to_default_regions(sections, memory_regions)
+    MemoryMapper.calculate_utilization(memory_regions)
+
+    # Update report with default regions
+    report['memory_layout'] = {
+        name: region.to_dict()
+        for name, region in memory_regions.items()
+    }
+
+
 def generate_report(
     elf_path: str,
-    ld_scripts: str,
+    ld_scripts: Optional[str] = None,
     skip_line_program: bool = False,
     linker_variables: Optional[Dict[str, Any]] = None
 ) -> dict:
     """
-    Generate a memory footprint report from ELF and linker scripts.
+    Generate a memory footprint report from ELF and optionally linker scripts.
 
     Args:
         elf_path: Path to ELF file
-        ld_scripts: Space-separated linker script paths
+        ld_scripts: Space-separated linker script paths (optional - if omitted,
+            uses default Code/Data regions based on ELF section flags)
         skip_line_program: Skip DWARF line program processing for faster analysis
         linker_variables: Optional dict of user-defined linker script variables
 
@@ -437,27 +485,17 @@ def generate_report(
     Raises:
         ValueError: If file paths are invalid or parsing fails
     """
-    # Split linker scripts
-    ld_array = ld_scripts.split()
-
-    # Validate file paths
-    is_valid, error_message = _validate_file_paths(elf_path, ld_array)
-    if not is_valid:
-        raise ValueError(error_message)
+    # Validate ELF file exists
+    if not os.path.exists(elf_path):
+        raise ValueError(f"ELF file not found: {elf_path}")
 
     logger.info("Started Memory Report generation")
     logger.info("ELF file: %s", elf_path)
-    logger.info("Linker scripts: %s", ld_scripts)
 
-    # Parse memory regions from linker scripts
-    logger.debug("Parsing memory regions from linker scripts...")
-    try:
-        parser = LinkerScriptParser(ld_array, elf_file=elf_path,
-                                     user_variables=linker_variables)
-        memory_regions_data = parser.parse_memory_regions()
-    except Exception as e:  # pylint: disable=broad-exception-caught
-        logger.error("Failed to parse memory regions: %s", e)
-        raise ValueError(f"Failed to parse memory regions: {e}") from e
+    # Handle optional linker scripts
+    memory_regions_data = _parse_linker_scripts_if_provided(
+        ld_scripts, elf_path, linker_variables
+    )
 
     # Generate JSON report
     logger.debug("Generating memory report...")
@@ -468,12 +506,57 @@ def generate_report(
             skip_line_program=skip_line_program
         )
         report = generator.generate_report()
+
+        # If no linker scripts were provided, create default regions from sections
+        if memory_regions_data is None:
+            _apply_default_regions(generator, report)
+
     except Exception as e:  # pylint: disable=broad-exception-caught
         logger.error("Failed to generate memory report: %s", e)
         raise ValueError(f"Failed to generate memory report: {e}") from e
 
     logger.info("Memory report generated successfully")
     return report
+
+
+def _parse_linker_scripts_if_provided(
+    ld_scripts: Optional[str],
+    elf_path: str,
+    linker_variables: Optional[Dict[str, Any]]
+) -> Optional[Dict[str, Any]]:
+    """
+    Parse linker scripts if provided, otherwise return None for default regions.
+
+    Args:
+        ld_scripts: Space-separated linker script paths (or None/empty)
+        elf_path: Path to ELF file for architecture detection
+        linker_variables: Optional user-defined linker variables
+
+    Returns:
+        Parsed memory regions data, or None if no linker scripts provided
+    """
+    if not ld_scripts or not ld_scripts.strip():
+        logger.info("No linker scripts provided - using default Code/Data regions")
+        return None
+
+    # Split and validate linker scripts
+    ld_array = ld_scripts.split()
+    for ld_script in ld_array:
+        if not os.path.exists(ld_script):
+            raise ValueError(f"Linker script not found: {ld_script}")
+
+    logger.info("Linker scripts: %s", ld_scripts)
+
+    # Parse memory regions from linker scripts
+    logger.debug("Parsing memory regions from linker scripts...")
+    try:
+        parser = LinkerScriptParser(
+            ld_array, elf_file=elf_path, user_variables=linker_variables
+        )
+        return parser.parse_memory_regions()
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        logger.error("Failed to parse memory regions: %s", e)
+        raise ValueError(f"Failed to parse memory regions: {e}") from e
 
 
 def _create_metadata_only_report() -> dict:
@@ -554,7 +637,9 @@ def upload_report(  # pylint: disable=too-many-arguments
     logger.info("%s: Target: %s", log_prefix, target_name)
 
     # Build and enrich report
-    enriched_report = _build_enriched_report(report, commit_info, target_name, build_failed, identical)
+    enriched_report = _build_enriched_report(
+        report, commit_info, target_name, build_failed, identical
+    )
 
     # Upload to MemBrowse
     response_data = _perform_upload(
@@ -765,10 +850,10 @@ def run_report(args: argparse.Namespace) -> int:
         logger.error("--identical requires --upload flag")
         return 1
 
-    # Validate: elf_path and ld_scripts required unless --identical
+    # Validate: elf_path required unless --identical (ld_scripts is optional)
     if not identical_mode:
-        if not args.elf_path or not args.ld_scripts:
-            logger.error("elf_path and ld_scripts are required (unless using --identical)")
+        if not args.elf_path:
+            logger.error("elf_path is required (unless using --identical)")
             return 1
 
     # Handle identical mode: create metadata-only report, skip ELF analysis
