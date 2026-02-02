@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # pylint: disable=protected-access
 """
-Unit tests for C++ symbol demangling functionality
+Unit tests for C++ and Rust symbol demangling functionality
 """
 
 import unittest
@@ -10,7 +10,7 @@ from membrowse.analysis.symbols import SymbolExtractor
 
 
 class TestSymbolDemangling(unittest.TestCase):
-    """Test C++ symbol name demangling"""
+    """Test C++ and Rust symbol name demangling"""
 
     def setUp(self):
         """Set up test fixtures"""
@@ -80,6 +80,61 @@ class TestSymbolDemangling(unittest.TestCase):
         demangled = self.extractor._demangle_symbol_name(mangled)
         # Should contain MyClass and destructor indication
         self.assertIn("MyClass", demangled)
+
+    # Rust symbol demangling tests
+
+    def test_demangle_rust_v0_simple(self):
+        """Test demangling of Rust v0 mangled symbol"""
+        # Rust v0 mangling starts with _R
+        mangled = "_RNvC6_123foo3bar"
+        demangled = self.extractor._demangle_symbol_name(mangled)
+        # Should demangle to something readable
+        self.assertNotEqual(demangled, mangled)
+        self.assertIn("bar", demangled)
+
+    def test_demangle_rust_legacy_simple(self):
+        """Test demangling of legacy Rust mangled symbol"""
+        # Legacy Rust mangling uses _ZN prefix like C++
+        mangled = "_ZN3foo3barE"
+        demangled = self.extractor._demangle_symbol_name(mangled)
+        # Should demangle to foo::bar
+        self.assertEqual(demangled, "foo::bar")
+
+    def test_demangle_rust_legacy_nested(self):
+        """Test demangling of legacy Rust symbol with nested modules"""
+        # Legacy Rust symbol with nested modules
+        mangled = "_ZN4core3ptr13drop_in_placeE"
+        demangled = self.extractor._demangle_symbol_name(mangled)
+        # Should demangle to core::ptr::drop_in_place
+        self.assertEqual(demangled, "core::ptr::drop_in_place")
+
+    def test_demangle_rust_v0_function(self):
+        """Test demangling of Rust v0 function symbol"""
+        # Example v0 mangled name
+        mangled = "_RNvNtCs123_4core3ptr13drop_in_place"
+        demangled = self.extractor._demangle_symbol_name(mangled)
+        # Should start with _R prefix and be demangled
+        self.assertNotEqual(demangled, mangled)
+
+    def test_rust_invalid_returns_original(self):
+        """Test that invalid Rust-like symbols return original"""
+        # Invalid _R prefixed symbol
+        invalid = "_Rinvalid"
+        result = self.extractor._demangle_symbol_name(invalid)
+        # Should return original if demangling fails
+        self.assertEqual(result, invalid)
+
+    def test_rust_and_cpp_coexist(self):
+        """Test that both Rust and C++ symbols can be demangled"""
+        # C++ symbol
+        cpp_mangled = "_Z3foov"
+        cpp_demangled = self.extractor._demangle_symbol_name(cpp_mangled)
+        self.assertEqual(cpp_demangled, "foo()")
+
+        # Rust legacy symbol
+        rust_mangled = "_ZN3foo3barE"
+        rust_demangled = self.extractor._demangle_symbol_name(rust_mangled)
+        self.assertEqual(rust_demangled, "foo::bar")
 
 
 if __name__ == '__main__':
