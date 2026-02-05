@@ -840,15 +840,20 @@ class MemoryRegionBuilder:  # pylint: disable=too-few-public-methods
         memory_regions = {}
         failed_matches = []
 
+        # Shared lookahead: matches start of next region definition or end of block
+        _region_lookahead = (
+            r"(?=\s+\w+\s*(?:\([^)]*\)\s*)?:\s*(?:ORIGIN|origin|org)\s*=|$|\s*})"
+        )
+
         # Try standard format first (with attributes in parentheses)
         standard_pattern = (
             r"(\w+)\s*\(([^)]+)\)\s*:\s*(?:ORIGIN|origin|org)\s*=\s*([^,]+),\s*"
-            r"(?:LENGTH|length|len)\s*=\s*([^,}]+?)(?=\s+\w+\s*[\(:]|$|\s*})")
+            r"(?:LENGTH|length|len)\s*=\s*([^,}]+?)" + _region_lookahead)
 
         # Try ESP8266/alternative format (no attributes in parentheses)
         alt_pattern = (
             r"(\w+)\s*:\s*(?:ORIGIN|origin|org)\s*=\s*([^,]+),\s*"
-            r"(?:LENGTH|length|len)\s*=\s*([^,}]+?)(?=\s+\w+\s*:|$|\s*})"
+            r"(?:LENGTH|length|len)\s*=\s*([^,}]+?)" + _region_lookahead
         )
 
         # Try no-comma format (whitespace separator, used in some Intel/embedded scripts)
@@ -856,7 +861,8 @@ class MemoryRegionBuilder:  # pylint: disable=too-few-public-methods
         # ADDR(y)")
         no_comma_pattern = (
             r"(\w+)\s*:\s*(?:ORIGIN|origin|org)\s*=\s*([^\s]+(?:\s*[-+*/]\s*[^\s]+)*)\s+"
-            r"(?:LENGTH|length|len)\s*=\s*([^/\n]+?)(?=\s*(?://|$|\n|(?:\w+\s*:)))")
+            r"(?:LENGTH|length|len)\s*=\s*([^/\n]+?)"
+            r"(?=\s*(?://|$|\n|\w+\s*(?:\([^)]*\)\s*)?:\s*(?:ORIGIN|origin|org)\s*=))")
 
         # First try standard pattern
         for match in re.finditer(standard_pattern, memory_content):
@@ -872,22 +878,26 @@ class MemoryRegionBuilder:  # pylint: disable=too-few-public-methods
             else:
                 failed_matches.append((match, True))
 
-        # If no regions found with standard pattern, try alternative (ESP8266)
-        if not memory_regions and not failed_matches:
-            for match in re.finditer(alt_pattern, memory_content):
-                region = self._build_region_from_match(
-                    match, has_attributes=False)
-                if region:
-                    memory_regions[region.name] = region
-                    # Update evaluator immediately
-                    self.evaluator.set_memory_regions({
-                        **self.evaluator.get_memory_regions(),
-                        region.name: region
-                    })
-                else:
-                    failed_matches.append((match, False))
+        # Also try alternative pattern (no attributes) for regions not yet matched
+        matched_names = set(memory_regions.keys())
+        for match in re.finditer(alt_pattern, memory_content):
+            name = match.group(1)
+            if name in matched_names:
+                continue
+            region = self._build_region_from_match(
+                match, has_attributes=False)
+            if region:
+                memory_regions[region.name] = region
+                matched_names.add(region.name)
+                # Update evaluator immediately
+                self.evaluator.set_memory_regions({
+                    **self.evaluator.get_memory_regions(),
+                    region.name: region
+                })
+            else:
+                failed_matches.append((match, False))
 
-        # If still no regions found, try no-comma format
+        # Also try no-comma format for regions not yet matched
         if not memory_regions and not failed_matches:
             for match in re.finditer(no_comma_pattern, memory_content):
                 region = self._build_region_from_match(
