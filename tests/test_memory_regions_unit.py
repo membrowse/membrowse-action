@@ -1278,6 +1278,54 @@ class TestAbsoluteFunction(unittest.TestCase):
         self.assertEqual(regions['OSPI_DEVICE_1']['address'], 0x70000000)
         self.assertEqual(regions['OSPI_DEVICE_1']['limit_size'], 0x100000)
 
+    def test_esp32c6_mixed_attributes_with_origin_length(self):
+        """Test mixed-attribute regions: some with attrs, some without, using ORIGIN()/LENGTH() refs"""
+        script_content = """
+        MEMORY
+        {
+            /* Instruction and Data RAM */
+            RAM : ORIGIN = 0x40800000 , LENGTH = 0x6E610
+
+            /* memory available after the 2nd stage bootloader is finished */
+            dram2_seg ( RW )       : ORIGIN = ORIGIN(RAM) + LENGTH(RAM), len = 0x4087e610 - (ORIGIN(RAM) + LENGTH(RAM))
+
+            /* Instruction and Data ROM */
+            ROM : ORIGIN =   0x42000000 + 0x20, LENGTH = 0x400000 - 0x20
+
+            /* RTC fast memory (executable). Persists over deep sleep. */
+            RTC_FAST : ORIGIN = 0x50000000, LENGTH = 16K
+        }
+        """
+
+        script_path = self.create_temp_linker_script(script_content)
+        parser = LinkerScriptParser([script_path])
+        regions = parser.parse_memory_regions()
+
+        self.assertEqual(len(regions), 4)
+
+        # RAM: no attributes, simple values
+        self.assertIn('RAM', regions)
+        self.assertEqual(regions['RAM']['address'], 0x40800000)
+        self.assertEqual(regions['RAM']['limit_size'], 0x6E610)
+
+        # dram2_seg: with (RW) attributes, ORIGIN(RAM)+LENGTH(RAM) cross-references
+        self.assertIn('dram2_seg', regions)
+        expected_dram2_origin = 0x40800000 + 0x6E610  # ORIGIN(RAM) + LENGTH(RAM)
+        expected_dram2_length = 0x4087e610 - expected_dram2_origin
+        self.assertEqual(regions['dram2_seg']['address'], expected_dram2_origin)
+        self.assertEqual(regions['dram2_seg']['limit_size'], expected_dram2_length)
+        self.assertEqual(regions['dram2_seg']['attributes'], 'RW')
+
+        # ROM: no attributes, expression values
+        self.assertIn('ROM', regions)
+        self.assertEqual(regions['ROM']['address'], 0x42000000 + 0x20)
+        self.assertEqual(regions['ROM']['limit_size'], 0x400000 - 0x20)
+
+        # RTC_FAST: no attributes, 16K size suffix
+        self.assertIn('RTC_FAST', regions)
+        self.assertEqual(regions['RTC_FAST']['address'], 0x50000000)
+        self.assertEqual(regions['RTC_FAST']['limit_size'], 16 * 1024)
+
     def test_absolute_with_size_suffix(self):
         """Test ABSOLUTE() with size suffix values"""
         script_content = """
