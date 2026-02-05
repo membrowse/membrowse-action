@@ -9,6 +9,7 @@ including symbol filtering, type mapping, and source file resolution.
 
 from typing import Dict, List
 import cxxfilt
+from rust_demangler import demangle as rust_demangle
 from elftools.common.exceptions import ELFError
 from ..core.models import Symbol
 from ..core.exceptions import SymbolExtractionError
@@ -23,10 +24,15 @@ class SymbolExtractor:  # pylint: disable=too-few-public-methods
 
     def _demangle_symbol_name(self, name: str) -> str:
         """
-        Demangle C++ symbol names using cxxfilt.
+        Demangle C++ and Rust symbol names.
 
-        Returns the demangled name for C++ symbols, or the original name
-        for C symbols or if demangling fails.
+        Supports:
+        - C++ symbols (Itanium ABI, _Z prefix) via cxxfilt
+        - Rust v0 symbols (_R prefix) via rust_demangler
+        - Rust legacy symbols (_ZN prefix) via rust_demangler
+
+        Returns the demangled name, or the original name for C symbols
+        or if demangling fails.
 
         Args:
             name: Symbol name (potentially mangled)
@@ -34,12 +40,41 @@ class SymbolExtractor:  # pylint: disable=too-few-public-methods
         Returns:
             Demangled symbol name, or original name if not mangled or on error
         """
+        if not name:
+            return name
+
+        # Rust v0 mangling (starts with _R)
+        if name.startswith('_R'):
+            return self._demangle_rust(name)
+
+        # Could be C++ or legacy Rust (both use _ZN prefix)
+        if name.startswith('_ZN'):
+            # Try Rust first (legacy Rust uses _ZN prefix)
+            rust_result = self._demangle_rust(name)
+            if rust_result != name:
+                return rust_result
+            # Fall back to C++
+            return self._demangle_cpp(name)
+
+        # Standard C++ mangling (_Z but not _ZN)
+        if name.startswith('_Z'):
+            return self._demangle_cpp(name)
+
+        return name
+
+    def _demangle_rust(self, name: str) -> str:
+        """Demangle Rust symbol names using rust_demangler."""
         try:
-            # cxxfilt.demangle with external_only=True (default) checks for _Z prefix
-            # and returns the original name unchanged if it's not a mangled symbol
+            result = rust_demangle(name)
+            return result if result else name
+        except Exception:  # pylint: disable=broad-exception-caught
+            return name
+
+    def _demangle_cpp(self, name: str) -> str:
+        """Demangle C++ symbol names using cxxfilt."""
+        try:
             return cxxfilt.demangle(name)
         except cxxfilt.InvalidName:
-            # Return original name for malformed mangled symbols
             return name
 
     def extract_symbols(self, source_resolver) -> List[Symbol]:

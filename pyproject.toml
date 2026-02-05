@@ -48,6 +48,7 @@ dependencies = [
     "pyelftools>=0.29",
     "requests>=2.25.0",
     "cxxfilt>=0.3.0",
+    "rust-demangler>=1.0.0",
 ]
 
 [project.urls]
