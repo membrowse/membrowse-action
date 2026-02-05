@@ -235,5 +235,80 @@ class TestSourceFileMapping(unittest.TestCase):
         self.assertEqual(result, 'source.c')
 
 
+    @patch('membrowse.core.analyzer.Path.exists')
+    @patch('membrowse.core.analyzer.os.access')
+    def test_cgu_hash_filtered_out(self, mock_access, mock_exists):
+        """Test that Rust CGU hash filenames are filtered to empty string"""
+        mock_exists.return_value = True
+        mock_access.return_value = True
+
+        with patch('builtins.open', mock_open()):
+            with patch('membrowse.core.analyzer.ELFFile'):
+                analyzer = ELFAnalyzer(self.test_elf_path)
+
+        analyzer._dwarf_data = {
+            'address_to_file': {},
+            'symbol_to_file': {},
+            'symbol_to_cu_file': {},
+            'address_to_cu_file': {},
+            'cu_file_list': [],
+            'system_headers': set(),
+        }
+
+        cgu_filenames = [
+            'defmt_rtt.2465299265768a95-cgu.0',
+            'compiler_builtins.c4645303b2c0ef55-cgu.275',
+            'ariel_os_debug.cfafdcfbacc5d065-cgu.0',
+            'nrf_pac.4115ad6a039971ec-cgu.0',
+            'hello_world.759bdaa0517a2cdb-cgu.0',
+        ]
+
+        analyzer._source_resolver.dwarf_data = analyzer._dwarf_data
+        for i, cgu_name in enumerate(cgu_filenames):
+            addr = 0x1000 + i * 0x100
+            analyzer._dwarf_data['symbol_to_file'][
+                (f'sym_{i}', addr)] = cgu_name
+            result = analyzer._source_resolver.extract_source_file(
+                f'sym_{i}', 'FUNC', addr)
+            self.assertEqual(result, '',
+                             f'CGU hash "{cgu_name}" should be filtered out')
+
+    @patch('membrowse.core.analyzer.Path.exists')
+    @patch('membrowse.core.analyzer.os.access')
+    def test_real_source_files_not_filtered(self, mock_access, mock_exists):
+        """Test that legitimate source filenames are not affected by CGU filter"""
+        mock_exists.return_value = True
+        mock_access.return_value = True
+
+        with patch('builtins.open', mock_open()):
+            with patch('membrowse.core.analyzer.ELFFile'):
+                analyzer = ELFAnalyzer(self.test_elf_path)
+
+        analyzer._dwarf_data = {
+            'address_to_file': {},
+            'symbol_to_file': {},
+            'symbol_to_cu_file': {},
+            'address_to_cu_file': {},
+            'cu_file_list': [],
+            'system_headers': set(),
+        }
+
+        real_filenames = [
+            'main.rs', 'lib.rs', 'mod.rs', 'cortexm.rs',
+            'time_driver.rs', 'arm.rs', 'impls.rs',
+            'source.c', 'header.h', 'util.cpp',
+        ]
+
+        analyzer._source_resolver.dwarf_data = analyzer._dwarf_data
+        for i, filename in enumerate(real_filenames):
+            addr = 0x2000 + i * 0x100
+            analyzer._dwarf_data['symbol_to_file'][
+                (f'real_sym_{i}', addr)] = filename
+            result = analyzer._source_resolver.extract_source_file(
+                f'real_sym_{i}', 'FUNC', addr)
+            self.assertEqual(result, filename,
+                             f'Real file "{filename}" should not be filtered')
+
+
 if __name__ == '__main__':
     unittest.main()

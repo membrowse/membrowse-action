@@ -7,8 +7,13 @@ using DWARF debug information, with optimizations for performance and accuracy.
 """
 
 import os
+import re
 import bisect
 from typing import Any, Dict, Optional
+
+# Rust Codegen Unit hash filenames (e.g. "defmt_rtt.2465299265768a95-cgu.0")
+# These are compiler internals, not real source files.
+_CGU_HASH_PATTERN = re.compile(r'^.+\.[0-9a-f]+-cgu\.\d+$')
 
 
 class SourceFileResolver:  # pylint: disable=too-few-public-methods
@@ -43,7 +48,7 @@ class SourceFileResolver:  # pylint: disable=too-few-public-methods
             self._basename_cache[source_file] = os.path.basename(source_file)
         return self._basename_cache[source_file]
 
-    def extract_source_file(  # pylint: disable=too-many-return-statements
+    def extract_source_file(
             self,
             symbol_name: str,
             symbol_type: str,
@@ -61,6 +66,17 @@ class SourceFileResolver:  # pylint: disable=too-few-public-methods
         Returns:
             Basename of the source file, or empty string if not found
         """
+        result = self._resolve_source_file(symbol_name, symbol_type, symbol_address)
+        if result and _CGU_HASH_PATTERN.match(result):
+            return ""
+        return result
+
+    def _resolve_source_file(  # pylint: disable=too-many-return-statements
+            self,
+            symbol_name: str,
+            symbol_type: str,
+            symbol_address: int = None) -> str:
+        """Internal source file resolution with priority-based fallback chain."""
         # Use dictionary-based lookups for maximum performance
         if not self.dwarf_data:
             return ""  # No DWARF data available
