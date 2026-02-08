@@ -14,7 +14,6 @@ from .budget_alerts import iter_budget_alerts
 from .github_common import (
     is_gh_cli_available,
     create_or_update_comment,
-    build_memory_change_row,
     handle_comment_error,
     configure_logging,
 )
@@ -88,33 +87,12 @@ def post_combined_pr_comment(
         handle_comment_error(e, "PR comment")
 
 
-def _group_sections_by_region(sections_data: dict) -> dict[str, list[dict]]:
-    """
-    Group modified sections by their region name.
-
-    Args:
-        sections_data: Dict with 'modified' list of section dicts
-
-    Returns:
-        Dict mapping region name to list of modified sections
-    """
-    sections_by_region: dict[str, list[dict]] = {}
-    modified_sections = sections_data.get('modified', [])
-
-    for section in modified_sections:
-        region_name = section.get('region', 'Unknown')
-        if region_name not in sections_by_region:
-            sections_by_region[region_name] = []
-        sections_by_region[region_name].append(section)
-
-    return sections_by_region
-
-
 def _build_template_context(results: list[dict]) -> dict:
     """
     Build template context from results data.
 
-    Transforms API response data into a clean, structured format for Jinja2 templates.
+    Passes API response data through directly, only adding computed fields
+    (delta, delta_str, delta_pct_str, utilization_pct) that don't exist in the raw data.
 
     Args:
         results: List of result dicts from each target
@@ -123,7 +101,6 @@ def _build_template_context(results: list[dict]) -> dict:
         Dictionary with template variables:
         - targets: List of target data with regions, sections, alerts
         - has_alerts: True if any target has budget alerts
-        - marker: Comment marker string
     """
     targets = []
     has_any_alerts = False
@@ -133,73 +110,57 @@ def _build_template_context(results: list[dict]) -> dict:
         comparison_url = result.get('comparison_url')
         data = result.get('api_response', {}).get('data', {})
 
-        # Extract changes
         changes_data = data.get('changes', {})
         regions_data = changes_data.get('regions', {})
         sections_data = changes_data.get('sections', {})
         symbols_data = changes_data.get('symbols', {})
 
-        # Extract alerts
         alerts_data = data.get('alerts', {})
         budgets = alerts_data.get('budgets', []) if alerts_data else []
 
-        # Process alerts
-        alerts = []
-        for alert in iter_budget_alerts(budgets):
-            alerts.append({
-                'budget_name': alert.budget_name,
-                'region': alert.region,
-                'usage': alert.usage,
-                'limit': alert.limit,
-                'exceeded': alert.exceeded,
-            })
+        # Process alerts — convert namedtuples to dicts
+        alerts = [alert._asdict() for alert in iter_budget_alerts(budgets)]
+        if alerts:
             has_any_alerts = True
 
-        # Process regions with changes
+        # Process regions — filter to changed, add computed fields
         regions = []
         for region in regions_data.get('modified', []):
-            row_data = build_memory_change_row(region)
-            if row_data:
-                limit_size = row_data['limit_size']
-                current_used = row_data['current_used']
-                regions.append({
-                    'name': row_data['region_name'],
-                    'delta': row_data['delta'],
-                    'delta_str': row_data['delta_str'],
-                    'delta_pct_str': row_data['delta_pct_str'],
-                    'current_used': current_used,
-                    'limit_size': limit_size,
-                    'utilization_pct': (current_used / limit_size * 100)
-                                       if limit_size > 0 else 0,
-                })
+            used_size = region.get('used_size', 0)
+            old_used = region.get('old', {}).get('used_size')
+            if old_used is None or old_used == used_size:
+                continue
+            delta = used_size - old_used
+            delta_pct = (delta / old_used * 100) if old_used > 0 else 0
+            limit_size = region.get('limit_size', 0)
+            regions.append({
+                **region,
+                'delta': delta,
+                'delta_str': f"+{delta:,}" if delta >= 0 else f"{delta:,}",
+                'delta_pct_str': f"+{delta_pct:.1f}%" if delta >= 0 else f"{delta_pct:.1f}%",
+                'utilization_pct': (used_size / limit_size * 100)
+                                   if limit_size > 0 else 0,
+            })
 
-        # Process sections with changes
+        # Process sections — filter to changed, add computed fields, group by region
         sections = []
-        sections_by_region_raw = _group_sections_by_region(sections_data)
-        for region_name, region_sections in sections_by_region_raw.items():
-            for section in region_sections:
-                current_size = section.get('size', 0)
-                old_size = section.get('old', {}).get('size')  # None if no baseline
-                if old_size is not None and old_size != current_size:
-                    delta = current_size - old_size
-                    sections.append({
-                        'name': section.get('name', 'unknown'),
-                        'region': region_name,
-                        'size': current_size,
-                        'old_size': old_size,
-                        'delta': delta,
-                        'delta_str': f"+{delta:,}" if delta >= 0 else f"{delta:,}",
-                    })
+        sections_by_region: dict[str, list[dict]] = {}
+        for section in sections_data.get('modified', []):
+            current_size = section.get('size', 0)
+            old_size = section.get('old', {}).get('size')
+            if old_size is None or old_size == current_size:
+                continue
+            delta = current_size - old_size
+            enriched = {
+                **section,
+                'delta': delta,
+                'delta_str': f"+{delta:,}" if delta >= 0 else f"{delta:,}",
+            }
+            sections.append(enriched)
+            region_name = section.get('region', 'Unknown')
+            sections_by_region.setdefault(region_name, []).append(enriched)
 
-        # Group sections by region for easier template access
-        sections_by_region = {}
-        for section in sections:
-            region_name = section['region']
-            if region_name not in sections_by_region:
-                sections_by_region[region_name] = []
-            sections_by_region[region_name].append(section)
-
-        # Process symbols (pass through raw lists, empty if not present)
+        # Symbols — pass through as-is
         symbols = {
             'added': symbols_data.get('added', []),
             'removed': symbols_data.get('removed', []),
