@@ -57,89 +57,6 @@ jobs:
           # comment_template: .github/membrowse-comment.j2
 ```
 
-#### Custom Comment Templates
-
-You can customize the PR comment content using a Jinja2 template file. The MemBrowse header (logo and title) is always included automatically - your template controls the content below it.
-
-```yaml
-      - name: Post PR comment
-        uses: membrowse/membrowse-action/comment-action@v1
-        with:
-          json_files: ${{ steps.analyze.outputs.report_path }}
-          comment_template: .github/membrowse-comment.j2
-```
-
-Create your template file (e.g., `.github/membrowse-comment.j2`):
-
-```jinja2
-{% for target in targets %}
-{% if target.has_changes %}
-### {{ target.name }}
-{% for region in target.regions %}
-- **{{ region.name }}**: {{ region.delta_str }} B ({{ region.delta_pct_str }})
-{% endfor %}
-{% endif %}
-{% endfor %}
-
-{% if not has_alerts %}
-All memory budgets within limits.
-{% endif %}
-```
-
-**Available Template Variables:**
-
-| Variable | Type | Description |
-|----------|------|-------------|
-| `targets` | list | List of analyzed targets |
-| `has_alerts` | bool | True if any target has budget alerts |
-| `marker` | str | HTML comment marker for identifying MemBrowse comments |
-
-**Target Object:**
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `name` | str | Target name (e.g., "stm32", "esp32") |
-| `comparison_url` | str/null | URL to MemBrowse comparison view |
-| `has_changes` | bool | True if memory regions changed |
-| `has_alerts` | bool | True if budget alerts detected |
-| `regions` | list | List of changed memory regions |
-| `sections` | list | List of changed sections |
-| `sections_by_region` | dict | Sections grouped by region name |
-| `alerts` | list | List of budget alerts |
-
-**Region Object:**
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `name` | str | Region name (e.g., "FLASH", "RAM") |
-| `delta` | int | Size change in bytes |
-| `delta_str` | str | Formatted delta (e.g., "+1,234", "-567") |
-| `delta_pct_str` | str | Percentage change (e.g., "+5.2%") |
-| `current_used` | int | Current used bytes |
-| `limit_size` | int | Region size limit |
-| `utilization_pct` | float | Current utilization percentage |
-
-**Section Object:**
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `name` | str | Section name (e.g., ".text", ".bss") |
-| `region` | str | Parent region name |
-| `size` | int | Current size in bytes |
-| `old_size` | int | Previous size in bytes |
-| `delta` | int | Size change in bytes |
-| `delta_str` | str | Formatted delta |
-
-**Alert Object:**
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `budget_name` | str | Budget configuration name |
-| `region` | str | Region that exceeded limit |
-| `usage` | int | Current usage in bytes |
-| `limit` | int | Budget limit in bytes |
-| `exceeded` | int | Amount exceeded in bytes |
-
 #### Historical Onboarding
 
 For getting historical build data from day one upload the last N commits by
@@ -317,6 +234,98 @@ membrowse onboard \
   stm32f4 \
   your-membrowse-api-key
 ```
+
+### PR Comment Formatting
+
+The comment action posts memory analysis results to pull requests. You can customize the comment content using a Jinja2 template file. The MemBrowse header (logo and title) is always included - your template controls the content below it.
+
+```bash
+# Post PR comment with default format
+python -m membrowse.utils.github_comment report1.json report2.json
+
+# Post PR comment with custom template
+python -m membrowse.utils.github_comment --comment-template my-template.j2 report1.json
+```
+
+In GitHub Actions:
+
+```yaml
+      - name: Post PR comment
+        uses: membrowse/membrowse-action/comment-action@v1
+        with:
+          json_files: ${{ steps.analyze.outputs.report_path }}
+          comment_template: .github/membrowse-comment.j2  # optional
+```
+
+**Example template** (`.github/membrowse-comment.j2`):
+
+```jinja2
+{% for target in targets %}
+{% if target.has_changes %}
+### {{ target.name }}
+{% for region in target.regions %}
+- **{{ region.name }}**: {{ region.delta_str }} B ({{ region.delta_pct_str }})
+{% endfor %}
+{% endif %}
+{% endfor %}
+
+{% if not has_alerts %}
+All memory budgets within limits.
+{% endif %}
+```
+
+#### Template Variables
+
+| Variable | Type | Description |
+|----------|------|-------------|
+| `targets` | list | List of analyzed targets |
+| `has_alerts` | bool | True if any target has budget alerts |
+
+**Target Object:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | str | Target name (e.g., "stm32", "esp32") |
+| `comparison_url` | str/null | URL to MemBrowse comparison view |
+| `has_changes` | bool | True if memory regions changed |
+| `has_alerts` | bool | True if budget alerts detected |
+| `regions` | list | List of changed memory regions |
+| `sections` | list | List of changed sections |
+| `sections_by_region` | dict | Sections grouped by region name |
+| `alerts` | list | List of budget alerts |
+
+**Region Object:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | str | Region name (e.g., "FLASH", "RAM") |
+| `delta` | int | Size change in bytes |
+| `delta_str` | str | Formatted delta (e.g., "+1,234", "-567") |
+| `delta_pct_str` | str | Percentage change (e.g., "+5.2%") |
+| `current_used` | int | Current used bytes |
+| `limit_size` | int | Region size limit |
+| `utilization_pct` | float | Current utilization percentage |
+
+**Section Object:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | str | Section name (e.g., ".text", ".bss") |
+| `region` | str | Parent region name |
+| `size` | int | Current size in bytes |
+| `old_size` | int | Previous size in bytes |
+| `delta` | int | Size change in bytes |
+| `delta_str` | str | Formatted delta |
+
+**Alert Object:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `budget_name` | str | Budget configuration name |
+| `region` | str | Region that exceeded limit |
+| `usage` | int | Current usage in bytes |
+| `limit` | int | Budget limit in bytes |
+| `exceeded` | int | Amount exceeded in bytes |
 
 ## Platform Support
 
