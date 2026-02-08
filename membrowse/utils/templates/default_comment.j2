@@ -1,0 +1,40 @@
+{% if has_alerts %}
+> :warning: **Budget alerts detected** - see details below
+
+{% endif %}
+{% for target in targets %}
+{% if target.has_changes or target.has_alerts %}
+### {% if target.comparison_url %}[{{ target.name }}]({{ target.comparison_url }}){% else %}{{ target.name }}{% endif %}
+
+{% for region in target.regions %}
+{% set region_sections = target.sections_by_region.get(region.name, []) %}
+  - **{{ region.name }}**: {% if region_sections %}{% for section in region_sections %}{{ section.name }} {{ section.delta_str }} B{% if not loop.last %}, {% endif %}{% endfor %} ({{ region.delta_pct_str }}{% if region.limit_size > 0 %}, {{ "{:,}".format(region.current_used) }} B / {{ "{:,}".format(region.limit_size) }} B, total: {{ region.utilization_pct | round | int }}% used{% else %}, {{ "{:,}".format(region.current_used) }} B{% endif %}){% else %}{{ region.delta_str }} B ({{ region.delta_pct_str }}{% if region.limit_size > 0 %}, {{ "{:,}".format(region.current_used) }} B / {{ "{:,}".format(region.limit_size) }} B, total: {{ region.utilization_pct | round | int }}% used{% else %}, {{ "{:,}".format(region.current_used) }} B{% endif %}){% endif %}
+
+{% endfor %}
+{% if target.has_alerts %}
+
+**Budget Alerts:**
+{% set ns = namespace(current_budget='') %}
+{% for alert in target.alerts %}
+{% if ns.current_budget != alert.budget_name %}
+{% set ns.current_budget = alert.budget_name %}
+  - **{{ alert.budget_name }}**:
+{% endif %}
+    - {{ alert.region }}: {{ "{:,}".format(alert.usage) }} B (exceeded by {{ "{:,}".format(alert.exceeded) }} B)
+{% endfor %}
+
+{% endif %}
+{% endif %}
+{% endfor %}
+{% set targets_without_changes = [] %}
+{% for target in targets %}
+{% if not target.has_changes and not target.has_alerts %}
+{% set _ = targets_without_changes.append(target) %}
+{% endif %}
+{% endfor %}
+{% if targets_without_changes %}
+*No memory changes detected for:*
+{% for target in targets_without_changes %}
+- {% if target.comparison_url %}[{{ target.name }}]({{ target.comparison_url }}){% else %}{{ target.name }}{% endif %}
+{% endfor %}
+{% endif %}
