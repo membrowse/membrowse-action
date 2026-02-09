@@ -6,6 +6,9 @@ inputs:
   json_files:
     description: 'Space-separated list of JSON report file paths or glob pattern (e.g., "reports/*.json")'
     required: true
+  comment_template:
+    description: 'Optional path to custom Jinja2 template file for comment formatting'
+    required: false
 
 runs:
   using: 'composite'
@@ -28,8 +31,14 @@ runs:
         FILES=(${{ inputs.json_files }})
         shopt -u nullglob
 
+        # Build command with optional template
+        ARGS=()
+        if [ -n "${{ inputs.comment_template }}" ]; then
+          ARGS+=(--comment-template "${{ inputs.comment_template }}")
+        fi
+
         # Invoke the existing Python module with all file paths
-        python -m membrowse.utils.github_comment "${FILES[@]}"
+        python -m membrowse.utils.github_comment "${ARGS[@]}" "${FILES[@]}"
 
 branding:
   icon: 'message-circle'

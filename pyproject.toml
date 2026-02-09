@@ -49,6 +49,7 @@ dependencies = [
     "requests>=2.25.0",
     "cxxfilt>=0.3.0",
     "rust-demangler>=1.0.0",
+    "jinja2>=3.0.0",
 ]
 
 [project.urls]
@@ -67,7 +68,7 @@ include = ["membrowse*"]
 exclude = ["tests*"]
 
 [tool.setuptools.package-data]
-membrowse = ["py.typed"]
+membrowse = ["py.typed", "utils/templates/*.j2"]
 
 [tool.pylint.main]
 # Ignore import errors for test dependencies that may not be installed in all environments

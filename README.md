@@ -53,7 +53,13 @@ jobs:
         uses: membrowse/membrowse-action/comment-action@v1
         with:
           json_files: ${{ steps.analyze.outputs.report_path }}
+          # Optional: use a custom Jinja2 template for the comment
+          # comment_template: .github/membrowse-comment.j2
 ```
+
+The comment action posts a memory report to the PR showing changes between the PR branch and the base branch. The report includes memory region utilization changes (e.g. FLASH, RAM), section-level deltas (e.g. `.text`, `.bss`, `.data`), and symbol-level changes — added, removed, modified, and moved symbols. If budget alerts are configured on [MemBrowse](https://membrowse.com), any exceeded budgets are highlighted in the comment.
+
+You can customize the comment format by providing a Jinja2 template via the `comment_template` input. Your template receives a `targets` list (each with `regions`, `sections`, `symbols`, and `alerts`) and a top-level `has_alerts` boolean. See the [default template](membrowse/utils/templates/default_comment.j2) for reference.
 
 #### Historical Onboarding
 
@@ -232,6 +238,7 @@ membrowse onboard \
   stm32f4 \
   your-membrowse-api-key
 ```
+
 
 ## Platform Support
 
