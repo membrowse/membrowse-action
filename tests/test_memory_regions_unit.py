@@ -15,7 +15,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from membrowse.linker.parser import RegionParsingError, LinkerScriptParser, parse_linker_scripts
+from membrowse.linker.parser import RegionParsingError, LinkerScriptParser, ScriptContentCleaner, parse_linker_scripts
 from tests.test_utils import validate_memory_regions
 
 # Add shared directory to path so we can import our modules
@@ -1344,6 +1344,239 @@ class TestAbsoluteFunction(unittest.TestCase):
 
         self.assertEqual(len(regions), 1)
         self.assertEqual(regions['RAM']['limit_size'], 256 * 1024)
+
+
+class TestDoubleUnderscoreVariables(unittest.TestCase):
+    """Test __ prefixed config variables outside SECTIONS are extracted correctly"""
+
+    def setUp(self):
+        """Set up test environment"""
+        self.temp_dir = tempfile.mkdtemp()
+        self.temp_files = []
+
+    def tearDown(self):
+        """Clean up temporary files"""
+        for temp_file in self.temp_files:
+            try:
+                os.unlink(temp_file)
+            except OSError:
+                pass
+        try:
+            os.rmdir(self.temp_dir)
+        except OSError:
+            pass
+
+    def create_temp_linker_script(self, content: str) -> str:
+        """Create a temporary linker script file with given content"""
+        temp_file = os.path.join(
+            self.temp_dir,
+            f"test_{len(self.temp_files)}.ld")
+        with open(temp_file, 'w', encoding='utf-8') as f:
+            f.write(content)
+        self.temp_files.append(temp_file)
+        return temp_file
+
+    def test_stm32h7rs_double_underscore_variables(self):
+        """Test STM32H7RS-style linker script with __ prefixed config variables"""
+        script_content = """
+        /* STM32H7RS memory configuration */
+        __FLASH_BEGIN  = 0x08000000;
+        __FLASH_SIZE   = 0x00010000;  /* 64KB */
+        __RAM_BEGIN    = 0x24000000;
+        __RAM_SIZE     = 0x00020000;  /* 128KB */
+
+        MEMORY
+        {
+            FLASH (rx)  : ORIGIN = __FLASH_BEGIN, LENGTH = __FLASH_SIZE
+            RAM   (xrw) : ORIGIN = __RAM_BEGIN,   LENGTH = __RAM_SIZE
+        }
+        """
+
+        script_path = self.create_temp_linker_script(script_content)
+        parser = LinkerScriptParser([script_path])
+        regions = parser.parse_memory_regions()
+
+        self.assertEqual(len(regions), 2)
+        self.assertIn('FLASH', regions)
+        self.assertEqual(regions['FLASH']['address'], 0x08000000)
+        self.assertEqual(regions['FLASH']['limit_size'], 0x00010000)
+        self.assertIn('RAM', regions)
+        self.assertEqual(regions['RAM']['address'], 0x24000000)
+        self.assertEqual(regions['RAM']['limit_size'], 0x00020000)
+
+    def test_ch32v30x_defined_ternary_defaults(self):
+        """Test CH32V30x-style with DEFINED() ternary fallbacks and __ prefixed vars"""
+        script_content = """
+        /* CH32V30x memory configuration with DEFINED() ternary defaults */
+        __FLASH_BEGIN = DEFINED(__FLASH_BEGIN) ? __FLASH_BEGIN : 0x08000000;
+        __FLASH_SIZE  = DEFINED(__FLASH_SIZE)  ? __FLASH_SIZE  : 0x00040000;  /* 256KB default */
+        __RAM_BEGIN   = DEFINED(__RAM_BEGIN)   ? __RAM_BEGIN   : 0x20000000;
+        __RAM_SIZE    = DEFINED(__RAM_SIZE)    ? __RAM_SIZE    : 0x00010000;  /* 64KB default */
+
+        MEMORY
+        {
+            FLASH (rx)  : ORIGIN = __FLASH_BEGIN, LENGTH = __FLASH_SIZE
+            RAM   (xrw) : ORIGIN = __RAM_BEGIN,   LENGTH = __RAM_SIZE
+        }
+        """
+
+        script_path = self.create_temp_linker_script(script_content)
+        parser = LinkerScriptParser([script_path])
+        regions = parser.parse_memory_regions()
+
+        self.assertEqual(len(regions), 2)
+        self.assertIn('FLASH', regions)
+        self.assertEqual(regions['FLASH']['address'], 0x08000000)
+        self.assertEqual(regions['FLASH']['limit_size'], 0x00040000)
+        self.assertIn('RAM', regions)
+        self.assertEqual(regions['RAM']['address'], 0x20000000)
+        self.assertEqual(regions['RAM']['limit_size'], 0x00010000)
+
+    def test_sections_symbols_not_extracted(self):
+        """Verify __ symbols inside SECTIONS are NOT extracted, but __ vars outside ARE"""
+        script_content = """
+        /* Config variable outside SECTIONS - should be extracted */
+        __FLASH_SIZE = 0x00080000;
+
+        MEMORY
+        {
+            FLASH (rx)  : ORIGIN = 0x08000000, LENGTH = __FLASH_SIZE
+            RAM   (xrw) : ORIGIN = 0x20000000, LENGTH = 128K
+        }
+
+        SECTIONS
+        {
+            .text :
+            {
+                __bss_start__ = .;
+                *(.bss)
+                __bss_end__ = .;
+            } > FLASH
+        }
+        """
+
+        script_path = self.create_temp_linker_script(script_content)
+        parser = LinkerScriptParser([script_path])
+        regions = parser.parse_memory_regions()
+
+        self.assertEqual(len(regions), 2)
+        self.assertIn('FLASH', regions)
+        self.assertEqual(regions['FLASH']['address'], 0x08000000)
+        self.assertEqual(regions['FLASH']['limit_size'], 0x00080000)
+        self.assertIn('RAM', regions)
+        self.assertEqual(regions['RAM']['address'], 0x20000000)
+        self.assertEqual(regions['RAM']['limit_size'], 128 * 1024)
+
+    def test_multiple_sections_blocks(self):
+        """Test that multiple SECTIONS blocks are all stripped"""
+        script_content = """
+        __VAR1 = 0x1000;
+        SECTIONS { .text : { __sym1 = .; *(.text) } > FLASH }
+        __VAR2 = 0x2000;
+        SECTIONS { .data : { __sym2 = .; *(.data) } > RAM }
+        __VAR3 = 0x3000;
+
+        MEMORY
+        {
+            FLASH (rx)  : ORIGIN = __VAR1, LENGTH = __VAR2
+            RAM   (xrw) : ORIGIN = __VAR3, LENGTH = 0x4000
+        }
+        """
+
+        script_path = self.create_temp_linker_script(script_content)
+        parser = LinkerScriptParser([script_path])
+        regions = parser.parse_memory_regions()
+
+        self.assertEqual(len(regions), 2)
+        self.assertIn('FLASH', regions)
+        self.assertEqual(regions['FLASH']['address'], 0x1000)
+        self.assertEqual(regions['FLASH']['limit_size'], 0x2000)
+        self.assertIn('RAM', regions)
+        self.assertEqual(regions['RAM']['address'], 0x3000)
+        self.assertEqual(regions['RAM']['limit_size'], 0x4000)
+
+    def test_empty_sections_block(self):
+        """Test that an empty SECTIONS block is handled"""
+        script_content = """
+        __FLASH_SIZE = 0x00040000;
+
+        MEMORY
+        {
+            FLASH (rx)  : ORIGIN = 0x08000000, LENGTH = __FLASH_SIZE
+        }
+
+        SECTIONS { }
+        """
+
+        script_path = self.create_temp_linker_script(script_content)
+        parser = LinkerScriptParser([script_path])
+        regions = parser.parse_memory_regions()
+
+        self.assertEqual(len(regions), 1)
+        self.assertIn('FLASH', regions)
+        self.assertEqual(regions['FLASH']['address'], 0x08000000)
+        self.assertEqual(regions['FLASH']['limit_size'], 0x00040000)
+
+    def test_sections_keyword_with_whitespace_before_brace(self):
+        """Test SECTIONS with newlines/whitespace before opening brace"""
+        script_content = """
+        __FLASH_SIZE = 0x00080000;
+
+        MEMORY
+        {
+            FLASH (rx)  : ORIGIN = 0x08000000, LENGTH = __FLASH_SIZE
+        }
+
+        SECTIONS
+
+        {
+            .text :
+            {
+                __text_start__ = .;
+                *(.text)
+            } > FLASH
+        }
+        """
+
+        script_path = self.create_temp_linker_script(script_content)
+        parser = LinkerScriptParser([script_path])
+        regions = parser.parse_memory_regions()
+
+        self.assertEqual(len(regions), 1)
+        self.assertIn('FLASH', regions)
+        self.assertEqual(regions['FLASH']['address'], 0x08000000)
+        self.assertEqual(regions['FLASH']['limit_size'], 0x00080000)
+
+
+class TestStripSectionsContent(unittest.TestCase):
+    """Direct unit tests for ScriptContentCleaner.strip_sections_content()"""
+
+    def test_no_sections_block(self):
+        """Content without SECTIONS is returned unchanged"""
+        content = "__VAR = 0x1000;\nMEMORY { FLASH : ORIGIN = 0, LENGTH = 4K }"
+        self.assertEqual(
+            ScriptContentCleaner.strip_sections_content(content), content)
+
+    def test_nested_braces_stripped(self):
+        """Deeply nested braces inside SECTIONS are fully removed"""
+        content = (
+            "__VAR = 1;\n"
+            "SECTIONS { .text : { *(.text) } .data : { *(.data) } }\n"
+            "__VAR2 = 2;"
+        )
+        result = ScriptContentCleaner.strip_sections_content(content)
+        self.assertNotIn("SECTIONS", result)
+        self.assertNotIn(".text", result)
+        self.assertIn("__VAR = 1;", result)
+        self.assertIn("__VAR2 = 2;", result)
+
+    def test_unclosed_sections_preserved(self):
+        """Unclosed SECTIONS block is not removed (with warning logged)"""
+        content = "__VAR = 1;\nSECTIONS { .text : { *(.text) }\n__VAR2 = 2;"
+        result = ScriptContentCleaner.strip_sections_content(content)
+        # Unclosed block should NOT be removed
+        self.assertIn("SECTIONS", result)
+        self.assertIn("__VAR2 = 2;", result)
 
 
 if __name__ == '__main__':
