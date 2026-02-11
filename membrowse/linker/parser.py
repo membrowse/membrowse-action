@@ -142,6 +142,53 @@ class ScriptContentCleaner:  # pylint: disable=too-few-public-methods
 
         return "\n".join(filtered_lines)
 
+    @staticmethod
+    def strip_sections_content(content: str) -> str:
+        """Remove SECTIONS { ... } block content from cleaned linker script text.
+
+        Uses brace-depth counting to handle nested braces correctly.
+        Config variables live outside SECTIONS blocks; linker symbols live inside.
+        """
+        # Find all SECTIONS block starts using word boundary to avoid matching
+        # variable names that happen to contain "SECTIONS"
+        sections_starts = [
+            m.start() for m in re.finditer(r"\bSECTIONS\b", content)
+        ]
+
+        if not sections_starts:
+            return content
+
+        # Process in reverse order to preserve indices
+        result = content
+        for start in reversed(sections_starts):
+            # Find the opening brace after SECTIONS
+            brace_pos = result.find("{", start)
+            if brace_pos == -1:
+                continue
+
+            # Count braces to find matching close
+            depth = 1
+            pos = brace_pos + 1
+            while pos < len(result) and depth > 0:
+                if result[pos] == "{":
+                    depth += 1
+                elif result[pos] == "}":
+                    depth -= 1
+                pos += 1
+
+            if depth == 0:
+                # Remove from SECTIONS keyword through closing brace
+                result = result[:start] + result[pos:]
+            else:
+                logger.warning(
+                    "Unclosed SECTIONS block at position %d "
+                    "(brace depth %d) - linker symbols may be "
+                    "incorrectly extracted as variables",
+                    start, depth
+                )
+
+        return result
+
 
 class ExpressionEvaluator:
     """Evaluates linker script expressions and variables"""
@@ -741,6 +788,10 @@ class VariableExtractor:  # pylint: disable=too-few-public-methods
         # Remove comments and preprocessor directives
         content = ScriptContentCleaner.clean_content(content)
 
+        # Strip SECTIONS blocks so we only extract config variables
+        # (not linker symbols like __bss_start__ defined inside SECTIONS)
+        content = ScriptContentCleaner.strip_sections_content(content)
+
         # Find variable assignments: var_name = value;
         var_pattern = r"([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([^;]+);"
 
@@ -751,11 +802,6 @@ class VariableExtractor:  # pylint: disable=too-few-public-methods
         for match in re.finditer(var_pattern, content):
             var_name = match.group(1).strip()
             var_value = match.group(2).strip()
-
-            # Skip if this looks like a linker symbol assignment (starts with
-            # __)
-            if var_name.startswith("__"):
-                continue
 
             try:
                 # Try to evaluate simple expressions immediately
