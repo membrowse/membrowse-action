@@ -84,6 +84,10 @@ def determine_auth_strategy(
     Raises:
         ValueError: If authentication cannot be determined
     """
+    # Normalize: treat empty/whitespace-only API key as no key
+    # (GitHub Actions secrets resolve to "" in fork PRs)
+    api_key = api_key.strip() if api_key else None
+
     # If API key provided, always use standard auth
     if api_key:
         logger.debug("Using API key authentication")

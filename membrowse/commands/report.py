@@ -243,6 +243,9 @@ def _validate_upload_arguments(
     Returns:
         Tuple of (is_valid, error_message)
     """
+    # Normalize: treat empty/whitespace-only API key as no key
+    api_key = api_key.strip() if api_key else None
+
     # Target name always required for uploads
     if not target_name:
         return False, "--target-name is required when using --upload"

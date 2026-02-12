@@ -134,6 +134,26 @@ class TestDetermineAuthStrategy:
             assert context.github_context['repository'] == 'owner/repo'
             assert context.github_context['fork_repository'] == 'contributor/repo'
 
+    @pytest.mark.parametrize("empty_key", ["", "  ", "\t", "\n"])
+    def test_tokenless_for_fork_pr_with_empty_api_key(self, empty_key):
+        """Test tokenless auth when API key is empty/whitespace (e.g., unset GitHub secret)."""
+        event_data = make_pr_event_data(
+            head_repo='contributor/repo',
+            base_repo='owner/repo',
+            pr_number=42
+        )
+
+        with github_event_context(event_data):
+            context = determine_auth_strategy(
+                api_key=empty_key,
+                auto_detect_fork=True
+            )
+
+            assert context.auth_type == AuthType.GITHUB_TOKENLESS
+            assert context.api_key is None
+            assert context.github_context is not None
+            assert context.github_context['pr_number'] == 42
+
     def test_raises_when_no_api_key_and_not_fork_pr(self):
         """Test that ValueError is raised when no API key and not a fork PR."""
         event_data = make_pr_event_data(
