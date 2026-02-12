@@ -7,6 +7,7 @@ to the MemBrowse API using the requests library.
 
 import copy
 import logging
+import random
 import time
 from importlib.metadata import version
 from typing import Dict, Any
@@ -93,9 +94,9 @@ class MemBrowseUploader:  # pylint: disable=too-few-public-methods
 
             except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
                 if attempt < max_attempts:
-                    delay = retry_delays[attempt - 1]
+                    delay = retry_delays[attempt - 1] * random.uniform(1, 1.5)
                     logger.warning(
-                        "Upload failed: %s. Retrying in %d seconds...",
+                        "Upload failed: %s. Retrying in %.1f seconds...",
                         str(e), delay
                     )
                     time.sleep(delay)
@@ -108,12 +109,13 @@ class MemBrowseUploader:  # pylint: disable=too-few-public-methods
                     f"attempts: {e}"
                 ) from e
             except requests.exceptions.HTTPError as e:
-                # Retry on gateway errors (502 Bad Gateway, 504 Gateway Timeout)
                 status_code = e.response.status_code if e.response is not None else None
-                if status_code in (502, 504) and attempt < max_attempts:
-                    delay = retry_delays[attempt - 1]
+                # Retry on 429 Too Many Requests, 503 Service Unavailable,
+                # and gateway errors (502, 504)
+                if status_code in (429, 502, 503, 504) and attempt < max_attempts:
+                    delay = retry_delays[attempt - 1] * random.uniform(1, 1.5)
                     logger.warning(
-                        "Upload failed with HTTP %d: %s. Retrying in %d seconds...",
+                        "Upload failed with HTTP %d: %s. Retrying in %.1f seconds...",
                         status_code, str(e), delay
                     )
                     time.sleep(delay)
