@@ -8,61 +8,67 @@ allowed-tools: Read, Glob, Grep, Write, Edit, Bash, Task, AskUserQuestion
 
 You are integrating MemBrowse memory analysis into a project that produces ELF binaries. This works for both embedded firmware (STM32, ESP32, nRF, RISC-V) and non-embedded targets (Linux x86/x64 applications, game engines, system software). Follow these steps to identify build targets, create the configuration file, set up GitHub workflows, and optionally add a MemBrowse badge to the README.
 
-## Step 1: Explore the Codebase to Identify Build Targets
+## Step 1: Ask User About Project Configuration
 
-First, understand what the project builds and how.
+Before exploring the codebase, ask the user these project-level questions using AskUserQuestion. The answers determine the workflow pattern and affect every subsequent step.
 
-### 1.1 Search for Build System Files
+- **Is this an open-source project that accepts pull requests from forks?** (This determines the workflow pattern — open-source projects need a two-workflow setup so PR comments work for fork PRs.)
+- **Does the project use git submodules?** (If yes, the checkout step will include `submodules: recursive`.)
+- **What is the default branch name (main/master)?**
 
-```bash
-# Find build configuration files
-find . -name "Makefile*" -o -name "CMakeLists.txt" -o -name "*.mk" -o -name "meson.build" -o -name "Cargo.toml" 2>/dev/null | head -20
+## Step 2: Explore the Codebase to Identify Build Targets
 
-# For embedded projects: look for board/port directories
-find . -name "boards" -type d 2>/dev/null
-find . -name "ports" -type d 2>/dev/null
+Understand what the project builds and how.
 
-# Check existing CI workflows for build patterns
-ls -la .github/workflows/ 2>/dev/null
-```
+### 2.1 Search for Build System Files
 
-### 1.2 Analyze Existing CI Workflows
+Use the Glob tool to find build configuration files:
+- `**/Makefile*`
+- `**/CMakeLists.txt`
+- `**/*.mk`
+- `**/meson.build`
+- `**/Cargo.toml`
+
+For embedded projects, also search for board/port directories:
+- `**/boards/`
+- `**/ports/`
+
+Check existing CI workflows by reading files in `.github/workflows/`.
+
+### 2.2 Analyze Existing CI Workflows
 
 Read existing workflow files to understand:
 - What targets are currently built
 - What setup commands are used
 - Where ELF files are output
 
-### 1.3 Find Linker Scripts (Embedded Projects)
+### 2.3 Find Linker Scripts (Embedded Projects)
 
 Linker scripts define memory regions (FLASH, RAM, etc.) and are mainly used in embedded projects. Non-embedded projects typically don't have custom linker scripts — this is fine, MemBrowse will use default Code/Data regions based on ELF sections.
 
-```bash
-# Find all linker scripts
-find . -name "*.ld" -o -name "*.lds" 2>/dev/null
+Use the Glob tool to find linker scripts:
+- `**/*.ld`
+- `**/*.lds`
 
-# Check Makefiles for linker script references
-grep -r "LDSCRIPT\|\.ld\|-T " --include="Makefile*" --include="*.mk" 2>/dev/null | head -20
-```
+Use the Grep tool to check Makefiles for linker script references:
+- Pattern: `LDSCRIPT|\.ld|-T ` in `Makefile*` and `*.mk` files
 
-### 1.4 Find ELF Output Locations
+### 2.4 Find ELF Output Locations
 
-```bash
-# Check for ELF references in CI
-grep -r "\.elf\|\.out\|firmware\|build/" .github/workflows/ --include="*.yml" 2>/dev/null | head -20
+Use the Grep tool to search for ELF references in CI workflow files:
+- Pattern: `\.elf|\.out|firmware|build/` in `.github/workflows/*.yml`
 
-# Common embedded patterns:
-# - build/firmware.elf
-# - build-BOARDNAME/firmware.elf
-# - build/PROJECT_NAME.elf
-#
-# Common non-embedded patterns:
-# - build/myapp (no extension — use `file` command to confirm it's ELF)
-# - target/release/myapp (Rust)
-# - builddir/myapp (Meson)
-```
+Common embedded patterns:
+- `build/firmware.elf`
+- `build-BOARDNAME/firmware.elf`
+- `build/PROJECT_NAME.elf`
 
-## Step 2: Collect Target Information
+Common non-embedded patterns:
+- `build/myapp` (no extension — use `file` command to confirm it's ELF)
+- `target/release/myapp` (Rust)
+- `builddir/myapp` (Meson)
+
+## Step 3: Collect Target Information
 
 For each target you identify, gather:
 
@@ -100,28 +106,27 @@ sudo apt-get update && sudo apt-get install -y gcc-arm-none-eabi libnewlib-arm-n
 sudo apt-get update && sudo apt-get install -y gcc-riscv64-unknown-elf
 ```
 
-## Step 3: Ask User to Confirm Targets and Project Details
+## Step 4: Ask User to Confirm Targets
 
 Before creating files, present the discovered targets to the user and ask them to confirm or modify:
 
 - Which targets should be included?
 - Are the paths correct?
 - Any missing setup commands?
-- What is the default branch name (main/master)?
-- **Is this an open-source project that accepts pull requests from forks?** (This determines the workflow pattern — open-source projects need a two-workflow setup so PR comments work for fork PRs.)
-- **Does the project use git submodules?** (If yes, the checkout step will include `submodules: recursive`.)
 
-## Step 4: Verify Targets Locally
+## Step 5: Verify Targets Locally
 
 Before adding targets to the configuration file, verify each target end-to-end: build succeeds, ELF is found, and `membrowse report` produces valid output.
 
-### 4.1 Install membrowse
+**Note:** If the required toolchain (e.g., `gcc-arm-none-eabi`, ESP-IDF) is not available locally, skip this step and defer verification to CI. Proceed to Step 6 and let the first workflow run validate the configuration. If the build is straightforward and the toolchain is available, local verification is strongly recommended — it catches issues much faster than round-tripping through CI.
+
+### 5.1 Install membrowse
 
 ```bash
 pip install membrowse  # if not already installed
 ```
 
-### 4.2 Build and Verify ELF
+### 5.2 Build and Verify ELF
 
 For each target, run the build command and confirm the ELF file exists:
 
@@ -137,7 +142,7 @@ file build/myapp                  # non-embedded — confirm "ELF" in output
 
 If the ELF is not found, check the build output for the actual output path.
 
-### 4.3 Run membrowse report
+### 5.3 Run membrowse report
 
 Run `membrowse report` on the built ELF to verify the full analysis pipeline. This is the single most important verification step — it catches bad ELF paths, unparseable linker scripts, missing linker variables, and unsupported binary formats all at once.
 
@@ -181,7 +186,7 @@ Check that the JSON contains:
 - **"Unsupported binary format"**: The file is not ELF. Use `file path/to/binary` to check. Look for the intermediate ELF before any `objcopy` conversion.
 - **Zero usage in all regions**: The linker scripts may define regions that don't match the ELF sections. Try running without linker scripts first (`membrowse report path/to/elf`) to see default Code/Data analysis, then compare.
 
-### 4.4 Ask User to Verify
+### 5.4 Ask User to Verify
 
 Show the user the `membrowse report` output and ask them to confirm:
 - Does the output look reasonable?
@@ -190,7 +195,7 @@ Show the user the `membrowse report` output and ask them to confirm:
 
 Only proceed to create the configuration file after `membrowse report` runs successfully.
 
-## Step 5: Create membrowse-targets.json
+## Step 6: Create membrowse-targets.json
 
 Create `.github/membrowse-targets.json` with the verified targets.
 
@@ -235,12 +240,12 @@ Create `.github/membrowse-targets.json` with the verified targets.
 - `setup_cmd`: Commands to install build dependencies before building (skill-specific; the workflow runs this before the build step)
 - `build_script`: Use `-g` or `-DCMAKE_BUILD_TYPE=RelWithDebInfo` to include debug symbols — this lets MemBrowse attribute memory to source files and symbols
 
-## Step 6: Create GitHub Workflows
+## Step 7: Create GitHub Workflows
 
-Based on the project type identified in Step 3, create workflows in `.github/workflows/`.
+Based on the project type identified in Step 1, create workflows in `.github/workflows/`.
 
 Choose the appropriate pattern:
-- **Pattern A** (Single target, private repo): One workflow with inline comment
+- **Pattern A** (Single target, private repo): One workflow with inline build and analysis
 - **Pattern B** (Multiple targets, private repo): One workflow with matrix build + comment job
 - **Pattern C** (Open-source / fork PRs): Two workflows — report + comment via `workflow_run`
 
@@ -277,7 +282,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
-          # Only include submodules line if user confirmed submodules in Step 3
+          # Only include submodules line if user confirmed submodules in Step 1
           # submodules: recursive
 
       - name: Install packages
@@ -354,7 +359,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
-          # Only include submodules line if user confirmed submodules in Step 3
+          # Only include submodules line if user confirmed submodules in Step 1
           # submodules: recursive
 
       - name: Install packages
@@ -423,6 +428,9 @@ on:
     branches:
       - main  # Change to match the project's default branch
 
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -453,7 +461,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
-          # Only include submodules line if user confirmed submodules in Step 3
+          # Only include submodules line if user confirmed submodules in Step 1
           # submodules: recursive
 
       - name: Install packages
@@ -600,7 +608,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
-          # Only include submodules line if user confirmed submodules in Step 3
+          # Only include submodules line if user confirmed submodules in Step 1
           # submodules: recursive
 
       - name: Install packages
@@ -618,7 +626,7 @@ jobs:
           api_key: ${{ secrets.MEMBROWSE_API_KEY }}
 ```
 
-## Step 7: Inform User About Secrets
+## Step 8: Inform User About Secrets
 
 After creating the files, tell the user they need to configure:
 
@@ -626,9 +634,7 @@ After creating the files, tell the user they need to configure:
 
    Location: Repository Settings → Secrets and variables → Actions → New repository secret
 
-> **Enterprise / self-hosted users:** If your MemBrowse instance is not at the default `https://api.membrowse.com`, add the `api_url` input to the action steps pointing to your instance URL.
-
-## Step 8: Provide Testing Instructions
+## Step 9: Provide Testing Instructions
 
 Tell the user how to test:
 
@@ -636,20 +642,20 @@ Tell the user how to test:
 2. **Test Onboard Workflow**: Go to Actions → "Onboard to MemBrowse" → Run workflow (start with 10 commits)
 3. **Verify PR Comments**: After the report workflow completes, check the PR for a memory usage comment
 
-## Step 9: Add MemBrowse Badge to README (Optional)
+## Step 10: Add MemBrowse Badge to README (Optional)
 
 Before adding a badge, ask the user:
 - **Is this project open source, or do you have public access enabled in the MemBrowse portal?**
 
 If the project is private and public access is not enabled, **skip the badge** — it will return a 404. Inform the user they can enable public access later in Project Settings on the MemBrowse portal.
 
-### 9.1 Find the README File
+### 10.1 Find the README File
 
-```bash
-ls -la README* readme* 2>/dev/null
-```
+Use the Glob tool to find README files:
+- `README*`
+- `readme*`
 
-### 9.2 Determine the Badge URL
+### 10.2 Determine the Badge URL
 
 The badge URL format is:
 ```
@@ -663,7 +669,7 @@ git remote get-url origin
 
 Parse the URL to extract `{owner}/{repo}` (e.g., `micropython/micropython`).
 
-### 9.3 Add the Badge
+### 10.3 Add the Badge
 
 Add the badge near the top of the README, typically:
 - After the main title/heading
@@ -690,7 +696,7 @@ Project description here...
 [![MemBrowse](https://membrowse.com/badge.svg)](https://membrowse.com/public/owner/repo)
 ```
 
-### 9.4 Ask User for Confirmation
+### 10.4 Ask User for Confirmation
 
 Before modifying the README:
 - Show the user the badge that will be added
