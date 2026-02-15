@@ -8,13 +8,25 @@ allowed-tools: Read, Glob, Grep, Write, Edit, Bash, Task, AskUserQuestion
 
 You are integrating MemBrowse memory analysis into a project that produces ELF binaries. This works for both embedded firmware (STM32, ESP32, nRF, RISC-V) and non-embedded targets (Linux x86/x64 applications, game engines, system software). Follow these steps to identify build targets, create the configuration file, set up GitHub workflows, and optionally add a MemBrowse badge to the README.
 
-## Step 1: Ask User About Project Configuration
+## Step 1: Gather Project Configuration
 
-Before exploring the codebase, ask the user these project-level questions using AskUserQuestion. The answers determine the workflow pattern and affect every subsequent step.
+Before exploring the codebase, gather project-level configuration. Auto-detect what you can, then ask the user only what requires their input.
+
+### 1.1 Auto-detect submodules and default branch
+
+```bash
+# Detect submodules (non-empty output means submodules exist)
+git submodule status
+
+# Detect default branch
+git symbolic-ref refs/remotes/origin/HEAD
+```
+
+### 1.2 Ask the user
+
+Use AskUserQuestion to ask:
 
 - **Is this an open-source project that accepts pull requests from forks?** (This determines the workflow pattern — open-source projects need a two-workflow setup so PR comments work for fork PRs.)
-- **Does the project use git submodules?** (If yes, the checkout step will include `submodules: recursive`.)
-- **What is the default branch name (main/master)?**
 
 ## Step 2: Explore the Codebase to Identify Build Targets
 
@@ -79,7 +91,7 @@ For each target you identify, gather:
 | `build_script` | Commands to compile the project |
 | `elf` | Path to output ELF file after build |
 | `ld` | Space-separated linker script paths (can be empty) |
-| `def` | Optional: variable definitions for linker parsing (e.g., `"__flash_size__=4096K"`) |
+| `linker_vars` | Optional: variable definitions for linker parsing (e.g., `"__flash_size__=4096K"`) |
 
 ### Platform-Specific Setup Commands
 
@@ -108,11 +120,20 @@ sudo apt-get update && sudo apt-get install -y gcc-riscv64-unknown-elf
 
 ## Step 4: Ask User to Confirm Targets
 
-Before creating files, present the discovered targets to the user and ask them to confirm or modify:
+Before building or verifying anything, present the discovered targets to the user for a quick sanity check. For each target, show:
 
+- Target name
+- Setup command
+- Build command
+- ELF output path
+- Linker script path(s) (or "none — will use default Code/Data regions")
+
+Ask the user:
 - Which targets should be included?
-- Are the paths correct?
+- Are the build commands and paths correct?
 - Any missing setup commands?
+
+This catches obvious mistakes before investing time in Step 5 (local verification).
 
 ## Step 5: Verify Targets Locally
 
@@ -180,20 +201,24 @@ Check that the JSON contains:
 
 #### Common issues at this step
 
-- **Linker parse error with undefined variable**: Add the variable via `--def VAR=VALUE`. Note the value for the `def` field in targets.json.
+- **Linker parse error with undefined variable**: Add the variable via `--def VAR=VALUE`. Note the value for the `linker_vars` field in targets.json.
 - **Linker script not found**: The path may be relative to a subdirectory or generated during build — check the build directory.
 - **No symbols in output**: Binary was built without debug info. Add `-g` to compiler flags or use `-DCMAKE_BUILD_TYPE=RelWithDebInfo`. Sections and regions will still work, but source file attribution requires debug symbols.
 - **"Unsupported binary format"**: The file is not ELF. Use `file path/to/binary` to check. Look for the intermediate ELF before any `objcopy` conversion.
 - **Zero usage in all regions**: The linker scripts may define regions that don't match the ELF sections. Try running without linker scripts first (`membrowse report path/to/elf`) to see default Code/Data analysis, then compare.
 
+If you cannot resolve a failure after trying the common fixes above, **stop and ask the user for help** using AskUserQuestion before proceeding. Do not skip a failing target or move on to creating configuration files with unverified targets.
+
 ### 5.4 Ask User to Verify
 
-Show the user the `membrowse report` output and ask them to confirm:
-- Does the output look reasonable?
-- Are the memory regions correct?
+Show the user the full human-readable `membrowse report` output for each target. This is the concrete proof that the target configuration works — memory regions, usage percentages, and any warnings are all visible here.
+
+Ask the user to confirm:
+- Does the memory report output look reasonable for each target?
+- Are the memory regions and usage percentages correct?
 - If symbols are missing, is that expected (no `-g` flag)?
 
-Only proceed to create the configuration file after `membrowse report` runs successfully.
+Only proceed to create the configuration file after the user approves the `membrowse report` output.
 
 ## Step 6: Create membrowse-targets.json
 
@@ -209,7 +234,7 @@ Create `.github/membrowse-targets.json` with the verified targets.
       "build_script": "make -C ports/stm32 BOARD=PYBV10",
       "elf": "ports/stm32/build-PYBV10/firmware.elf",
       "ld": "ports/stm32/boards/stm32f405.ld",
-      "def": ""
+      "linker_vars": ""
     }
   ]
 }
@@ -225,7 +250,7 @@ Create `.github/membrowse-targets.json` with the verified targets.
       "build_script": "cmake -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo && cmake --build build",
       "elf": "build/myapp",
       "ld": "",
-      "def": ""
+      "linker_vars": ""
     }
   ]
 }
@@ -236,7 +261,7 @@ Create `.github/membrowse-targets.json` with the verified targets.
 - `name`: Must be unique across targets, used as the target name in MemBrowse and in artifact names
 - `elf`: Path to any ELF binary — embedded firmware (`.elf`) or non-embedded executables/shared libraries (no extension or `.so`)
 - `ld`: Space-separated linker script paths for embedded projects; empty string `""` for non-embedded (analysis will use default Code/Data regions based on ELF sections like `.text`, `.data`, `.bss`)
-- `def`: Only needed if linker scripts use undefined variables (e.g., `"__flash_size__=4096K"`); leave empty for non-embedded
+- `linker_vars`: Only needed if linker scripts use undefined variables (e.g., `"__flash_size__=4096K"`); leave empty for non-embedded
 - `setup_cmd`: Commands to install build dependencies before building (skill-specific; the workflow runs this before the build step)
 - `build_script`: Use `-g` or `-DCMAKE_BUILD_TYPE=RelWithDebInfo` to include debug symbols — this lets MemBrowse attribute memory to source files and symbols
 
@@ -301,12 +326,14 @@ jobs:
           target_name: TARGET_NAME
           elf: TARGET_ELF
           ld: TARGET_LD
-          # Only include linker_vars if the target has def values
-          # linker_vars: TARGET_DEF
+          # Only include linker_vars if the target has linker_vars values
+          # linker_vars: TARGET_LINKER_VARS
           api_key: ${{ secrets.MEMBROWSE_API_KEY }}
+          # Uncomment to allow CI to pass even when memory budgets are exceeded
+          # dont_fail_on_alerts: true
 ```
 
-**Template substitutions:** Replace `TARGET_NAME`, `TARGET_SETUP_CMD`, `TARGET_BUILD_SCRIPT`, `TARGET_ELF`, `TARGET_LD`, and `TARGET_DEF` with values from the single target in `membrowse-targets.json`. Since there's only one target, values are inlined directly.
+**Template substitutions:** Replace `TARGET_NAME`, `TARGET_SETUP_CMD`, `TARGET_BUILD_SCRIPT`, `TARGET_ELF`, `TARGET_LD`, and `TARGET_LINKER_VARS` with values from the single target in `membrowse-targets.json`. Since there's only one target, values are inlined directly.
 
 ---
 
@@ -376,8 +403,10 @@ jobs:
           target_name: ${{ matrix.target.name }}
           elf: ${{ matrix.target.elf }}
           ld: ${{ matrix.target.ld }}
-          linker_vars: ${{ matrix.target.def }}
+          linker_vars: ${{ matrix.target.linker_vars }}
           api_key: ${{ secrets.MEMBROWSE_API_KEY }}
+          # Uncomment to allow CI to pass even when memory budgets are exceeded
+          # dont_fail_on_alerts: true
 
       - name: Upload report artifact
         if: ${{ steps.analyze.outcome == 'success' }}
@@ -478,8 +507,10 @@ jobs:
           target_name: ${{ matrix.target.name }}
           elf: ${{ matrix.target.elf }}
           ld: ${{ matrix.target.ld }}
-          linker_vars: ${{ matrix.target.def }}
+          linker_vars: ${{ matrix.target.linker_vars }}
           api_key: ${{ secrets.MEMBROWSE_API_KEY }}
+          # Uncomment to allow CI to pass even when memory budgets are exceeded
+          # dont_fail_on_alerts: true
 
       - name: Upload report artifact
         if: ${{ steps.analyze.outcome == 'success' }}
@@ -622,7 +653,7 @@ jobs:
           build_script: ${{ matrix.target.build_script }}
           elf: ${{ matrix.target.elf }}
           ld: ${{ matrix.target.ld }}
-          linker_vars: ${{ matrix.target.def }}
+          linker_vars: ${{ matrix.target.linker_vars }}
           api_key: ${{ secrets.MEMBROWSE_API_KEY }}
 ```
 
@@ -739,6 +770,6 @@ MemBrowse requires ELF binaries. If your build produces `.bin`, `.hex`, or other
 - Verify paths are relative to repository root
 
 ### Linker parsing fails
-- Add required variables to `def` in `membrowse-targets.json`
+- Add required variables to `linker_vars` in `membrowse-targets.json`
 - Check linker scripts exist at the specified paths (some are generated during build)
 - Empty `ld` field is valid — analysis will use default Code/Data regions
