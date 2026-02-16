@@ -76,6 +76,26 @@ membrowse report firmware.elf "linker.ld" --upload --github \
 - Target name only required when uploading
 - All Git metadata is optional
 
+#### `membrowse summary` - Fetch Memory Summary for a Commit
+
+Fetches a consolidated memory summary for a given commit from the MemBrowse API and renders it as markdown (for PR comments).
+
+```bash
+# Render summary as markdown (default template)
+membrowse summary <commit-sha> --api-key "$API_KEY"
+
+# Output raw JSON response
+membrowse summary <commit-sha> --api-key "$API_KEY" --json
+
+# Use custom Jinja2 template
+membrowse summary <commit-sha> --api-key "$API_KEY" --template path/to/template.j2
+
+# Custom API URL
+membrowse summary <commit-sha> --api-key "$API_KEY" --api-url "https://api.membrowse.com"
+```
+
+Used by the `comment-action` to post consolidated PR comments that summarize memory changes across all targets for a commit.
+
 #### `membrowse onboard` - Historical Analysis
 
 Analyzes memory footprints across multiple historical commits and uploads them to the MemBrowse platform:
@@ -186,18 +206,23 @@ membrowse/                          # Main Python package
 │
 ├── api/                            # API client
 │   ├── __init__.py
-│   └── client.py                   # Report upload to MemBrowse
+│   └── client.py                   # Report upload & summary fetch
 │
 ├── cli.py                          # Main CLI entry point
 │
 ├── commands/                       # CLI subcommands
 │   ├── __init__.py
 │   ├── report.py                   # 'report' subcommand
+│   ├── summary.py                  # 'summary' subcommand
 │   └── onboard.py                  # 'onboard' subcommand
 │
 ├── utils/                          # Utilities
 │   ├── __init__.py
-│   └── git.py                      # Git metadata detection
+│   ├── git.py                      # Git metadata detection
+│   ├── github_comment.py           # PR comment posting (create/update)
+│   ├── summary_formatter.py        # Summary API response → template context
+│   └── templates/                  # Jinja2 templates for PR comments
+│       └── default_comment.j2      # Default PR comment template
 │
 scripts/                            # Shell wrappers
 └── membrowse                       # Main CLI wrapper (calls membrowse.cli)
@@ -206,7 +231,7 @@ scripts/                            # Shell wrappers
 ### CLI Architecture
 
 **`membrowse` command** - Unified CLI interface:
-- Single entry point with subcommands (`report`, `onboard`)
+- Single entry point with subcommands (`report`, `summary`, `onboard`)
 - Python-based with proper argument parsing and error handling
 - Shell wrapper provides seamless installation via pyproject.toml
 
@@ -217,6 +242,11 @@ scripts/                            # Shell wrappers
 - Git metadata is auto-detected by default when uploading (use `--no-git` to disable)
 - `--github` flag uses GitHub-specific Git metadata detection from environment variables
 
+**`membrowse summary`** - Fetch and render commit summary:
+- Fetches consolidated memory summary from API for a given commit SHA
+- Renders markdown via Jinja2 templates (default or custom)
+- Used by `comment-action` to post PR comments
+
 **`membrowse onboard`** - Historical analysis command:
 - Iterates through N commits, checking out each one
 - Builds firmware at each commit
@@ -224,16 +254,17 @@ scripts/                            # Shell wrappers
 - Uploads memory footprint reports with full commit context
 
 ### Action Structure
-Each action (`pr-action/`, `onboard-action/`) contains:
-- `action.yml`: GitHub Actions definition
-- `entrypoint.sh`: Action-specific entry point that calls scripts
-- `requirements.txt`: Python dependencies
+Three GitHub Actions are provided:
+- **`action.yml`** (root): Main action — builds ELF, runs `membrowse report --upload`, outputs report JSON
+- **`comment-action/`**: Posts consolidated PR comment — fetches summary from API via `membrowse summary` and posts/updates a PR comment
+- **`onboard-action/`**: Historical analysis — iterates commits and uploads reports
 
 ### Key Processing Flow
 1. **Architecture Detection**: `linker/elf_info.py` analyzes ELF files to determine target architecture (ARM, Xtensa, RISC-V, etc.)
 2. **Linker Script Parsing**: `linker/parser.py` parses GNU LD linker scripts using architecture-specific strategies
 3. **Memory Analysis**: The modular analysis system combines ELF analysis with memory regions to generate comprehensive reports
 4. **Report Upload**: `api/client.py` sends reports to MemBrowse platform (optional)
+5. **PR Comment**: `comment-action` fetches summary via `api/client.py` → renders with Jinja2 templates → posts via GitHub CLI
 
 ### Advanced Features
 - **DWARF Debug Info**: Extracts source file mappings from debug symbols (prioritizes definition locations over declarations)

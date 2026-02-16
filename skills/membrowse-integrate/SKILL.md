@@ -258,7 +258,7 @@ Create `.github/membrowse-targets.json` with the verified targets.
 
 ### Field Notes
 
-- `name`: Must be unique across targets, used as the target name in MemBrowse and in artifact names
+- `name`: Must be unique across targets, used as the target identifier in MemBrowse
 - `elf`: Path to any ELF binary — embedded firmware (`.elf`) or non-embedded executables/shared libraries (no extension or `.so`)
 - `ld`: Space-separated linker script paths for embedded projects; empty string `""` for non-embedded (analysis will use default Code/Data regions based on ELF sections like `.text`, `.data`, `.bss`)
 - `linker_vars`: Only needed if linker scripts use undefined variables (e.g., `"__flash_size__=4096K"`); leave empty for non-embedded
@@ -331,6 +331,15 @@ jobs:
           api_key: ${{ secrets.MEMBROWSE_API_KEY }}
           # Uncomment to allow CI to pass even when memory budgets are exceeded
           # dont_fail_on_alerts: true
+
+      - name: Post PR comment
+        if: github.event_name == 'pull_request'
+        uses: membrowse/membrowse-action/comment-action@v1
+        with:
+          api_key: ${{ secrets.MEMBROWSE_API_KEY }}
+          commit: ${{ github.event.pull_request.head.sha }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 **Template substitutions:** Replace `TARGET_NAME`, `TARGET_SETUP_CMD`, `TARGET_BUILD_SCRIPT`, `TARGET_ELF`, `TARGET_LD`, and `TARGET_LINKER_VARS` with values from the single target in `membrowse-targets.json`. Since there's only one target, values are inlined directly.
@@ -396,8 +405,6 @@ jobs:
         run: ${{ matrix.target.build_script }}
 
       - name: Run MemBrowse analysis
-        id: analyze
-        continue-on-error: true
         uses: membrowse/membrowse-action@v1
         with:
           target_name: ${{ matrix.target.name }}
@@ -408,13 +415,6 @@ jobs:
           # Uncomment to allow CI to pass even when memory budgets are exceeded
           # dont_fail_on_alerts: true
 
-      - name: Upload report artifact
-        if: ${{ steps.analyze.outcome == 'success' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: membrowse-report-${{ matrix.target.name }}
-          path: ${{ steps.analyze.outputs.report_path }}
-
   comment:
     needs: analyze
     if: github.event_name == 'pull_request'
@@ -423,17 +423,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
-      - name: Download all report artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: reports
-          pattern: membrowse-report-*
-          merge-multiple: true
-
       - name: Post combined PR comment
         uses: membrowse/membrowse-action/comment-action@v1
         with:
-          json_files: "reports/*.json"
+          api_key: ${{ secrets.MEMBROWSE_API_KEY }}
+          commit: ${{ github.event.pull_request.head.sha }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
@@ -444,7 +438,7 @@ jobs:
 
 Create two workflow files: `membrowse-report.yml` and `membrowse-comment.yml`
 
-Use this when the project accepts PRs from forks. Fork PRs don't have access to secrets, so the report workflow runs without writing PR comments, and a separate `workflow_run`-triggered workflow posts the comment.
+Use this when the project accepts PRs from forks. Fork PRs don't have access to secrets, so the report workflow uploads data to the MemBrowse API, and a separate `workflow_run`-triggered workflow fetches the summary and posts the PR comment.
 
 #### membrowse-report.yml
 
@@ -500,8 +494,6 @@ jobs:
         run: ${{ matrix.target.build_script }}
 
       - name: Run MemBrowse analysis
-        id: analyze
-        continue-on-error: true
         uses: membrowse/membrowse-action@v1
         with:
           target_name: ${{ matrix.target.name }}
@@ -511,13 +503,6 @@ jobs:
           api_key: ${{ secrets.MEMBROWSE_API_KEY }}
           # Uncomment to allow CI to pass even when memory budgets are exceeded
           # dont_fail_on_alerts: true
-
-      - name: Upload report artifact
-        if: ${{ steps.analyze.outcome == 'success' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: membrowse-report-${{ matrix.target.name }}
-          path: ${{ steps.analyze.outputs.report_path }}
 ```
 
 #### membrowse-comment.yml
@@ -534,7 +519,6 @@ on:
 
 permissions:
   contents: read
-  actions: read
   pull-requests: write
 
 jobs:
@@ -545,52 +529,21 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
-      - name: Download report artifacts
-        id: download-reports
-        uses: actions/github-script@v7
-        with:
-          result-encoding: string
-          script: |
-            const fs = require('fs');
-
-            const allArtifacts = await github.rest.actions.listWorkflowRunArtifacts({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              run_id: context.payload.workflow_run.id,
-            });
-
-            const reportArtifacts = allArtifacts.data.artifacts.filter(
-              artifact => artifact.name.startsWith('membrowse-report-')
-            );
-
-            if (reportArtifacts.length === 0) {
-              console.log('No report artifacts found');
-              return 'skip';
-            }
-
-            fs.mkdirSync('reports', { recursive: true });
-
-            for (const artifact of reportArtifacts) {
-              console.log(`Downloading ${artifact.name}...`);
-              const download = await github.rest.actions.downloadArtifact({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                artifact_id: artifact.id,
-                archive_format: 'zip',
-              });
-
-              const zipPath = `${artifact.name}.zip`;
-              fs.writeFileSync(zipPath, Buffer.from(download.data));
-              await exec.exec('unzip', ['-o', zipPath, '-d', 'reports']);
-            }
-
-            return 'ok';
+      - name: Get PR number
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_NUMBER=$(gh api "/repos/${{ github.repository }}/commits/${{ github.event.workflow_run.head_sha }}/pulls" --jq '.[0].number')
+          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
 
       - name: Post combined PR comment
-        if: steps.download-reports.outputs.result == 'ok'
+        if: steps.pr.outputs.pr_number
         uses: membrowse/membrowse-action/comment-action@v1
         with:
-          json_files: "reports/*.json"
+          api_key: ${{ secrets.MEMBROWSE_API_KEY }}
+          commit: ${{ github.event.workflow_run.head_sha }}
+          pr_number: ${{ steps.pr.outputs.pr_number }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
