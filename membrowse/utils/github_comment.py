@@ -8,9 +8,11 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from jinja2 import Environment, FileSystemLoader, TemplateError as Jinja2TemplateError
+from jinja2 import TemplateError as Jinja2TemplateError
 
-from .budget_alerts import iter_budget_alerts
+from .summary_formatter import (
+    enrich_regions, enrich_sections, process_alerts, render_jinja2_template,
+)
 from .github_common import (
     is_gh_cli_available,
     create_or_update_comment,
@@ -134,61 +136,17 @@ def _build_template_context(results: list[dict]) -> dict:
     has_any_alerts = False
 
     for result in results:
-        target_name = result.get('target_name', 'Unknown')
-        comparison_url = result.get('comparison_url')
         data = result.get('api_response', {}).get('data', {})
-
         changes_data = data.get('changes', {})
-        regions_data = changes_data.get('regions', {})
-        sections_data = changes_data.get('sections', {})
         symbols_data = changes_data.get('symbols', {})
 
-        alerts_data = data.get('alerts', {})
-        budgets = alerts_data.get('budgets', []) if alerts_data else []
-
-        # Process alerts — convert namedtuples to dicts
-        alerts = [alert._asdict() for alert in iter_budget_alerts(budgets)]
+        alerts = process_alerts(data.get('alerts', {}))
         if alerts:
             has_any_alerts = True
 
-        # Process regions — filter to changed, add computed fields
-        regions = []
-        for region in regions_data.get('modified', []):
-            used_size = region.get('used_size', 0)
-            old_used = region.get('old', {}).get('used_size')
-            if old_used is None or old_used == used_size:
-                continue
-            delta = used_size - old_used
-            delta_pct = (delta / old_used * 100) if old_used > 0 else 0
-            limit_size = region.get('limit_size', 0)
-            regions.append({
-                **region,
-                'delta': delta,
-                'delta_str': f"+{delta:,}" if delta >= 0 else f"{delta:,}",
-                'delta_pct_str': f"+{delta_pct:.1f}%" if delta >= 0 else f"{delta_pct:.1f}%",
-                'utilization_pct': (used_size / limit_size * 100)
-                                   if limit_size > 0 else 0,
-            })
+        regions = enrich_regions(changes_data.get('regions', {}))
+        sections, sections_by_region = enrich_sections(changes_data.get('sections', {}))
 
-        # Process sections — filter to changed, add computed fields, group by region
-        sections = []
-        sections_by_region: dict[str, list[dict]] = {}
-        for section in sections_data.get('modified', []):
-            current_size = section.get('size', 0)
-            old_size = section.get('old', {}).get('size')
-            if old_size is None or old_size == current_size:
-                continue
-            delta = current_size - old_size
-            enriched = {
-                **section,
-                'delta': delta,
-                'delta_str': f"+{delta:,}" if delta >= 0 else f"{delta:,}",
-            }
-            sections.append(enriched)
-            region_name = section.get('region', 'Unknown')
-            sections_by_region.setdefault(region_name, []).append(enriched)
-
-        # Symbols — pass through as-is
         symbols = {
             'added': symbols_data.get('added', []),
             'removed': symbols_data.get('removed', []),
@@ -197,8 +155,8 @@ def _build_template_context(results: list[dict]) -> dict:
         } if symbols_data else {'added': [], 'removed': [], 'modified': [], 'moved': []}
 
         targets.append({
-            'name': target_name,
-            'comparison_url': comparison_url,
+            'name': result.get('target_name', 'Unknown'),
+            'comparison_url': result.get('comparison_url'),
             'regions': regions,
             'sections': sections,
             'sections_by_region': sections_by_region,
@@ -221,35 +179,14 @@ def _get_default_template_path() -> Path:
 
 def _render_template(template_path: str, context: dict) -> str:
     """
-    Render a Jinja2 template with the provided context.
-
-    Args:
-        template_path: Path to the Jinja2 template file
-        context: Dictionary with template variables
-
-    Returns:
-        Rendered template as string with comment marker and header prepended
+    Render a Jinja2 template with comment marker and header prepended.
 
     Raises:
         FileNotFoundError: If template file doesn't exist
         Jinja2TemplateError: If template has syntax errors
     """
-    template_file = Path(template_path)
-    if not template_file.exists():
-        raise FileNotFoundError(f"Template file not found: {template_path}")
+    rendered = render_jinja2_template(template_path, context)
 
-    # Create Jinja2 environment
-    env = Environment(
-        loader=FileSystemLoader(template_file.parent),
-        autoescape=False,  # Markdown doesn't need HTML escaping
-        trim_blocks=True,
-        lstrip_blocks=True,
-    )
-
-    template = env.get_template(template_file.name)
-    rendered = template.render(**context)
-
-    # Fixed header - always included for brand consistency
     logo = '<img src="https://membrowse.com/membrowse-logo.svg" height="24" align="top">'
     header = f"{COMMENT_MARKER}\n## {logo} MemBrowse Memory Report\n"
 
