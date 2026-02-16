@@ -6,11 +6,11 @@ import logging
 from pathlib import Path
 from typing import Dict, Any
 
-from jinja2 import Environment, FileSystemLoader, TemplateError as Jinja2TemplateError
+from jinja2 import TemplateError as Jinja2TemplateError
 
 from ..api.client import MemBrowseClient
 from ..auth.strategy import AuthContext, AuthType
-from ..utils.summary_formatter import build_summary_template_context
+from ..utils.summary_formatter import build_summary_template_context, render_jinja2_template
 
 logger = logging.getLogger(__name__)
 
@@ -90,28 +90,6 @@ def _fetch_summary(
     return response
 
 
-def _render_template(template_path: str, context: Dict[str, Any]) -> str:
-    """
-    Render a Jinja2 template with the provided context.
-
-    Raises:
-        FileNotFoundError: If template file doesn't exist
-        Jinja2TemplateError: If template has syntax errors
-    """
-    template_file = Path(template_path)
-    if not template_file.exists():
-        raise FileNotFoundError(f"Template file not found: {template_path}")
-
-    env = Environment(
-        loader=FileSystemLoader(template_file.parent),
-        autoescape=False,
-        trim_blocks=True,
-        lstrip_blocks=True,
-    )
-    template = env.get_template(template_file.name)
-    return template.render(**context)
-
-
 def run_summary(args) -> int:
     """
     Run summary subcommand.
@@ -131,7 +109,7 @@ def run_summary(args) -> int:
         else:
             context = build_summary_template_context(response)
             template_path = args.template or str(DEFAULT_TEMPLATE)
-            output = _render_template(template_path, context)
+            output = render_jinja2_template(template_path, context)
             print(output)
 
         return 0
