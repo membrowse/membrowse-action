@@ -344,7 +344,8 @@ examples:
         'upload options',
         'Required when using --upload'
     )
-    upload_group.add_argument('--api-key', help='MemBrowse API key')
+    upload_group.add_argument('--api-key', nargs='?', default=None, const='',
+                               help='MemBrowse API key')
     upload_group.add_argument(
         '--target-name',
         help='Build configuration/target (e.g., esp32, stm32, x86)')
