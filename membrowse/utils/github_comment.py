@@ -8,9 +8,11 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from jinja2 import Environment, FileSystemLoader, TemplateError as Jinja2TemplateError
+from jinja2 import TemplateError as Jinja2TemplateError
 
-from .budget_alerts import iter_budget_alerts
+from .summary_formatter import (
+    enrich_regions, enrich_sections, process_alerts, render_jinja2_template,
+)
 from .github_common import (
     is_gh_cli_available,
     create_or_update_comment,
@@ -70,7 +72,8 @@ def post_combined_pr_comment(
 
     # Build comment body using template (custom or default)
     try:
-        comment_body = _build_comment_body_from_template(results, template_path)
+        context = _build_template_context(results)
+        comment_body = _render_comment_body(context, template_path)
     except FileNotFoundError as e:
         logger.error("Template error: %s", e)
         raise
@@ -81,6 +84,33 @@ def post_combined_pr_comment(
     try:
         create_or_update_comment(comment_body, pr_number, COMMENT_MARKER)
         logger.info("Posted combined PR comment for %d targets", len(results))
+    except subprocess.CalledProcessError as e:
+        handle_comment_error(e, "PR comment")
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        handle_comment_error(e, "PR comment")
+
+
+def post_pr_comment_from_body(body: str, pr_number: str) -> None:
+    """
+    Post a pre-rendered body as a PR comment, wrapped with the MemBrowse header.
+
+    Used by the comment-action when piping output from 'membrowse summary'.
+
+    Args:
+        body: Pre-rendered markdown body (e.g., from membrowse summary)
+        pr_number: PR number to post the comment on
+    """
+    if not is_gh_cli_available():
+        logger.warning("GitHub CLI (gh) not available, skipping PR comment")
+        return
+
+    logo = '<img src="https://membrowse.com/membrowse-logo.svg" height="24" align="top">'
+    header = f"{COMMENT_MARKER}\n## {logo} MemBrowse Memory Report\n"
+    comment_body = f"{header}\n{body}"
+
+    try:
+        create_or_update_comment(comment_body, pr_number, COMMENT_MARKER)
+        logger.info("Posted PR comment")
     except subprocess.CalledProcessError as e:
         handle_comment_error(e, "PR comment")
     except Exception as e:  # pylint: disable=broad-exception-caught
@@ -106,61 +136,17 @@ def _build_template_context(results: list[dict]) -> dict:
     has_any_alerts = False
 
     for result in results:
-        target_name = result.get('target_name', 'Unknown')
-        comparison_url = result.get('comparison_url')
         data = result.get('api_response', {}).get('data', {})
-
         changes_data = data.get('changes', {})
-        regions_data = changes_data.get('regions', {})
-        sections_data = changes_data.get('sections', {})
         symbols_data = changes_data.get('symbols', {})
 
-        alerts_data = data.get('alerts', {})
-        budgets = alerts_data.get('budgets', []) if alerts_data else []
-
-        # Process alerts — convert namedtuples to dicts
-        alerts = [alert._asdict() for alert in iter_budget_alerts(budgets)]
+        alerts = process_alerts(data.get('alerts', {}))
         if alerts:
             has_any_alerts = True
 
-        # Process regions — filter to changed, add computed fields
-        regions = []
-        for region in regions_data.get('modified', []):
-            used_size = region.get('used_size', 0)
-            old_used = region.get('old', {}).get('used_size')
-            if old_used is None or old_used == used_size:
-                continue
-            delta = used_size - old_used
-            delta_pct = (delta / old_used * 100) if old_used > 0 else 0
-            limit_size = region.get('limit_size', 0)
-            regions.append({
-                **region,
-                'delta': delta,
-                'delta_str': f"+{delta:,}" if delta >= 0 else f"{delta:,}",
-                'delta_pct_str': f"+{delta_pct:.1f}%" if delta >= 0 else f"{delta_pct:.1f}%",
-                'utilization_pct': (used_size / limit_size * 100)
-                                   if limit_size > 0 else 0,
-            })
+        regions = enrich_regions(changes_data.get('regions', {}))
+        sections, sections_by_region = enrich_sections(changes_data.get('sections', {}))
 
-        # Process sections — filter to changed, add computed fields, group by region
-        sections = []
-        sections_by_region: dict[str, list[dict]] = {}
-        for section in sections_data.get('modified', []):
-            current_size = section.get('size', 0)
-            old_size = section.get('old', {}).get('size')
-            if old_size is None or old_size == current_size:
-                continue
-            delta = current_size - old_size
-            enriched = {
-                **section,
-                'delta': delta,
-                'delta_str': f"+{delta:,}" if delta >= 0 else f"{delta:,}",
-            }
-            sections.append(enriched)
-            region_name = section.get('region', 'Unknown')
-            sections_by_region.setdefault(region_name, []).append(enriched)
-
-        # Symbols — pass through as-is
         symbols = {
             'added': symbols_data.get('added', []),
             'removed': symbols_data.get('removed', []),
@@ -169,8 +155,8 @@ def _build_template_context(results: list[dict]) -> dict:
         } if symbols_data else {'added': [], 'removed': [], 'modified': [], 'moved': []}
 
         targets.append({
-            'name': target_name,
-            'comparison_url': comparison_url,
+            'name': result.get('target_name', 'Unknown'),
+            'comparison_url': result.get('comparison_url'),
             'regions': regions,
             'sections': sections,
             'sections_by_region': sections_by_region,
@@ -193,57 +179,34 @@ def _get_default_template_path() -> Path:
 
 def _render_template(template_path: str, context: dict) -> str:
     """
-    Render a Jinja2 template with the provided context.
-
-    Args:
-        template_path: Path to the Jinja2 template file
-        context: Dictionary with template variables
-
-    Returns:
-        Rendered template as string with comment marker and header prepended
+    Render a Jinja2 template with comment marker and header prepended.
 
     Raises:
         FileNotFoundError: If template file doesn't exist
         Jinja2TemplateError: If template has syntax errors
     """
-    template_file = Path(template_path)
-    if not template_file.exists():
-        raise FileNotFoundError(f"Template file not found: {template_path}")
+    rendered = render_jinja2_template(template_path, context)
 
-    # Create Jinja2 environment
-    env = Environment(
-        loader=FileSystemLoader(template_file.parent),
-        autoescape=False,  # Markdown doesn't need HTML escaping
-        trim_blocks=True,
-        lstrip_blocks=True,
-    )
-
-    template = env.get_template(template_file.name)
-    rendered = template.render(**context)
-
-    # Fixed header - always included for brand consistency
     logo = '<img src="https://membrowse.com/membrowse-logo.svg" height="24" align="top">'
     header = f"{COMMENT_MARKER}\n## {logo} MemBrowse Memory Report\n"
 
     return f"{header}\n{rendered}"
 
 
-def _build_comment_body_from_template(
-    results: list[dict],
+def _render_comment_body(
+    context: dict,
     template_path: Optional[str] = None
 ) -> str:
     """
-    Build comment body using Jinja2 template.
+    Render comment body from a template context.
 
     Args:
-        results: List of result dicts from each target
+        context: Template context dict with 'targets' and 'has_alerts'
         template_path: Path to custom template file, or None for default
 
     Returns:
         str: Markdown-formatted comment body
     """
-    context = _build_template_context(results)
-
     if template_path:
         logger.info("Rendering comment using custom template: %s", template_path)
         return _render_template(template_path, context)
@@ -257,7 +220,9 @@ def main():
     """
     Main entry point for combined GitHub comment posting.
 
-    Reads JSON result files from command line arguments or a directory.
+    Supports two modes:
+    - File mode: reads JSON result files from --output-raw-response
+    - Body mode: posts pre-rendered content (e.g., from 'membrowse summary')
     """
     parser = argparse.ArgumentParser(
         description='Post combined MemBrowse PR comment from multiple target results'
@@ -273,20 +238,42 @@ def main():
         help='Directory containing JSON result files'
     )
     parser.add_argument(
+        '--body',
+        dest='body_file',
+        help='File with pre-rendered comment body (e.g., from membrowse summary)'
+    )
+    parser.add_argument(
+        '--pr-number',
+        dest='pr_number',
+        help='PR number to post comment on (required with --body)'
+    )
+    parser.add_argument(
         '--comment-template',
         dest='template_path',
         help='Path to custom Jinja2 template file for comment formatting'
     )
     args = parser.parse_args()
 
-    # Collect result files
+    # Body mode: post pre-rendered content
+    if args.body_file:
+        if not args.pr_number:
+            parser.error("--pr-number is required with --body")
+        try:
+            body = Path(args.body_file).read_text(encoding='utf-8')
+        except IOError as e:
+            logger.error("Failed to read body file: %s", e)
+            sys.exit(1)
+        post_pr_comment_from_body(body, args.pr_number)
+        return
+
+    # File mode
     result_files = []
     if args.files:
         result_files = [Path(f) for f in args.files]
     elif args.directory:
         result_files = list(Path(args.directory).glob('*.json'))
     else:
-        parser.error("Either provide JSON files as arguments or use --dir")
+        parser.error("Either provide JSON files, use --dir, or use --body")
 
     if not result_files:
         logger.error("No result files found")

@@ -8,14 +8,13 @@ from importlib.metadata import version
 from typing import Dict, Any, Optional
 
 from ..utils.git import detect_git_metadata, detect_github_metadata
-from ..utils.url import normalize_api_url
 from ..utils.budget_alerts import iter_budget_alerts
 from ..utils.formatter import format_report_human_readable
 from ..utils.github import is_fork_pr
 from ..linker.parser import LinkerScriptParser
 from ..core.generator import ReportGenerator
 from ..core.models import MemoryRegion
-from ..api.client import MemBrowseUploader
+from ..api.client import MemBrowseClient
 from ..auth.strategy import determine_auth_strategy
 from ..analysis.defaults import (
     create_default_memory_regions,
@@ -703,20 +702,17 @@ def _perform_upload(
     is_github_mode: bool = False
 ) -> dict:
     """Perform the actual upload to MemBrowse."""
-    # Normalize API URL (append /upload)
-    upload_endpoint = normalize_api_url(api_url)
-
     try:
         # Determine authentication strategy
         auth_context = determine_auth_strategy(
             api_key=api_key,
             auto_detect_fork=is_github_mode
         )
-        uploader = MemBrowseUploader(auth_context, upload_endpoint)
-        return uploader.upload_report(enriched_report)
+        client = MemBrowseClient(auth_context, api_url)
+        return client.upload_report(enriched_report)
     except Exception as e:  # pylint: disable=broad-exception-caught
-        logger.error("%s: Failed to upload report to %s: %s", log_prefix, upload_endpoint, e)
-        raise RuntimeError(f"Failed to upload report to {upload_endpoint}: {e}") from e
+        logger.error("%s: Failed to upload report to %s: %s", log_prefix, api_url, e)
+        raise RuntimeError(f"Failed to upload report to {api_url}: {e}") from e
 
 
 def _validate_upload_success(response_data: dict, log_prefix: str) -> None:

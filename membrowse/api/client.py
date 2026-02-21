@@ -1,8 +1,8 @@
 """
-Upload Memory Reports to MemBrowse
+MemBrowse API Client
 
-Provides MemBrowseUploader class for uploading memory analysis reports
-to the MemBrowse API using the requests library.
+Provides MemBrowseClient class for interacting with the MemBrowse API:
+uploading memory analysis reports and retrieving summaries.
 """
 
 import copy
@@ -21,19 +21,19 @@ logger = logging.getLogger(__name__)
 PACKAGE_VERSION = version('membrowse')
 
 
-class MemBrowseUploader:  # pylint: disable=too-few-public-methods
-    """Handles uploading reports to MemBrowse API"""
+class MemBrowseClient:
+    """Handles API requests to MemBrowse (upload reports, get summaries)."""
 
-    def __init__(self, auth_context: AuthContext, api_endpoint: str):
+    def __init__(self, auth_context: AuthContext, api_base_url: str):
         """
-        Initialize uploader with authentication context.
+        Initialize client with authentication context.
 
         Args:
             auth_context: Authentication context with strategy and credentials
-            api_endpoint: API endpoint URL
+            api_base_url: API base URL (e.g., 'https://api.membrowse.com')
         """
         self.auth_context = auth_context
-        self.api_endpoint = api_endpoint
+        self.api_base_url = api_base_url.rstrip('/')
         self.session = requests.Session()
 
         # Build headers based on auth strategy
@@ -43,7 +43,7 @@ class MemBrowseUploader:  # pylint: disable=too-few-public-methods
 
     def upload_report(self, report_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Upload report to MemBrowse API using requests
+        Upload report to MemBrowse API.
 
         Args:
             report_data: The memory report data to upload
@@ -67,6 +67,44 @@ class MemBrowseUploader:  # pylint: disable=too-few-public-methods
                 report_to_send['metadata'] = {}
             report_to_send['metadata'].update(metadata_additions)
 
+        url = f"{self.api_base_url}/upload"
+        return self._request_with_retry('POST', url, json=report_to_send)
+
+    def get_summary(self, commit_sha: str) -> Dict[str, Any]:
+        """
+        Get memory footprint summary for a commit from MemBrowse API.
+
+        Args:
+            commit_sha: Git commit SHA to retrieve summary for
+
+        Returns:
+            Dict containing the parsed API response
+
+        Raises:
+            requests.exceptions.Timeout: If the request times out after all retries
+            requests.exceptions.ConnectionError: If connection fails
+            requests.exceptions.RequestException: For other request errors
+        """
+        url = f"{self.api_base_url}/summary"
+        return self._request_with_retry('GET', url, params={'commit': commit_sha})
+
+    def _request_with_retry(
+        self,
+        method: str,
+        url: str,
+        **kwargs
+    ) -> Dict[str, Any]:
+        """
+        Make HTTP request with retry logic.
+
+        Args:
+            method: HTTP method ('GET' or 'POST')
+            url: Request URL
+            **kwargs: Additional arguments passed to requests
+
+        Returns:
+            Parsed JSON response
+        """
         max_attempts = 5
         retry_delays = [10, 30, 60, 120]  # seconds between attempts
         timeout_seconds = 120
@@ -74,13 +112,11 @@ class MemBrowseUploader:  # pylint: disable=too-few-public-methods
         for attempt in range(1, max_attempts + 1):
             try:
                 logger.warning(
-                    "Uploading report to MemBrowse (attempt %d of %d)...",
-                    attempt, max_attempts
+                    "%s %s (attempt %d of %d)...",
+                    method, url, attempt, max_attempts
                 )
-                response = self.session.post(
-                    self.api_endpoint,
-                    json=report_to_send,
-                    timeout=timeout_seconds
+                response = self.session.request(
+                    method, url, timeout=timeout_seconds, **kwargs
                 )
                 response.raise_for_status()
 
@@ -89,23 +125,23 @@ class MemBrowseUploader:  # pylint: disable=too-few-public-methods
                     return response.json()
                 except ValueError as e:
                     raise ValueError(
-                        f"Failed to parse JSON response from {self.api_endpoint}: {e}"
+                        f"Failed to parse JSON response from {url}: {e}"
                     ) from e
 
             except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
                 if attempt < max_attempts:
                     delay = retry_delays[attempt - 1] * random.uniform(1, 1.5)
                     logger.warning(
-                        "Upload failed: %s. Retrying in %.1f seconds...",
+                        "Request failed: %s. Retrying in %.1f seconds...",
                         str(e), delay
                     )
                     time.sleep(delay)
                     continue
                 logger.error(
-                    "Upload failed after %d attempts: %s", max_attempts, str(e)
+                    "Request failed after %d attempts: %s", max_attempts, str(e)
                 )
                 raise type(e)(
-                    f"Request to {self.api_endpoint} failed after {max_attempts} "
+                    f"Request to {url} failed after {max_attempts} "
                     f"attempts: {e}"
                 ) from e
             except requests.exceptions.HTTPError as e:
@@ -115,7 +151,7 @@ class MemBrowseUploader:  # pylint: disable=too-few-public-methods
                 if status_code in (429, 502, 503, 504) and attempt < max_attempts:
                     delay = retry_delays[attempt - 1] * random.uniform(1, 1.5)
                     logger.warning(
-                        "Upload failed with HTTP %d: %s. Retrying in %.1f seconds...",
+                        "Request failed with HTTP %d: %s. Retrying in %.1f seconds...",
                         status_code, str(e), delay
                     )
                     time.sleep(delay)
@@ -130,14 +166,18 @@ class MemBrowseUploader:  # pylint: disable=too-few-public-methods
                     except Exception:  # pylint: disable=broad-exception-caught
                         pass
                 raise requests.exceptions.HTTPError(
-                    f"HTTP error from {self.api_endpoint}: {e}{error_detail}"
+                    f"HTTP error from {url}: {e}{error_detail}"
                 ) from e
             except requests.exceptions.RequestException as e:
                 raise requests.exceptions.RequestException(
-                    f"Request to {self.api_endpoint} failed: {e}"
+                    f"Request to {url} failed: {e}"
                 ) from e
 
         # This should never be reached, but added for safety
         raise requests.exceptions.RequestException(
             "Unexpected error: reached end of retry loop without success or exception"
         )
+
+
+# Backward compatibility alias
+MemBrowseUploader = MemBrowseClient
