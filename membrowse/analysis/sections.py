@@ -6,11 +6,15 @@ This module handles the analysis of ELF sections, including size calculation,
 categorization, and memory allocation tracking.
 """
 
-from typing import Dict, List, Tuple
+import re
+import logging
+from typing import List, Optional
 from elftools.common.exceptions import ELFError
 import elftools.elf.constants
 from ..core.models import MemorySection
 from ..core.exceptions import SectionAnalysisError
+
+logger = logging.getLogger(__name__)
 
 SHF_ALLOC = elftools.elf.constants.SH_FLAGS.SHF_ALLOC
 SHF_WRITE = elftools.elf.constants.SH_FLAGS.SHF_WRITE
@@ -23,19 +27,36 @@ SECTION_TYPE_RODATA = 'rodata'
 SECTION_TYPE_UNKNOWN = 'unknown'
 
 
+_IAR_FILL_RE = re.compile(r'^Fill\d+$')
+
+
 class SectionAnalyzer:  # pylint: disable=too-few-public-methods
     """Handles ELF section analysis and categorization"""
 
     def __init__(self, elffile):
         """Initialize with ELF file handle."""
         self.elffile = elffile
+        self._toolchain: Optional[str] = None
 
-    def analyze_sections(self) -> Tuple[Dict[str, int], List[MemorySection]]:
-        """Extract section information and calculate totals.
+    def _detect_toolchain(self) -> Optional[str]:
+        """Detect the toolchain from the ELF .comment section."""
+        if self._toolchain is not None:
+            return self._toolchain
+        try:
+            comment = self.elffile.get_section_by_name('.comment')
+            if comment and b'IAR' in comment.data():
+                self._toolchain = 'iar'
+                return self._toolchain
+        except (IOError, OSError):
+            pass
+        self._toolchain = ''
+        return None
+
+    def analyze_sections(self) -> List[MemorySection]:
+        """Extract section information.
 
         Returns:
-            Tuple of (totals_dict, sections_list) where totals_dict contains
-            size totals by category and sections_list contains MemorySection objects.
+            List of MemorySection objects for all loaded (SHF_ALLOC) sections.
         """
         sections = []
 
@@ -46,6 +67,16 @@ class SectionAnalyzer:  # pylint: disable=too-few-public-methods
 
                 # Only include sections that are loaded into memory
                 if not section['sh_flags'] & SHF_ALLOC:
+                    continue
+
+                # Skip IAR linker fill sections (Fill1, Fill2, etc.)
+                # These are padding inserted by ielftool --fill, not real
+                # code/data
+                if (self._detect_toolchain() == 'iar'
+                        and _IAR_FILL_RE.match(section.name)):
+                    logger.debug(
+                        "Skipping IAR fill section '%s' (%d bytes)",
+                        section.name, section['sh_size'])
                     continue
 
                 section_type = self._categorize_section(section)

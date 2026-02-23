@@ -6,8 +6,11 @@ This module handles the mapping of ELF sections to memory regions based on
 addresses and types, with optimized binary search algorithms for performance.
 """
 
+import logging
 from typing import Dict, List, Optional
 from ..core.models import MemoryRegion, MemorySection
+
+logger = logging.getLogger(__name__)
 
 
 class MemoryMapper:
@@ -25,14 +28,19 @@ class MemoryMapper:
 
     @staticmethod
     def map_sections_to_regions(sections: List[MemorySection],
-                                memory_regions: Dict[str, MemoryRegion]) -> None:
+                                memory_regions: Dict[str, MemoryRegion]
+                                ) -> List[MemorySection]:
         """Map sections to appropriate memory regions based on addresses.
 
         Args:
             sections: List of ELF sections to map
             memory_regions: Dictionary of memory regions to map to
+
+        Returns:
+            List of sections that could not be mapped to any region.
         """
         mapper = MemoryMapper(memory_regions)
+        unmapped: List[MemorySection] = []
 
         for section in sections:
             region = mapper.find_region_by_address(section)
@@ -44,6 +52,14 @@ class MemoryMapper:
                     section, memory_regions)
                 if region:
                     region.sections.append(section.__dict__)
+                else:
+                    logger.debug(
+                        "Section '%s' at 0x%x (size 0x%x) could not be "
+                        "mapped to any memory region",
+                        section.name, section.address, section.size)
+                    unmapped.append(section)
+
+        return unmapped
 
     def find_region_by_address(
             self,
@@ -88,7 +104,7 @@ class MemoryMapper:
             memory_regions: Dictionary of available memory regions
 
         Returns:
-            Compatible MemoryRegion or first available region as fallback
+            Compatible MemoryRegion, or None if no compatible region found.
         """
         section_type = section.type
 
@@ -97,8 +113,8 @@ class MemoryMapper:
             if MemoryMapper._is_compatible_region(section_type, region.type):
                 return region
 
-        # Fall back to first available region
-        return next(iter(memory_regions.values())) if memory_regions else None
+        # No compatible region found
+        return None
 
     @staticmethod
     def _is_compatible_region(section_type: str, region_type: str) -> bool:
@@ -118,6 +134,100 @@ class MemoryMapper:
             'bss': ['RAM']
         }
         return region_type in compatibility_map.get(section_type, [])
+
+    @staticmethod
+    def _intervals_cover_range(
+            intervals: List[tuple], start: int, end: int) -> bool:
+        """Check whether a sorted list of (start, end) intervals fully covers
+        [start, end).
+
+        Args:
+            intervals: Sorted list of (interval_start, interval_end) tuples.
+            start: Start of the range to check.
+            end: End of the range to check.
+
+        Returns:
+            True if the intervals collectively cover the entire range.
+        """
+        cursor = start
+        for iv_start, iv_end in intervals:
+            if iv_start > cursor:
+                return False
+            cursor = max(cursor, iv_end)
+            if cursor >= end:
+                return True
+        return cursor >= end
+
+    @staticmethod
+    def infer_regions_from_segments(
+            program_headers: List[Dict],
+            existing_regions: Dict[str, MemoryRegion]
+    ) -> Dict[str, MemoryRegion]:
+        """Infer memory regions from ELF LOAD segments for unmapped sections.
+
+        Groups non-writable PT_LOAD segments as Flash and writable ones as RAM,
+        then creates bounding-box regions for groups not already covered by an
+        existing region.
+
+        Args:
+            program_headers: ELF program headers (list of dicts with type,
+                virt_addr, mem_size, flags keys).
+            existing_regions: Already-known memory regions from linker scripts.
+
+        Returns:
+            Dictionary of newly inferred MemoryRegion objects (may be empty).
+        """
+        load_segments = [
+            ph for ph in program_headers if ph['type'] == 'PT_LOAD'
+        ]
+        if not load_segments:
+            return {}
+
+        # Group by writability: non-writable (R, RX) → Flash, writable → RAM
+        flash_segs = []
+        ram_segs = []
+        for seg in load_segments:
+            flags = seg['flags']
+            if 'W' in flags:
+                ram_segs.append(seg)
+            else:
+                flash_segs.append(seg)
+
+        inferred: Dict[str, MemoryRegion] = {}
+
+        for label, segs, region_type in [
+            ('Flash (inferred)', flash_segs, 'FLASH'),
+            ('RAM (inferred)', ram_segs, 'RAM'),
+        ]:
+            if not segs:
+                continue
+            min_addr = min(s['virt_addr'] for s in segs)
+            max_end = max(s['virt_addr'] + s['mem_size'] for s in segs)
+            size = max_end - min_addr
+
+            # Skip if existing regions collectively cover this range
+            covered_intervals = sorted(
+                (r.address, r.address + r.limit_size)
+                for r in existing_regions.values()
+                if r.address < max_end
+                and r.address + r.limit_size > min_addr
+            )
+            if MemoryMapper._intervals_cover_range(
+                    covered_intervals, min_addr, max_end):
+                continue
+
+            logger.warning(
+                "Inferred %s region at 0x%x-0x%x (size 0x%x) from ELF LOAD "
+                "segments. For accurate results, provide linker script "
+                "definitions or use --def to supply missing symbol values.",
+                label, min_addr, max_end, size)
+            inferred[label] = MemoryRegion(
+                address=min_addr,
+                limit_size=size,
+                type=region_type,
+            )
+
+        return inferred
 
     @staticmethod
     def calculate_utilization(memory_regions: Dict[str, MemoryRegion]) -> None:
