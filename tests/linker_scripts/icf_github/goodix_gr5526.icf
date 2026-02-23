@@ -1,0 +1,72 @@
+/*###ICF### Section handled by ICF editor, don't touch! ****/
+/*-Editor annotation file-*/
+/* IcfEditorFile="$TOOLKIT_DIR$\config\ide\IcfEditor\cortex_v1_4.xml" */
+/*-Specials-*/
+define symbol __ICFEDIT_intvec_start__ = 0x00204000;
+/*-Memory Regions-*/
+define symbol __ICFEDIT_region_IROM1_start__ = 0x00204000;
+define symbol __ICFEDIT_region_IROM1_end__   = 0x002FFFFF;
+define symbol __ICFEDIT_region_IRAM1_start__ = 0x2000B050;
+define symbol __ICFEDIT_region_IRAM1_end__   = 0x20078FFF;
+define symbol __ICFEDIT_region_IRAM2_start__ = 0x2000B000;
+define symbol __ICFEDIT_region_IRAM2_end__   = 0x2000B050;
+define symbol __ICFEDIT_region_IRAM3_start__ = 0x00106000;
+define symbol __ICFEDIT_region_IRAM3_end__   = 0x0010AFFF;
+define symbol __ICFEDIT_region_CALLHEAP_start__ = 0x20079000;
+define symbol __ICFEDIT_region_CALLHEAP_end__   = 0x2007CFFF;
+define symbol __ICFEDIT_region_CALLSTACK_start__ = 0x2007D000;
+define symbol __ICFEDIT_region_CALLSTACK_end__   = 0x2007FFFF;
+/*-Sizes-*/
+define symbol __ICFEDIT_size_cstack__     = 0x3000;
+define symbol __ICFEDIT_size_proc_stack__ = 0x0;
+define symbol __ICFEDIT_size_heap__       = 0x4000;
+/**** End of ICF editor section. ###ICF###*/
+
+define memory mem with size = 4G;
+define symbol use_IROM1 = (__ICFEDIT_region_IROM1_start__ != 0x0 || __ICFEDIT_region_IROM1_end__ != 0x0);
+define symbol use_IRAM1 = (__ICFEDIT_region_IRAM1_start__ != 0x0 || __ICFEDIT_region_IRAM1_end__ != 0x0);
+define symbol use_IRAM2 = (__ICFEDIT_region_IRAM2_start__ != 0x0 || __ICFEDIT_region_IRAM2_end__ != 0x0);
+
+define region IROM1_region = mem:[from __ICFEDIT_region_IROM1_start__ to __ICFEDIT_region_IROM1_end__];
+
+define region IROM_region = IROM1_region ;
+
+define region IRAM1_region = mem:[from __ICFEDIT_region_IRAM1_start__ to __ICFEDIT_region_IRAM1_end__];
+define region IRAM2_region = mem:[from __ICFEDIT_region_IRAM2_start__ to __ICFEDIT_region_IRAM2_end__];
+
+define region IRAM3_region = mem:[from __ICFEDIT_region_IRAM3_start__ to __ICFEDIT_region_IRAM3_end__];
+
+define region CALLSTACK_region = mem:[from __ICFEDIT_region_CALLSTACK_start__ to __ICFEDIT_region_CALLSTACK_end__];
+define region CALLHEAP_region = mem:[from __ICFEDIT_region_CALLHEAP_start__ to __ICFEDIT_region_CALLHEAP_end__];
+
+define region IRAM_region = IRAM1_region | IRAM2_region | IRAM3_region;
+
+do not initialize  { section .noinit };
+initialize by copy { readwrite };
+if (isdefinedsymbol(__USE_DLIB_PERTHREAD))
+{
+  // Required in a multi-threaded application
+  initialize by copy with packing = none { section __DLIB_PERTHREAD };
+}
+
+place at address mem:__ICFEDIT_intvec_start__ { readonly section .intvec };
+
+if (!isempty(IROM_region))
+{
+  define block SHELL_BLOCK  with alignment = 32, size = 0x2000 { section oshell };
+  place in IROM_region  { readonly , block SHELL_BLOCK};
+}
+
+if (!isempty(IRAM_region))
+{
+  define block FPB_BLOCK  	with alignment = 32, size = 0x50 { section FPB };
+  define block RAM_BLOCK  	with alignment = 8, size = 0x5000 { section .textrw };
+  define block CSTACK     	with alignment = 8,  size = __ICFEDIT_size_cstack__{ };
+  define block HEAP      	with alignment = 8,  size = __ICFEDIT_size_heap__{ };
+  
+  place in IRAM1_region  {readwrite};
+  place in IRAM2_region  {block FPB_BLOCK };
+  place in IRAM3_region  {block RAM_BLOCK};
+  place in CALLHEAP_region  {block HEAP};
+  place in CALLSTACK_region { block CSTACK};
+}

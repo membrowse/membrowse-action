@@ -15,7 +15,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from membrowse.linker.parser import RegionParsingError, LinkerScriptParser, ScriptContentCleaner, parse_linker_scripts
+from membrowse.linker.parser import (
+    RegionParsingError, LinkerScriptParser, ScriptContentCleaner, parse_linker_scripts
+)
 from tests.test_utils import validate_memory_regions
 
 # Add shared directory to path so we can import our modules
@@ -1279,7 +1281,7 @@ class TestAbsoluteFunction(unittest.TestCase):
         self.assertEqual(regions['OSPI_DEVICE_1']['limit_size'], 0x100000)
 
     def test_esp32c6_mixed_attributes_with_origin_length(self):
-        """Test mixed-attribute regions: some with attrs, some without, using ORIGIN()/LENGTH() refs"""
+        """Test mixed-attribute regions with ORIGIN()/LENGTH() refs"""
         script_content = """
         MEMORY
         {

@@ -1,0 +1,49 @@
+﻿define symbol __intvec_start__              = 0x08000000;
+
+define symbol __region_FLASH1_start__       = 0x08000000;  // Flash1   1048575 байт
+define symbol __region_FLASH1_end__         = 0x080FFFFF;
+define symbol __region_FLASH2_start__       = 0x08100000;  // Flash2   1048575 байт
+define symbol __region_FLASH2_end__         = 0x081FFFFF;
+define symbol __region_AXI_SRAM_start__     = 0x24000000;  // AXI SRAM  524288 байт  Недоступен для BDMA-AHB
+define symbol __region_AXI_SRAM_end__       = 0x2407FFFF;
+define symbol __region_SRAM1_start__        = 0x30000000;  // SRAM1     131072 байт  Недоступен для SDMMC1, LTDC, BDMA-AHB
+define symbol __region_SRAM1_end__          = 0x3001FFFF;
+define symbol __region_SRAM2_start__        = 0x30020000;  // SRAM2     131072 байт  Недоступен для SDMMC1, LTDC, BDMA-AHB
+define symbol __region_SRAM2_end__          = 0x3003FFFF;
+define symbol __region_SRAM3_start__        = 0x30040000;  // SRAM3     32768  байт  Недоступен для SDMMC1, LTDC, BDMA-AHB
+define symbol __region_SRAM3_end__          = 0x30047FFF;
+define symbol __region_SRAM4_start__        = 0x38000000;  // SRAM4     65536  байт  Недоступен для SDMMC1, DMA2D, LTDC
+define symbol __region_SRAM4_end__          = 0x3800FFFF;
+define symbol __region_DTCMRAM_start__      = 0x20000000;  // DTCM RAM  131072 байт  Доступен только для MDMA-AHBS
+define symbol __region_DTCMRAM_end__        = 0x2001FFFF;
+define symbol __region_ITCMRAM_start__      = 0x00000000;  // ITCM RAM  65536  байт 
+define symbol __region_ITCMRAM_end__        = 0x0000FFFF;
+
+define symbol __size_cstack__               = 0x400;
+define symbol __size_heap__                 = 0x200;
+
+
+
+define memory mem with size = 4G;
+define region FLASH1_region        = mem:[from __region_FLASH1_start__     to __region_FLASH1_end__  ];
+define region FLASH2_region        = mem:[from __region_FLASH2_start__     to __region_FLASH2_end__  ];
+define region AXI_SRAM_region      = mem:[from __region_AXI_SRAM_start__   to __region_AXI_SRAM_end__];
+define region SRAM1_region         = mem:[from __region_SRAM1_start__      to __region_SRAM1_end__   ];
+define region SRAM2_region         = mem:[from __region_SRAM2_start__      to __region_SRAM2_end__   ];
+define region SRAM3_region         = mem:[from __region_SRAM3_start__      to __region_SRAM3_end__   ];
+define region SRAM4_region         = mem:[from __region_SRAM4_start__      to __region_SRAM4_end__   ];
+define region ITCMRAM_region       = mem:[from __region_ITCMRAM_start__    to __region_ITCMRAM_end__ ];
+define region DTCMRAM_region       = mem:[from __region_DTCMRAM_start__    to __region_DTCMRAM_end__ ];
+
+define block CSTACK    with alignment = 8, size = __size_cstack__   { };
+define block HEAP      with alignment = 8, size = __size_heap__     { };
+
+initialize by copy { readwrite };
+do not initialize  { section .noinit };
+
+place at address mem:__intvec_start__ { readonly section .intvec };
+
+place in FLASH1_region     { readonly };
+place in AXI_SRAM_region   { readwrite, block CSTACK, block HEAP };
+place in AXI_SRAM_region   { last section FREE_MEM };
+
