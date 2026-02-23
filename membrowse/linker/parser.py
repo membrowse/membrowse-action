@@ -28,6 +28,9 @@ from pathlib import Path
 # Import ELF parser for architecture detection
 from .elf_info import get_architecture_info, get_linker_parsing_strategy
 
+# Import format detector for ICF support
+from .base import LinkerFormatDetector
+
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -1111,12 +1114,25 @@ class LinkerScriptParser:  # pylint: disable=too-few-public-methods
 
     def _extract_all_variables(self) -> None:
         """Extract variables from all linker scripts"""
+        # Skip ICF files — the GNU LD variable extractor would pollute
+        # evaluator.variables with unparseable region-name strings.
+        # Cache the set so _parse_all_memory_regions can skip them on retries.
+        self._icf_scripts: set = set()
+        gnu_scripts = []
+        for script_path in self.ld_scripts:
+            with open(script_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            if LinkerFormatDetector.is_icf(content):
+                self._icf_scripts.add(script_path)
+            else:
+                gnu_scripts.append(script_path)
+
         # Process scripts in reverse order for proper dependency resolution
-        for script_path in reversed(self.ld_scripts):
+        for script_path in reversed(gnu_scripts):
             self.variable_extractor.extract_from_script(script_path)
 
         # Additional pass: extract variables in forward order for dependencies
-        for script_path in self.ld_scripts:
+        for script_path in gnu_scripts:
             self.variable_extractor.extract_from_script(script_path)
 
         # Merge extracted variables with existing default variables (preserve
@@ -1135,6 +1151,9 @@ class LinkerScriptParser:  # pylint: disable=too-few-public-methods
             new_deferred = []
 
             for script_path in self.ld_scripts:
+                # ICF files never produce deferred matches, skip on retries
+                if iteration > 0 and script_path in self._icf_scripts:
+                    continue
                 script_regions, script_deferred = self._parse_single_script(
                     script_path, deferred_matches if iteration > 0 else None
                 )
@@ -1170,12 +1189,20 @@ class LinkerScriptParser:  # pylint: disable=too-few-public-methods
     ) -> tuple:
         """Parse memory regions from a single linker script file
 
+        Detects format from content and delegates to the appropriate parser.
+
         Returns:
             Tuple of (parsed_regions, failed_matches)
+            ICF files always return an empty failed_matches list.
         """
         with open(script_path, "r", encoding="utf-8") as f:
             content = f.read()
 
+        # Auto-detect IAR ICF format and delegate
+        if LinkerFormatDetector.is_icf(content):
+            return self._parse_icf_script(script_path), []
+
+        # GNU LD path (existing logic)
         # Remove comments and normalize whitespace
         content = ScriptContentCleaner.clean_content(content)
 
@@ -1190,6 +1217,16 @@ class LinkerScriptParser:  # pylint: disable=too-few-public-methods
         memory_content = memory_match.group(1)
         return self.region_builder.parse_memory_block(
             memory_content, deferred_matches)
+
+    def _parse_icf_script(self, script_path: str) -> Dict[str, MemoryRegion]:
+        """Delegate ICF file parsing to IARLinkerScriptParser."""
+        from .icf_parser import IARLinkerScriptParser  # pylint: disable=import-outside-toplevel
+        logger.info("Detected IAR ICF format in %s, delegating to IARLinkerScriptParser",
+                     script_path)
+        icf_parser = IARLinkerScriptParser(
+            user_variables=dict(self.evaluator.variables)
+        )
+        return icf_parser.parse(script_path)
 
 
 # Convenience functions for backward compatibility

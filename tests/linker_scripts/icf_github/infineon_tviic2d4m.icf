@@ -1,0 +1,288 @@
+/***************************************************************************//**
+* \file linker_directives.icf
+* \version 1.0
+*
+* \brief Linker file for the IAR compiler.
+*
+*
+********************************************************************************
+* \copyright
+* Copyright 2017, Cypress Semiconductor Corporation.  All rights reserved.
+* You may use this file only in accordance with the license, terms, conditions,
+* disclaimers, and limitations in the end user license agreement accompanying
+* the software package with which this file was provided.
+*******************************************************************************/
+
+define symbol use_psvp                          = 0; // 0 - Silicon, 1 - PSVP
+
+// Check that necessary symbols have been passed to linker via command line interface
+if((!isdefinedsymbol(_LINK_sram_)) && (!isdefinedsymbol(_LINK_flash_))) {
+  error "Link location not defined or not supported!";
+}
+if((!isdefinedsymbol(_CORE_cm0plus_)) && (!isdefinedsymbol(_CORE_cm7_0_)) && (!isdefinedsymbol(_CORE_cm7_1_))) {
+  error "Core type not defined or not supported!";
+}
+
+//============================================================
+// Memory address and size definitions
+//============================================================
+
+// Specify how much SRAM and CODE_FLASH (starting from the first address of the respective memory) shall
+// be used by CM0+ application, the rest of the memory will be assigned to CM7_0/1 application
+
+define symbol sram_total_size                   = 384K;
+define symbol sram_private_for_srom             =   2K; // Private SRAM for SROM (e.g. API processing). Reserved at the beginning.
+// Used during boot by Cypress firmware 
+// (content will be overwritten on reset, so it should not be used for loadable sections in case of RAM build configurations)
+// SRAM_MAX-4KB to SRAM_MAX-2KB is only affected
+define symbol sram_used_by_boot                 =    6K; 
+
+define symbol cm0plus_sram_reserve              = 128K; // (SRAM0/~128KB) -> cm0plus
+// define symbol cm7_0_sram_reserve                = 384K - cm0plus_sram_reserve; // (SRAM0/128KB + SRAM1/128KB) -> cm7_0
+
+if(use_psvp)
+{
+  // PSVP
+  define symbol code_flash_total_size           = 1024K;
+  define symbol cm0plus_code_flash_reserve      =  512K;
+  define symbol cm7_0_code_flash_reserve        =  512K;
+}
+else 
+{
+  // Silicon
+  define symbol code_flash_total_size           = 4160K;
+  define symbol cm0plus_code_flash_reserve      =  512K;
+  // define symbol cm7_0_code_flash_reserve     = 2048K; // 4160K-512K = 3648K
+}
+
+define symbol code_flash_base_address           = 0x10000000;
+define symbol sram_base_address                 = 0x28000000;
+
+define symbol cm7_0_itcm_base_address           = 0xA0000000;
+define symbol cm7_0_dtcm_base_address           = 0xA0010000;
+
+define symbol ecc_init_width                    = 8; // Most restrictive native ECC width of all "normal" memories (SRAM, DTCM, ITCM) in any Traveo II derivate is used to keep the code generic
+
+//----------------------------------------------
+
+// Specify stack and heap sizes for CM0+ and CM7 application independently
+define symbol cm0plus_heap_reserve              =  1K;
+define symbol cm0plus_stack_reserve             =  1K;
+define symbol cm7_heap_reserve                  =  180K;
+define symbol cm7_stack_reserve                 =  40K;
+define symbol cm7_itcm_reserve                  = 64K;
+define symbol cm7_dtcm_reserve                  = 64K;
+
+// Map core dependent definition to generic symbol for block definition
+if(isdefinedsymbol(_CORE_cm0plus_)) 
+{
+    define symbol heap_reserve                  = cm0plus_heap_reserve;
+    define symbol stack_reserve                 = (cm0plus_stack_reserve + (ecc_init_width - 1)) & (~((ecc_init_width - 1))); // Ensure that stack size is an integer multiple of ECC init width (round up)
+} 
+else // CM7
+{ 
+    define symbol heap_reserve                  = cm7_heap_reserve;
+    define symbol stack_reserve                 = (cm7_stack_reserve     + (ecc_init_width - 1)) & (~((ecc_init_width - 1))); // Ensure that stack size is an integer multiple of ECC init width (round up)
+}
+
+if(isdefinedsymbol(_LINK_sram_))
+{
+    // Subtract 'sram_used_by_boot' beause content will be overwritten on reset, so it should not be used for loadable sections of RAM build configurations, which are only downloaded once by debugger)
+    // Note: Could be removed if you ensure that no loadable section types (e.g. .text or .rodata) would be linked to this area
+    define symbol sram_total_size_user       = sram_total_size - sram_used_by_boot;
+} 
+else 
+{
+    // Please note that 'sram_used_by_boot' is not subtracted from total size, but will have to be considered if certain sections need to preserve their content over a boot cycle
+    define symbol sram_total_size_user       = sram_total_size;
+} 
+
+//----------------------------------------------
+
+// CM_0/1 definitions are required in CM0+ linker script for assigning the CM7 binary further below. (IAR multi core debugging)
+
+// SRAM reservations
+define symbol _base_SRAM_CM0P                   = sram_base_address + sram_private_for_srom;
+define symbol _size_SRAM_CM0P                   = cm0plus_sram_reserve - sram_private_for_srom;
+define symbol _base_SRAM_CM7_0                  = sram_base_address + cm0plus_sram_reserve;
+define symbol _size_SRAM_CM7_0                  = sram_total_size_user - cm0plus_sram_reserve;
+
+// Code flash reservations
+define symbol _base_CODE_FLASH_CM0P             = code_flash_base_address;
+define symbol _size_CODE_FLASH_CM0P             = cm0plus_code_flash_reserve;
+
+if(use_psvp)
+{
+  define symbol _base_CODE_FLASH_CM7_0          = 0x101f8000; // <- hardcoded for PSVP
+  define symbol _size_CODE_FLASH_CM7_0          = cm7_0_code_flash_reserve;
+}
+else
+{
+  define symbol _base_CODE_FLASH_CM7_0          = code_flash_base_address + cm0plus_code_flash_reserve;
+  define symbol _size_CODE_FLASH_CM7_0          = code_flash_total_size - cm0plus_code_flash_reserve;
+}
+
+if(isdefinedsymbol(_CORE_cm0plus_)) 
+{
+    define symbol _base_SRAM                    = _base_SRAM_CM0P;
+    define symbol _size_SRAM                    = _size_SRAM_CM0P;
+    define symbol _base_CODE_FLASH              = _base_CODE_FLASH_CM0P;
+    define symbol _size_CODE_FLASH              = _size_CODE_FLASH_CM0P;   
+    define symbol _base_ITCM                    = 0;
+    define symbol _size_ITCM                    = 0;
+    define symbol _base_DTCM                    = 0;
+    define symbol _size_DTCM                    = 0;
+    define symbol _base_SELF_ITCM               = 0;
+    define symbol _size_SELF_ITCM               = 0;
+    define symbol _base_SELF_DTCM               = 0x20000000;
+    define symbol _size_SELF_DTCM               = 0;
+} 
+else if(isdefinedsymbol(_CORE_cm7_0_)) 
+{
+    define symbol _base_SRAM                    = _base_SRAM_CM7_0;
+    define symbol _size_SRAM                    = _size_SRAM_CM7_0;
+    define symbol _base_CODE_FLASH              = _base_CODE_FLASH_CM7_0;
+    define symbol _size_CODE_FLASH              = _size_CODE_FLASH_CM7_0;   
+    define symbol _base_ITCM                    = cm7_0_itcm_base_address;
+    define symbol _size_ITCM                    = cm7_itcm_reserve;
+    define symbol _base_DTCM                    = cm7_0_dtcm_base_address;
+    define symbol _size_DTCM                    = cm7_dtcm_reserve;
+    define symbol _base_SELF_ITCM               = 0;
+    define symbol _size_SELF_ITCM               = 64K;
+    define symbol _base_SELF_DTCM               = 0x20000000;
+    define symbol _size_SELF_DTCM               = 64K;
+} 
+
+define symbol _base_WORK_FLASH                  = 0x14000000;
+define symbol _size_WORK_FLASH                  = 0x00040000; //  256 KB
+define symbol _base_SFLASH                      = 0x17000000;
+define symbol _size_SFLASH                      = 0x00008000; //   32 KB
+define symbol _base_SFLASH_ALT                  = 0x17800000;
+define symbol _size_SFLASH_ALT                  = 0x00008000; //   32 KB
+define symbol _base_SMIF0_MEMMAP                = 0x60000000;
+define symbol _size_SMIF0_MEMMAP                = 0x20000000; //  512 MB
+define symbol _base_SMIF1_MEMMAP                = 0x80000000;
+define symbol _size_SMIF1_MEMMAP                = 0x20000000; //  512 MB
+define symbol _base_VRAM_MEMMAP                 = 0x24000000;
+define symbol _size_VRAM_MEMMAP                 = 0x00200000; //    2 MB
+
+//============================================================
+// Memory definitions
+//============================================================
+
+define memory mem with size = 4G;
+
+define region SELF_ITCM                         = mem:[from _base_SELF_ITCM             size _size_SELF_ITCM            ];
+define region CODE_FLASH                        = mem:[from _base_CODE_FLASH            size _size_CODE_FLASH           ];
+define region WORK_FLASH                        = mem:[from _base_WORK_FLASH            size _size_WORK_FLASH           ];
+define region SFLASH                            = mem:[from _base_SFLASH                size _size_SFLASH               ];
+define region SFLASH_ALT                        = mem:[from _base_SFLASH_ALT            size _size_SFLASH_ALT           ];
+define region SELF_DTCM                         = mem:[from _base_SELF_DTCM             size _size_SELF_DTCM            ];
+define region SRAM                              = mem:[from _base_SRAM                  size _size_SRAM                 ];
+define region SMIF0_MEM                         = mem:[from _base_SMIF0_MEMMAP          size _size_SMIF0_MEMMAP         ];
+define region SMIF1_MEM                         = mem:[from _base_SMIF1_MEMMAP          size _size_SMIF1_MEMMAP         ];
+define region VRAM                              = mem:[from _base_VRAM_MEMMAP           size _size_VRAM_MEMMAP          ];
+define region ITCM                              = mem:[from _base_ITCM                  size _size_ITCM       ];
+define region DTCM                              = mem:[from _base_DTCM                  size _size_DTCM       ];
+
+// CM7 regions are required in CM0+ linker script for assigning the CM7 binary further below. (IAR multi core debugging)
+if(isdefinedsymbol(_CORE_cm0plus_)) {
+
+    define region SRAM_CM7_0            = mem:[from _base_SRAM_CM7_0         size _size_SRAM_CM7_0       ];
+    define region CODE_FLASH_CM7_0      = mem:[from _base_CODE_FLASH_CM7_0   size _size_CODE_FLASH_CM7_0 ];
+}
+
+//============================================================
+// Block definitions
+//============================================================
+define block CSTACK         with alignment = 8, size = stack_reserve { };
+define block HEAP           with alignment = 8, size = heap_reserve   { };
+define block HEAP_STACK     { block HEAP, last block CSTACK };
+
+
+//============================================================
+// Initialization
+//============================================================
+initialize by copy { readwrite };
+do not initialize  { section .intvec_ram };
+
+
+//============================================================
+// Placement
+//============================================================
+
+// Link location specific assignment of 'readonly' type sections to either SRAM or CODE_FLASH
+// Note: .intvec must be the first section in ROM in order for __cm7_vector_base_linker_symbol to be correctly calculated!
+if(isdefinedsymbol(_LINK_flash_)) 
+{
+    place at start of CODE_FLASH  { section .intvec };
+    place in          CODE_FLASH  { readonly };
+
+    // Include CM7 binary in the CM0+ output. (IAR multi core debugging)
+    if(isdefinedsymbol(_CORE_cm0plus_)) 
+    {
+        place at start of CODE_FLASH_CM7_0 { section .cm7_0_rom };
+    }
+} 
+else if(isdefinedsymbol(_LINK_sram_)) 
+{
+    place at start of SRAM  { section .intvec };
+    place in          SRAM  { readonly };
+
+    // Include CM7 binary in the CM0+ output. (IAR multi core debugging)
+    if(isdefinedsymbol(_CORE_cm0plus_)) 
+    {
+        place at start of SRAM_CM7_0 { section .cm7_0_rom };
+    }
+}
+
+place in          SRAM  { readwrite };
+place at end   of SRAM  { block HEAP_STACK };
+
+//============================================================
+// Symbols for use by application
+//============================================================
+// The start of CM7_0 vector table is required by CM0+ application to correctly
+// set CPUSS->CM7_0_VECTOR_TABLE_BASE register before releasing CM7_0 from reset
+
+if(isdefinedsymbol(_CORE_cm0plus_)) 
+{
+    if(isdefinedsymbol(_LINK_flash_)) 
+    {
+          define exported symbol __cm7_0_vector_base_linker_symbol = start(CODE_FLASH_CM7_0);   
+    } 
+    else if(isdefinedsymbol(_LINK_sram_)) 
+    {        
+          define exported symbol __cm7_0_vector_base_linker_symbol = start(SRAM_CM7_0);
+    }
+}
+
+
+// These symbols will be used by startup.c / startup_customize.h for RAM ECC initialisation
+if(isdefinedsymbol(_LINK_sram_))
+{
+    // Following definitions ensure that SRAM will not be touched at all by startup ECC initialization when code is linked to SRAM,
+    // use debugger script to initialize the SRAM before downloading the application or adjust below symbols to not include
+    // the area of SRAM where "ROM type" sections are linked to 
+    define exported symbol __ecc_init_sram_start_address = start(SRAM);
+    define exported symbol __ecc_init_sram_end_address   = start(SRAM) - 1;
+}
+else
+{
+    define exported symbol __ecc_init_sram_start_address = start(SRAM);
+    define exported symbol __ecc_init_sram_end_address   = end(SRAM);
+}
+
+if(isdefinedsymbol(_CORE_cm7_0_))
+{
+    define exported symbol __ecc_init_dtcm_start_address = start(SELF_DTCM);
+    define exported symbol __ecc_init_dtcm_end_address   = end(SELF_DTCM);
+    define exported symbol __ecc_init_itcm_start_address = start(SELF_ITCM);
+    define exported symbol __ecc_init_itcm_end_address   = end(SELF_ITCM);
+
+    define exported symbol __gfx_vram_start_address 	= start(VRAM);
+    define exported symbol __gfx_vram_end_address   	= end(VRAM);
+    define exported symbol __gfx_heap_size				= cm7_heap_reserve;
+}    
+
+place at address mem:_base_CODE_FLASH_CM7_0{readonly section .cm7};

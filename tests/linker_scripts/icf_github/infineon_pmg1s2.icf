@@ -1,0 +1,143 @@
+/*******************************************************************************
+* \file pmg1s2.icf
+* \version 1.10.1
+*
+* Linker file for the IAR compiler.
+*
+* The main purpose of the linker script is to describe how the sections in the
+* input files should be mapped into the output file, and to control the memory
+* layout of the output file.
+*
+* \note The entry point is fixed and starts at 0x00000000. The valid application
+* image should be placed there.
+*
+* \note The linker files included with the PDL template projects must be generic
+* and handle all common use cases. Your project may not use every section
+* defined in the linker files. In that case you may see warnings during the
+* build process. In your project, you can simply comment out or remove the
+* relevant code in the linker file.
+*
+********************************************************************************
+* \copyright
+* (c) (2019-2021), Cypress Semiconductor Corporation (an Infineon company) or
+* an affiliate of Cypress Semiconductor Corporation.
+*
+* SPDX-License-Identifier: Apache-2.0
+*
+* Licensed under the Apache License, Version 2.0 (the "License");
+* you may not use this file except in compliance with the License.
+* You may obtain a copy of the License at
+*
+*     http://www.apache.org/licenses/LICENSE-2.0
+*
+* Unless required by applicable law or agreed to in writing, software
+* distributed under the License is distributed on an "AS IS" BASIS,
+* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+* See the License for the specific language governing permissions and
+* limitations under the License.
+*******************************************************************************/
+
+/*###ICF### Section handled by ICF editor, don't touch! ****/
+/*-Editor annotation file-*/
+/* IcfEditorFile="$TOOLKIT_DIR$\config\ide\IcfEditor\cortex_v1_4.xml" */
+/*-Specials-*/
+define symbol __ICFEDIT_intvec_start__ = 0x00000000;
+
+/* The symbols below define the location and size of blocks of memory in the target.
+ * Use these symbols to specify the memory regions available for allocation.
+ */
+
+/* The following symbols control RAM and flash memory allocation.
+ * You can change the memory allocation by editing RAM and Flash symbols.
+ */
+/* RAM */
+define symbol __ICFEDIT_region_IRAM1_start__ = 0x20000000;
+define symbol __ICFEDIT_region_IRAM1_end__   = 0x20001FFF;
+define symbol __ICFEDIT_region_IRAM2_start__ = 0x0;
+define symbol __ICFEDIT_region_IRAM2_end__   = 0x0;
+define symbol __ICFEDIT_region_IRAM3_start__ = 0x0;
+define symbol __ICFEDIT_region_IRAM3_end__   = 0x0;
+define symbol __ICFEDIT_region_ERAM1_start__ = 0x0;
+define symbol __ICFEDIT_region_ERAM1_end__   = 0x0;
+define symbol __ICFEDIT_region_ERAM2_start__ = 0x0;
+define symbol __ICFEDIT_region_ERAM2_end__   = 0x0;
+define symbol __ICFEDIT_region_ERAM3_start__ = 0x0;
+define symbol __ICFEDIT_region_ERAM3_end__   = 0x0;
+
+/* Flash */
+define symbol __ICFEDIT_region_IROM1_start__ = 0x00000000;
+define symbol __ICFEDIT_region_IROM1_end__   = 0x0001FFFF;
+define symbol __ICFEDIT_region_IROM2_start__ = 0x0;
+define symbol __ICFEDIT_region_IROM2_end__   = 0x0;
+define symbol __ICFEDIT_region_EROM1_end__   = 0x0;
+define symbol __ICFEDIT_region_EROM1_start__ = 0x0;
+define symbol __ICFEDIT_region_EROM2_start__ = 0x0;
+define symbol __ICFEDIT_region_EROM2_end__   = 0x0;
+define symbol __ICFEDIT_region_EROM3_start__ = 0x0;
+define symbol __ICFEDIT_region_EROM3_end__   = 0x0;
+
+/*-Sizes-*/
+if (!isdefinedsymbol(__STACK_SIZE)) {
+define symbol __ICFEDIT_size_cstack__ = 0x0400;
+} else {
+define symbol __ICFEDIT_size_cstack__ = __STACK_SIZE;
+}
+define symbol __ICFEDIT_size_proc_stack__ = 0x0;
+
+/* Defines the minimum heap size. The actual heap size will be expanded to the end of the stack region */
+if (!isdefinedsymbol(__HEAP_SIZE)) {
+define symbol __ICFEDIT_size_heap__ = 0x0080;
+} else {
+define symbol __ICFEDIT_size_heap__ = __HEAP_SIZE;
+}
+/**** End of ICF editor section. ###ICF###*/
+
+
+define memory mem with size = 4G;
+define symbol use_IROM1 = (__ICFEDIT_region_IROM1_start__ != 0x0 || __ICFEDIT_region_IROM1_end__ != 0x0);
+define symbol use_IRAM1 = (__ICFEDIT_region_IRAM1_start__ != 0x0 || __ICFEDIT_region_IRAM1_end__ != 0x0);
+
+define region IROM1_region = mem:[from __ICFEDIT_region_IROM1_start__ to __ICFEDIT_region_IROM1_end__];
+define region IRAM1_region = mem:[from __ICFEDIT_region_IRAM1_start__ to __ICFEDIT_region_IRAM1_end__];
+
+define block CSTACK     with alignment = 8, size = __ICFEDIT_size_cstack__     { };
+define block PROC_STACK with alignment = 8, size = __ICFEDIT_size_proc_stack__ { };
+define block HEAP       with expanding size, alignment = 8, minimum size = __ICFEDIT_size_heap__ { };
+define block HSTACK {block HEAP, block PROC_STACK, last block CSTACK};
+define block RO     {first section .intvec, readonly};
+
+/*-Initializations-*/
+initialize by copy { readwrite };
+do not initialize  { section .noinit, section .intvec_ram };
+
+/*-Placement-*/
+
+/* Flash */
+".cy_app_header" : place at start of IROM1_region  { section .cy_app_header };
+place in          IROM1_region  { block RO };
+
+/* RAM */
+place at start of IRAM1_region  { readwrite section .intvec_ram};
+place in          IRAM1_region  { readwrite };
+place at end   of IRAM1_region  { block HSTACK };
+
+/* These sections are used for additional metadata (silicon revision, Silicon/JTAG ID, etc.) storage. */
+".cyflashprotect" : place at address mem : 0x90400000 { readonly section .cyflashprotect };
+".cymeta"         : place at address mem : 0x90500000 { readonly section .cymeta };
+".cychipprotect"  : place at address mem : 0x90600000 { readonly section .cychipprotect };
+
+
+keep {  section .cy_app_header,
+        section .cyflashprotect,
+        section .cymeta,
+        section .cychipprotect,
+         };
+
+
+/* The following symbols used by the cymcuelftool. */
+/* Flash */
+define exported symbol __cy_memory_0_start    = 0x00000000;
+define exported symbol __cy_memory_0_length   = 0x00020000;
+define exported symbol __cy_memory_0_row_size = 0x80;
+
+/* EOF */
