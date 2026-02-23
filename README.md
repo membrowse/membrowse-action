@@ -45,7 +45,7 @@ jobs:
         with:
           elf: build/firmware.elf # your elf
           ld: "src/linker.ld" # your ld scripts
-          target_name: stm32f4 # the target name will be recognized by Membrowse
+          target_name: stm32f4 # the target name will be recognized by MemBrowse
           api_key: ${{ secrets.MEMBROWSE_API_KEY }}
 
       - name: Post PR comment
@@ -85,7 +85,7 @@ jobs:
           build_script: "make clean && make" # your build commands
           elf: build/firmware.elf # your elf file
           ld: "components.ld memory.ld" #your ld scripts 
-          target_name: my-target # the target name will be recognized by Membrowse
+          target_name: my-target # the target name will be recognized by MemBrowse
           api_key: ${{ secrets.MEMBROWSE_API_KEY }}
 ```
 
@@ -244,7 +244,7 @@ membrowse onboard \
 
 MemBrowse works with toolchains that produce ELF files and supports GNU LD and ICF linker scripts.
 If you found that you're not getting optimal results please contact us: support@membrowse.com 
-We are actively working on improving Membrowse.
+We are actively working on improving MemBMemBrowserowse.
 
 ## License
 
