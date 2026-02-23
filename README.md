@@ -12,7 +12,7 @@ A tool for analyzing memory footprint in embedded firmware. MemBrowse extracts d
 
 - **Architecture Agnostic**: Works with architectures that produce ELFs with DWARF debug format
 - **Source File Mapping**: Symbols are mapped to their definition source files
-- **Memory Region Extraction**: Memory region capacity and layout are extracted from GNU LD linker scripts
+- **Memory Region Extraction**: Memory region capacity and layout are extracted from GNU LD and ICF linker scripts
 - **Cloud Integration**: Upload reports to [MemBrowse](https://membrowse.com) for historical tracking, diffs, monitoring and CI gating 
 
 ## CI/CD Integration
@@ -242,7 +242,7 @@ membrowse onboard \
 
 ## Platform Support
 
-MemBrowse is with toolchains that produce ELF files and uses GNU LD linker scripts.
+MemBrowse works with toolchains that produce ELF files and supports GNU LD and ICF linker scripts.
 If you found that you're not getting optimal results please contact us: support@membrowse.com 
 We are actively working on improving Membrowse.
 
