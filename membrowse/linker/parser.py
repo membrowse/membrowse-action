@@ -1046,7 +1046,7 @@ class MemoryRegionBuilder:  # pylint: disable=too-few-public-methods
         return self.evaluator.evaluate_expression(size_str, set())
 
 
-class LinkerScriptParser:  # pylint: disable=too-few-public-methods
+class LinkerScriptParser:  # pylint: disable=too-few-public-methods,too-many-instance-attributes
     """Main parser orchestrator for linker script files"""
 
     def __init__(self, ld_scripts: List[str], elf_file: Optional[str] = None,
@@ -1090,6 +1090,9 @@ class LinkerScriptParser:  # pylint: disable=too-few-public-methods
             self.evaluator.add_variables(
                 self.parsing_strategy['default_variables'])
 
+        # ICF scripts cache (populated during variable extraction)
+        self._icf_scripts: set = set()
+
         # Apply user-defined variables (override architecture defaults)
         if user_variables:
             self.evaluator.add_variables(user_variables)
@@ -1117,7 +1120,7 @@ class LinkerScriptParser:  # pylint: disable=too-few-public-methods
         # Skip ICF files — the GNU LD variable extractor would pollute
         # evaluator.variables with unparseable region-name strings.
         # Cache the set so _parse_all_memory_regions can skip them on retries.
-        self._icf_scripts: set = set()
+        self._icf_scripts = set()
         gnu_scripts = []
         for script_path in self.ld_scripts:
             with open(script_path, "r", encoding="utf-8") as f:

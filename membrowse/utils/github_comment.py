@@ -87,7 +87,7 @@ def post_combined_pr_comment(
         handle_comment_error(e, "PR comment")
 
 
-def _build_template_context(results: list[dict]) -> dict:
+def _build_template_context(results: list[dict]) -> dict:  # pylint: disable=too-many-locals
     """
     Build template context from results data.
 

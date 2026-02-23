@@ -15,6 +15,7 @@ Covers:
   - Format detection (content-based)
   - Integration through LinkerScriptParser (transparent dispatch)
 """
+# pylint: disable=missing-function-docstring,protected-access
 
 import shutil
 import tempfile
@@ -22,10 +23,7 @@ import unittest
 from pathlib import Path
 
 from membrowse.linker.parser import LinkerScriptParser, LinkerScriptError
-from membrowse.linker.icf_parser import (
-    ICFSymbolTable,
-    ICFEvaluationError,
-)
+from membrowse.linker.icf_parser import ICFSymbolTable
 from membrowse.linker.base import LinkerFormatDetector
 
 
@@ -532,7 +530,7 @@ class TestICFRegionSetOperations(_ICFTestBase):
         self.assertEqual(regions["ROM"]["limit_size"], 0x100000)
 
 
-class TestICFSymbolTable(unittest.TestCase):
+class TestICFSymbolTable(unittest.TestCase):  # pylint: disable=too-many-public-methods
     """Unit tests for ICFSymbolTable expression evaluation."""
 
     def test_hex_literal(self):

@@ -34,7 +34,7 @@ class LinkerScriptFormatParser(ABC):
         """Return True if content matches this parser's format."""
 
 
-class LinkerFormatDetector:
+class LinkerFormatDetector:  # pylint: disable=too-few-public-methods
     """Content-based detection of linker script dialects."""
 
     # IAR ICF keywords that cannot appear in GNU LD scripts

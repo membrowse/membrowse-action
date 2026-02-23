@@ -73,3 +73,9 @@ membrowse = ["py.typed", "utils/templates/*.j2"]
 [tool.pylint.main]
 # Ignore import errors for test dependencies that may not be installed in all environments
 ignored-modules = ["pytest"]
+
+[tool.pylint."messages_control"]
+disable = [
+    "cyclic-import",    # handled via lazy imports
+    "duplicate-code",   # common in test setup/teardown
+]

@@ -249,7 +249,7 @@ class ICFSymbolTable:
 
     # ---- Arithmetic evaluator ----
 
-    def _arithmetic_eval(self, expr: str) -> int:
+    def _arithmetic_eval(self, expr: str) -> int:  # pylint: disable=too-many-locals,too-many-statements
         """Safe recursive-descent arithmetic evaluator.
 
         Operator precedence (lowest to highest):
@@ -442,7 +442,7 @@ class ICFSymbolTable:
 # ICFContentPreprocessor
 # ---------------------------------------------------------------------------
 
-class ICFContentPreprocessor:
+class ICFContentPreprocessor:  # pylint: disable=too-few-public-methods
     """Strips comments and inlines include directives."""
 
     def __init__(self, max_depth: int = 10) -> None:
@@ -494,7 +494,7 @@ class ICFContentPreprocessor:
 # ICFConditionalEvaluator
 # ---------------------------------------------------------------------------
 
-class ICFConditionalEvaluator:
+class ICFConditionalEvaluator:  # pylint: disable=too-few-public-methods
     """Evaluates if/else/endif blocks using brace-depth matching.
 
     ICF conditionals use curly braces:
@@ -514,7 +514,7 @@ class ICFConditionalEvaluator:
             content = new_content
         return content
 
-    def _process_one_pass(self, content: str) -> str:
+    def _process_one_pass(self, content: str) -> str:  # pylint: disable=too-many-locals
         """Find and replace the first (outermost-leftmost) if block."""
         # Find 'if (' then use paren-depth matching to extract the full condition
         # (handles nested parens like isdefinedsymbol(...))
@@ -824,7 +824,7 @@ class IARLinkerScriptParser(LinkerScriptFormatParser):
             self,
             content: str,
             specs: Dict[str, ICFRegionSpec],
-            symbols: ICFSymbolTable,
+            _symbols: ICFSymbolTable,
     ) -> None:
         """Resolve set-operation region definitions (regions with empty spans)."""
         for m in self._REGION_DEF_PATTERN.finditer(content):

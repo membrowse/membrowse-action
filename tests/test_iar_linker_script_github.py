@@ -20,6 +20,7 @@ Each test verifies:
   - Start addresses and sizes
   - Correct handling of vendor-specific patterns
 """
+# pylint: disable=missing-function-docstring
 
 import unittest
 from pathlib import Path
@@ -293,7 +294,8 @@ class TestNXPMK66(unittest.TestCase):
 
         self.assertIn("ROM_region", regions)
         self.assertEqual(regions["ROM_region"]["address"], 0x00000000)
-        self.assertEqual(regions["ROM_region"]["limit_size"], 0x10040000)  # bounding box of non-contiguous union
+        # bounding box of non-contiguous union
+        self.assertEqual(regions["ROM_region"]["limit_size"], 0x10040000)
 
         self.assertIn("RAM_region", regions)
         self.assertEqual(regions["RAM_region"]["address"], 0x1FFF0000)
