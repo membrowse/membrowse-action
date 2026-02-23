@@ -308,8 +308,9 @@ class TestMemoryMapper(unittest.TestCase):
                 type='data'),
         ]
 
-        # Map sections to regions
-        MemoryMapper.map_sections_to_regions(sections, regions)
+        # Map sections to regions - all should map successfully
+        unmapped = MemoryMapper.map_sections_to_regions(sections, regions)
+        self.assertEqual(unmapped, [])
 
         # Verify sections are in correct regions
         self.assertEqual(len(regions['FLASH_START'].sections), 1)
@@ -325,6 +326,96 @@ class TestMemoryMapper(unittest.TestCase):
 
         # Parent FLASH should have no sections (they all mapped to children)
         self.assertEqual(len(regions['FLASH'].sections), 0)
+
+
+    def test_unmapped_section_not_assigned_to_wrong_region(self):
+        """Flash section with only RAM regions available should be unmapped"""
+        regions = {
+            'RAM': MemoryRegion(
+                address=0x20000000,
+                limit_size=0x20000,
+                type='RAM'
+            ),
+        }
+
+        sections = [
+            MemorySection(
+                name='.text',
+                address=0x08000000,
+                size=0x1000,
+                type='text'),
+        ]
+
+        unmapped = MemoryMapper.map_sections_to_regions(sections, regions)
+
+        # .text at a flash address should NOT be assigned to RAM
+        self.assertEqual(len(unmapped), 1)
+        self.assertEqual(unmapped[0].name, '.text')
+        self.assertEqual(len(regions['RAM'].sections), 0)
+
+    def test_infer_flash_region_from_load_segments(self):
+        """RX LOAD segments should create a Flash (inferred) region"""
+        program_headers = [
+            {
+                'type': 'PT_LOAD',
+                'virt_addr': 0x00002800,
+                'mem_size': 0xD800,
+                'flags': 'RE',
+            },
+            {
+                'type': 'PT_LOAD',
+                'virt_addr': 0x20000000,
+                'mem_size': 0x1000,
+                'flags': 'RW',
+            },
+        ]
+        existing = {
+            'RAM_region': MemoryRegion(
+                address=0x20000000,
+                limit_size=0x8000,
+                type='RAM'
+            ),
+        }
+
+        inferred = MemoryMapper.infer_regions_from_segments(
+            program_headers, existing)
+
+        self.assertIn('Flash (inferred)', inferred)
+        flash = inferred['Flash (inferred)']
+        self.assertEqual(flash.address, 0x00002800)
+        self.assertEqual(flash.limit_size, 0xD800)
+        self.assertEqual(flash.type, 'FLASH')
+
+        # RAM should NOT be inferred since existing region covers it
+        self.assertNotIn('RAM (inferred)', inferred)
+
+    def test_no_inference_when_region_exists(self):
+        """Don't infer regions when existing regions already cover the range"""
+        program_headers = [
+            {
+                'type': 'PT_LOAD',
+                'virt_addr': 0x08000000,
+                'mem_size': 0x10000,
+                'flags': 'RE',
+            },
+        ]
+        existing = {
+            'FLASH': MemoryRegion(
+                address=0x08000000,
+                limit_size=0x100000,
+                type='FLASH'
+            ),
+        }
+
+        inferred = MemoryMapper.infer_regions_from_segments(
+            program_headers, existing)
+
+        self.assertEqual(inferred, {})
+
+    def test_no_inference_when_no_load_segments(self):
+        """Empty program headers should return empty dict"""
+        inferred = MemoryMapper.infer_regions_from_segments([], {})
+        self.assertEqual(inferred, {})
 
 
 if __name__ == '__main__':

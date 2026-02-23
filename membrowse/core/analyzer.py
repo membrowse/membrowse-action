@@ -9,7 +9,7 @@ of ELF files using specialized component classes for symbols, sections, and DWAR
 
 import os
 from pathlib import Path
-from typing import Dict, List, Any, Tuple
+from typing import Dict, List, Any
 from elftools.elf.elffile import ELFFile
 from elftools.common.exceptions import ELFError
 
@@ -177,15 +177,12 @@ class ELFAnalyzer:  # pylint: disable=too-many-instance-attributes
             endianness='little' if self.elffile.little_endian else 'big'
         )
 
-    def get_sections(self) -> Tuple[Dict[str, int], List[MemorySection]]:
+    def get_sections(self) -> List[MemorySection]:
         """Extract ELF section information.
 
         Returns:
-            Tuple of (section_totals, sections):
-
-            - ``section_totals``: Dict mapping section names to total sizes.
-            - ``sections``: List of MemorySection objects with fields:
-              name, address, size, type, end_address.
+            List of MemorySection objects with fields:
+            name, address, size, type, end_address.
         """
         return self._section_analyzer.analyze_sections()
 

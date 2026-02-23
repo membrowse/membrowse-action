@@ -157,11 +157,15 @@ class ICFSymbolTable:
 
             self._resolved.update(resolved_this_pass)
             if not resolved_this_pass:
-                for name, raw in still_unresolved.items():
-                    logger.debug(
-                        "ICF symbol '%s' = '%s' could not be resolved",
-                        name, raw
-                    )
+                unresolved_names = ', '.join(sorted(still_unresolved))
+                logger.warning(
+                    "ICF: %d symbol(s) could not be resolved: %s. "
+                    "Use --def NAME=VALUE to supply values "
+                    "(e.g. --def %s=0x0).",
+                    len(still_unresolved),
+                    unresolved_names,
+                    next(iter(sorted(still_unresolved)))
+                )
                 break
             self._unresolved = still_unresolved
 
@@ -712,7 +716,9 @@ class IARLinkerScriptParser(LinkerScriptFormatParser):
             if not spec.spans:
                 if not spec.explicitly_empty:
                     logger.warning(
-                        "ICF region '%s' has no spans; skipping.", name)
+                        "ICF region '%s' has no resolved spans; skipping. "
+                        "If this region depends on build-time symbols, "
+                        "use --def NAME=VALUE to provide them.", name)
                 continue
             result[name] = spec.to_memory_region()
 

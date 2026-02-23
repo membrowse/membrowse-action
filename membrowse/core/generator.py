@@ -122,7 +122,27 @@ class ReportGenerator:  # pylint: disable=too-few-public-methods
 
                 # Map sections to regions based on addresses and calculate
                 # utilization
-                MemoryMapper.map_sections_to_regions(sections, memory_regions)
+                unmapped = MemoryMapper.map_sections_to_regions(
+                    sections, memory_regions)
+
+                # If sections couldn't be mapped, try inferring regions from
+                # ELF LOAD segments (e.g. when linker script symbols are
+                # unresolved)
+                if unmapped:
+                    inferred = MemoryMapper.infer_regions_from_segments(
+                        program_headers, memory_regions)
+                    if inferred:
+                        memory_regions.update(inferred)
+                        # Re-map the previously unmapped sections
+                        still_unmapped = MemoryMapper.map_sections_to_regions(
+                            unmapped, memory_regions)
+                        if still_unmapped:
+                            logger.warning(
+                                "%d section(s) could not be mapped to any "
+                                "memory region: %s",
+                                len(still_unmapped),
+                                ', '.join(s.name for s in still_unmapped))
+
                 MemoryMapper.calculate_utilization(memory_regions)
 
             # Calculate performance statistics
