@@ -244,7 +244,7 @@ membrowse onboard \
 
 MemBrowse works with toolchains that produce ELF files and supports GNU LD and ICF linker scripts.
 If you found that you're not getting optimal results please contact us: support@membrowse.com 
-We are actively working on improving MemBMemBrowserowse.
+We are actively working on improving MemBrowse.
 
 ## License
 
