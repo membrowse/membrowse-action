@@ -420,9 +420,6 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v5
-
       - name: Post combined PR comment
         uses: membrowse/membrowse-action/comment-action@v1
         with:
@@ -526,24 +523,11 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion == 'success'
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v5
-
-      - name: Get PR number
-        id: pr
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          PR_NUMBER=$(gh api "/repos/${{ github.repository }}/commits/${{ github.event.workflow_run.head_sha }}/pulls" --jq '.[0].number')
-          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
-
       - name: Post combined PR comment
-        if: steps.pr.outputs.pr_number
         uses: membrowse/membrowse-action/comment-action@v1
         with:
           api_key: ${{ secrets.MEMBROWSE_API_KEY }}
           commit: ${{ github.event.workflow_run.head_sha }}
-          pr_number: ${{ steps.pr.outputs.pr_number }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
