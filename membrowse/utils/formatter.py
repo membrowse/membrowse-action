@@ -328,6 +328,9 @@ def _format_top_symbols(report: Dict[str, Any], top_n: int = 20, show_all: bool 
         lines.append("")
         return "\n".join(lines)
 
+    # Check if any symbol has map file data
+    has_object_info = any(s.get('object_file', '') for s in symbols)
+
     # Sort by size descending
     sorted_symbols = sorted(
         symbols,
@@ -340,11 +343,14 @@ def _format_top_symbols(report: Dict[str, Any], top_n: int = 20, show_all: bool 
         sorted_symbols = sorted_symbols[:top_n]
 
     # Header
-    lines.append(
+    header = (
         f"{'Name':<40} {'Address':<12} {'Size':>18}  {'Type':<10} "
         f"{'Section':<20} {'Source':<30}"
     )
-    lines.append("-" * 140)
+    if has_object_info:
+        header += f"  {'Object':<30}"
+    lines.append(header)
+    lines.append("-" * len(header))
 
     # Symbols
     for symbol in sorted_symbols:
@@ -363,10 +369,16 @@ def _format_top_symbols(report: Dict[str, Any], top_n: int = 20, show_all: bool 
         if len(source_file) > 28:
             source_file = source_file[:25] + "..."
 
-        lines.append(
+        row = (
             f"{name:<40} {_format_address(address):<12} {size:>12,} bytes  "
             f"{sym_type:<10} {section:<20} {source_file:<30}"
         )
+        if has_object_info:
+            object_file = symbol.get('object_file', '')
+            if len(object_file) > 28:
+                object_file = object_file[:25] + "..."
+            row += f"  {object_file:<30}"
+        lines.append(row)
 
     lines.append("")
     return "\n".join(lines)
