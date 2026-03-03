@@ -70,6 +70,28 @@ Linker script and memory map
  COMMON         0x0000000020000104        0x8 libsensor.a(accel.o)
 """
 
+MAP_TWO_LINE_FORMAT = """\
+Linker script and memory map
+
+ .text.short    0x0000000008000010       0xac build/main.o
+                0x0000000008000010                short_func
+ .text.very_long_section_name_that_wraps
+                0x00000000080000bc       0x34 build/utils.o
+                0x00000000080000bc                long_func
+ .text.from_archive
+                0x00000000080000f0       0x20 libhal.a(gpio.o)
+                0x00000000080000f0                gpio_init
+"""
+
+MAP_TWO_LINE_ZERO_ADDRESS = """\
+Linker script and memory map
+
+ .text.Reset_Handler
+                0x0000000000000000       0x50 build/startup.o
+ .text.real
+                0x0000000008000100       0x10 build/real.o
+"""
+
 MAP_EMPTY = """\
 Memory Configuration
 
@@ -165,6 +187,36 @@ Linker script and memory map
         self.assertEqual(archive, 'libfirst.a')
         self.assertEqual(obj, 'first.o')
 
+    def test_two_line_bare_object(self):
+        """Two-line format: section name wraps, continuation has address."""
+        result = self.parser.parse(MAP_TWO_LINE_FORMAT)
+        self.assertIn(0x080000bc, result)
+        archive, obj = result[0x080000bc]
+        self.assertEqual(archive, '')
+        self.assertEqual(obj, 'build/utils.o')
+
+    def test_two_line_archive(self):
+        """Two-line format with archive(object) on continuation line."""
+        result = self.parser.parse(MAP_TWO_LINE_FORMAT)
+        self.assertIn(0x080000f0, result)
+        archive, obj = result[0x080000f0]
+        self.assertEqual(archive, 'libhal.a')
+        self.assertEqual(obj, 'gpio.o')
+
+    def test_two_line_mixed_with_single_line(self):
+        """Single-line entries still work alongside two-line entries."""
+        result = self.parser.parse(MAP_TWO_LINE_FORMAT)
+        self.assertIn(0x08000010, result)
+        archive, obj = result[0x08000010]
+        self.assertEqual(archive, '')
+        self.assertEqual(obj, 'build/main.o')
+
+    def test_two_line_zero_address_skipped(self):
+        """Two-line entries with address 0 are skipped."""
+        result = self.parser.parse(MAP_TWO_LINE_ZERO_ADDRESS)
+        self.assertNotIn(0x0, result)
+        self.assertIn(0x08000100, result)
+
 
 class TestMapFileParserFileField(unittest.TestCase):
     """Unit tests for _parse_file_field static method."""
@@ -218,6 +270,24 @@ class TestMapFileResolver(unittest.TestCase):
             0x08000000: ('libfoo.a', 'foo.o'),
         })
         self.assertEqual(resolver.resolve(0xDEADBEEF), ('', ''))
+
+    def test_resolve_thumb_address(self):
+        """ARM Thumb functions have bit 0 set in ELF st_value."""
+        resolver = MapFileResolver({
+            0x080000ac: ('libapp.a', 'main.o'),
+        })
+        # ELF stores 0x080000ad (Thumb bit set), map file has 0x080000ac
+        self.assertEqual(
+            resolver.resolve(0x080000ad), ('libapp.a', 'main.o'))
+
+    def test_resolve_exact_match_preferred_over_thumb(self):
+        """Exact address match takes priority over Thumb-bit fallback."""
+        resolver = MapFileResolver({
+            0x080000ac: ('libfoo.a', 'foo.o'),
+            0x080000ad: ('libbar.a', 'bar.o'),
+        })
+        self.assertEqual(
+            resolver.resolve(0x080000ad), ('libbar.a', 'bar.o'))
 
     def test_from_file(self):
         with tempfile.TemporaryDirectory() as tmpdir:
