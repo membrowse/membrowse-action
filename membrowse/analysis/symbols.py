@@ -78,7 +78,7 @@ class SymbolExtractor:  # pylint: disable=too-few-public-methods
         except Exception:  # pylint: disable=broad-exception-caught
             return name
 
-    def extract_symbols(self, source_resolver) -> List[Symbol]:
+    def extract_symbols(self, source_resolver, map_resolver=None) -> List[Symbol]:
         """Extract symbol information from ELF file with source file mapping."""
         symbols = []
 
@@ -108,6 +108,27 @@ class SymbolExtractor:  # pylint: disable=too-few-public-methods
                     symbol_name, symbol_type, symbol_address
                 )
 
+                # Get symbol visibility
+                visibility = 'DEFAULT'  # Default value
+                try:
+                    if hasattr(
+                            symbol,
+                            'st_other') and hasattr(
+                            symbol['st_other'],
+                            'visibility'):
+                        visibility = symbol['st_other']['visibility'].replace(
+                            'STV_', '')
+                except (KeyError, AttributeError):
+                    pass
+
+                # Get archive/object file from map file resolver
+                if map_resolver is not None:
+                    archive, object_file = map_resolver.resolve(
+                        symbol_address)
+                else:
+                    archive, object_file = '', ''
+
+
                 symbols.append(Symbol(
                     name=symbol_name,
                     address=symbol_address,
@@ -116,6 +137,9 @@ class SymbolExtractor:  # pylint: disable=too-few-public-methods
                     binding=symbol_binding,
                     section=section_name,
                     source_file=source_file,
+                    visibility=visibility,
+                    archive=archive,
+                    object_file=object_file
                 ))
 
         except (IOError, OSError) as e:
