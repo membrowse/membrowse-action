@@ -106,6 +106,7 @@ class TestMapFileParser(unittest.TestCase):
         self.parser = MapFileParser()
 
     def test_archive_entry_parsed(self):
+        """Parse archive entry with library and object file."""
         result = self.parser.parse(MAP_WITH_ARCHIVES)
         self.assertIn(0x08000000, result)
         archive, obj = result[0x08000000]
@@ -113,6 +114,7 @@ class TestMapFileParser(unittest.TestCase):
         self.assertEqual(obj, 'stm32_startup.o')
 
     def test_second_archive_entry(self):
+        """Parse second archive entry at different address."""
         result = self.parser.parse(MAP_WITH_ARCHIVES)
         self.assertIn(0x080000ac, result)
         archive, obj = result[0x080000ac]
@@ -120,6 +122,7 @@ class TestMapFileParser(unittest.TestCase):
         self.assertEqual(obj, 'main.o')
 
     def test_bare_object_file(self):
+        """Parse bare .o file without archive wrapper."""
         result = self.parser.parse(MAP_WITH_ARCHIVES)
         self.assertIn(0x080000e0, result)
         archive, obj = result[0x080000e0]
@@ -127,6 +130,7 @@ class TestMapFileParser(unittest.TestCase):
         self.assertEqual(obj, 'build/src/init.o')
 
     def test_bare_object_absolute_path(self):
+        """Parse bare .o file with absolute path."""
         result = self.parser.parse(MAP_BARE_OBJECT)
         self.assertIn(0x08000010, result)
         archive, obj = result[0x08000010]
@@ -134,11 +138,13 @@ class TestMapFileParser(unittest.TestCase):
         self.assertEqual(obj, '/path/to/build/firmware.o')
 
     def test_linker_stubs_skipped(self):
+        """Linker stubs entries are not included in results."""
         result = self.parser.parse(MAP_WITH_ARCHIVES)
         # 0x080000f0 is linker stubs, should not be in result
         self.assertNotIn(0x080000f0, result)
 
     def test_fill_lines_skipped(self):
+        """Fill entries are skipped but real entries are kept."""
         result = self.parser.parse(MAP_WITH_FILL)
         # Fill address should not appear
         self.assertNotIn(0x20000408, result)
@@ -146,6 +152,7 @@ class TestMapFileParser(unittest.TestCase):
         self.assertIn(0x08000010, result)
 
     def test_zero_address_debug_sections_skipped(self):
+        """Debug sections at address 0 are excluded."""
         result = self.parser.parse(MAP_DEBUG_SECTIONS)
         # Address 0 (debug sections) should not be in result
         self.assertNotIn(0x0, result)
@@ -153,14 +160,17 @@ class TestMapFileParser(unittest.TestCase):
         self.assertIn(0x08000010, result)
 
     def test_empty_map_returns_empty_dict(self):
+        """Map file with no sections returns empty dict."""
         result = self.parser.parse(MAP_EMPTY)
         self.assertEqual(result, {})
 
     def test_empty_string_returns_empty_dict(self):
+        """Empty string input returns empty dict."""
         result = self.parser.parse('')
         self.assertEqual(result, {})
 
     def test_common_section_bare_object(self):
+        """COMMON section with bare object file is parsed."""
         result = self.parser.parse(MAP_WITH_COMMON)
         self.assertIn(0x20000100, result)
         archive, obj = result[0x20000100]
@@ -168,6 +178,7 @@ class TestMapFileParser(unittest.TestCase):
         self.assertEqual(obj, 'main.o')
 
     def test_common_section_archive(self):
+        """COMMON section with archive is parsed."""
         result = self.parser.parse(MAP_WITH_COMMON)
         self.assertIn(0x20000104, result)
         archive, obj = result[0x20000104]
@@ -222,30 +233,35 @@ class TestMapFileParserFileField(unittest.TestCase):
     """Unit tests for _parse_file_field static method."""
 
     def test_archive_with_object(self):
+        """Parse archive(object) format."""
         archive, obj = MapFileParser._parse_file_field(  # pylint: disable=protected-access
             'libstm32hal.a(stm32_gpio.o)')
         self.assertEqual(archive, 'libstm32hal.a')
         self.assertEqual(obj, 'stm32_gpio.o')
 
     def test_archive_with_path(self):
+        """Parse archive with absolute path prefix."""
         archive, obj = MapFileParser._parse_file_field(  # pylint: disable=protected-access
             '/usr/lib/libm.a(s_sin.o)')
         self.assertEqual(archive, '/usr/lib/libm.a')
         self.assertEqual(obj, 's_sin.o')
 
     def test_bare_object(self):
+        """Parse bare .o file path."""
         archive, obj = MapFileParser._parse_file_field(  # pylint: disable=protected-access
             'build/src/main.o')
         self.assertEqual(archive, '')
         self.assertEqual(obj, 'build/src/main.o')
 
     def test_linker_stubs(self):
+        """Linker stubs return empty tuple."""
         archive, obj = MapFileParser._parse_file_field(  # pylint: disable=protected-access
             'linker stubs')
         self.assertEqual(archive, '')
         self.assertEqual(obj, '')
 
     def test_empty_string(self):
+        """Empty string returns empty tuple."""
         archive, obj = MapFileParser._parse_file_field(  # pylint: disable=protected-access
             '')
         self.assertEqual(archive, '')
@@ -256,16 +272,19 @@ class TestMapFileResolver(unittest.TestCase):
     """Unit tests for MapFileResolver."""
 
     def test_null_resolver_returns_empty(self):
+        """Null resolver returns empty tuple for any address."""
         resolver = MapFileResolver.null()
         self.assertEqual(resolver.resolve(0x08000000), ('', ''))
 
     def test_resolve_known_address(self):
+        """Known address resolves to correct archive and object."""
         resolver = MapFileResolver({
             0x08000000: ('libfoo.a', 'foo.o'),
         })
         self.assertEqual(resolver.resolve(0x08000000), ('libfoo.a', 'foo.o'))
 
     def test_resolve_unknown_address(self):
+        """Unknown address returns empty tuple."""
         resolver = MapFileResolver({
             0x08000000: ('libfoo.a', 'foo.o'),
         })
@@ -290,6 +309,7 @@ class TestMapFileResolver(unittest.TestCase):
             resolver.resolve(0x080000ad), ('libbar.a', 'bar.o'))
 
     def test_from_file(self):
+        """Load and resolve from a map file on disk."""
         with tempfile.TemporaryDirectory() as tmpdir:
             map_path = Path(tmpdir) / 'test.map'
             map_path.write_text(MAP_WITH_ARCHIVES, encoding='utf-8')
@@ -300,6 +320,7 @@ class TestMapFileResolver(unittest.TestCase):
         )
 
     def test_from_file_missing_raises(self):
+        """Missing map file raises MapFileParseError."""
         with self.assertRaises(MapFileParseError):
             MapFileResolver.from_file('/nonexistent/path/to.map')
 
@@ -440,6 +461,7 @@ class TestIARMapFileParser(unittest.TestCase):
         self.parser = IARMapFileParser()
 
     def test_project_object_parsed(self):
+        """Project object file is parsed with empty archive."""
         result = self.parser.parse(IAR_MAP_BASIC)
         self.assertIn(0xe0, result)
         archive, obj = result[0xe0]
@@ -447,6 +469,7 @@ class TestIARMapFileParser(unittest.TestCase):
         self.assertEqual(obj, 'main.o')
 
     def test_library_object_parsed(self):
+        """Library object is parsed with correct archive name."""
         result = self.parser.parse(IAR_MAP_BASIC)
         self.assertIn(0x12e0, result)
         archive, obj = result[0x12e0]
@@ -454,6 +477,7 @@ class TestIARMapFileParser(unittest.TestCase):
         self.assertEqual(obj, 'sprintf.o')
 
     def test_runtime_library_parsed(self):
+        """Runtime library object is parsed with correct archive."""
         result = self.parser.parse(IAR_MAP_BASIC)
         self.assertIn(0x1360, result)
         archive, obj = result[0x1360]
@@ -461,6 +485,7 @@ class TestIARMapFileParser(unittest.TestCase):
         self.assertEqual(obj, 'ABImemcpy.o')
 
     def test_bss_section_parsed(self):
+        """BSS section entries are parsed correctly."""
         result = self.parser.parse(IAR_MAP_BASIC)
         self.assertIn(0x20000000, result)
         archive, obj = result[0x20000000]
@@ -468,6 +493,7 @@ class TestIARMapFileParser(unittest.TestCase):
         self.assertEqual(obj, 'main.o')
 
     def test_rodata_section_parsed(self):
+        """Read-only data section entries are parsed correctly."""
         result = self.parser.parse(IAR_MAP_BASIC)
         self.assertIn(0x13a0, result)
         archive, obj = result[0x13a0]
@@ -475,11 +501,13 @@ class TestIARMapFileParser(unittest.TestCase):
         self.assertEqual(obj, 'main.o')
 
     def test_zero_address_skipped(self):
+        """Entries at address 0 are excluded from results."""
         result = self.parser.parse(IAR_MAP_BASIC)
         # .intvec at address 0 should be skipped
         self.assertNotIn(0x0, result)
 
     def test_no_libraries(self):
+        """Map with no library archives parses project objects."""
         result = self.parser.parse(IAR_MAP_NO_LIBRARIES)
         self.assertIn(0x100, result)
         archive, obj = result[0x100]
@@ -487,10 +515,12 @@ class TestIARMapFileParser(unittest.TestCase):
         self.assertEqual(obj, 'main.o')
 
     def test_empty_placement(self):
+        """Empty placement summary returns empty dict."""
         result = self.parser.parse(IAR_MAP_EMPTY)
         self.assertEqual(result, {})
 
     def test_total_entries(self):
+        """Correct total number of entries parsed from basic fixture."""
         result = self.parser.parse(IAR_MAP_BASIC)
         # startup at 0 skipped, rest: main.o(.text), uart.o(.text),
         # sprintf.o, ABImemcpy.o, main.o(.rodata), main.o(.bss), uart.o(.bss)
@@ -542,17 +572,20 @@ class TestIARModuleSummary(unittest.TestCase):
     """Unit tests for IAR MODULE SUMMARY parsing."""
 
     def test_library_group_mapping(self):
+        """Library groups map to correct archive names."""
         parser = IARMapFileParser()
         groups = parser._parse_module_summary(IAR_MAP_BASIC)  # pylint: disable=protected-access
         self.assertEqual(groups['3'], 'dl7M_tlf.a')
         self.assertEqual(groups['5'], 'rt7M_tl.a')
 
     def test_project_dir_maps_to_empty(self):
+        """Project directory group maps to empty string."""
         parser = IARMapFileParser()
         groups = parser._parse_module_summary(IAR_MAP_BASIC)  # pylint: disable=protected-access
         self.assertEqual(groups['1'], '')
 
     def test_command_line_group(self):
+        """Command line group maps to empty string."""
         parser = IARMapFileParser()
         groups = parser._parse_module_summary(IAR_MAP_BASIC)  # pylint: disable=protected-access
         # "command line: [2]" doesn't end with .a
@@ -563,19 +596,24 @@ class TestDetectMapFormat(unittest.TestCase):
     """Unit tests for format auto-detection."""
 
     def test_detect_gnu_ld(self):
+        """GNU LD map file detected correctly."""
         self.assertEqual(_detect_map_format(MAP_WITH_ARCHIVES), 'gnu_ld')
 
     def test_detect_iar_by_placement_summary(self):
+        """IAR format detected by PLACEMENT SUMMARY marker."""
         self.assertEqual(_detect_map_format(IAR_MAP_BASIC), 'iar')
 
     def test_detect_iar_by_linker_header(self):
+        """IAR format detected by linker header string."""
         content = "# IAR ELF Linker V9.30\n"
         self.assertEqual(_detect_map_format(content), 'iar')
 
     def test_detect_empty_defaults_to_gnu_ld(self):
+        """Empty content defaults to GNU LD format."""
         self.assertEqual(_detect_map_format(''), 'gnu_ld')
 
     def test_from_file_auto_detects_iar(self):
+        """Auto-detect IAR format when loading from file."""
         with tempfile.TemporaryDirectory() as tmpdir:
             map_path = Path(tmpdir) / 'test.map'
             map_path.write_text(IAR_MAP_BASIC, encoding='utf-8')

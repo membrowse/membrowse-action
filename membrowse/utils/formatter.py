@@ -299,7 +299,9 @@ def _format_memory_regions(report: Dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def _format_top_symbols(report: Dict[str, Any], top_n: int = 20, show_all: bool = False) -> str:
+def _format_top_symbols(  # pylint: disable=too-many-locals
+    report: Dict[str, Any], top_n: int = 20, show_all: bool = False
+) -> str:
     """Format top N largest symbols or all symbols.
 
     Args:
