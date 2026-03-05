@@ -77,7 +77,9 @@ class SymbolExtractor:  # pylint: disable=too-few-public-methods
         except cxxfilt.InvalidName:
             return name
 
-    def extract_symbols(self, source_resolver, map_resolver=None) -> List[Symbol]:
+    def extract_symbols(  # pylint: disable=too-many-locals
+        self, source_resolver, map_resolver=None
+    ) -> List[Symbol]:
         """Extract symbol information from ELF file with source file mapping."""
         symbols = []
 
