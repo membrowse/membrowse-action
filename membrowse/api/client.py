@@ -7,6 +7,7 @@ to the MemBrowse API using the requests library.
 
 import copy
 import logging
+import os
 import random
 import time
 from importlib.metadata import version
@@ -19,6 +20,15 @@ from ..auth.strategy import AuthContext
 logger = logging.getLogger(__name__)
 
 PACKAGE_VERSION = version('membrowse')
+
+
+def _detect_ci_platform() -> str:
+    """Detect the CI platform from environment variables."""
+    if os.environ.get('GITLAB_CI'):
+        return 'GitLab-CI'
+    if os.environ.get('GITHUB_ACTIONS'):
+        return 'GitHub-Actions'
+    return 'CLI'
 
 
 class MemBrowseUploader:  # pylint: disable=too-few-public-methods
@@ -38,7 +48,8 @@ class MemBrowseUploader:  # pylint: disable=too-few-public-methods
 
         # Build headers based on auth strategy
         headers = auth_context.build_headers()
-        headers['User-Agent'] = f'MemBrowse-Action/{PACKAGE_VERSION}'
+        ci_platform = _detect_ci_platform()
+        headers['User-Agent'] = f'MemBrowse-Client/{PACKAGE_VERSION} ({ci_platform})'
         self.session.headers.update(headers)
 
     def upload_report(self, report_data: Dict[str, Any]) -> Dict[str, Any]:
