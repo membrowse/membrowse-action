@@ -9,7 +9,7 @@ of ELF files using specialized component classes for symbols, sections, and DWAR
 
 import os
 from pathlib import Path
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 from elftools.elf.elffile import ELFFile
 from elftools.common.exceptions import ELFError
 
@@ -19,6 +19,7 @@ from ..analysis.dwarf import DWARFProcessor
 from ..analysis.sources import SourceFileResolver
 from ..analysis.symbols import SymbolExtractor
 from ..analysis.sections import SectionAnalyzer
+from ..analysis.mapfile import MapFileResolver
 
 
 class ELFAnalyzer:  # pylint: disable=too-many-instance-attributes
@@ -65,7 +66,8 @@ class ELFAnalyzer:  # pylint: disable=too-many-instance-attributes
         elffile: The underlying pyelftools ELFFile object.
     """
 
-    def __init__(self, elf_path: str, skip_line_program: bool = False):
+    def __init__(self, elf_path: str, skip_line_program: bool = False,
+                 map_file_path: Optional[str] = None):
         """Initialize ELF analyzer with file path and component setup.
 
         Args:
@@ -73,6 +75,8 @@ class ELFAnalyzer:  # pylint: disable=too-many-instance-attributes
             skip_line_program: Skip DWARF line program processing for faster
                 analysis. This improves speed by ~24-31% but reduces source
                 file mapping coverage from ~97% to ~88% (ARM) or ~76% to ~65% (ESP32).
+            map_file_path: Optional path to a linker map file (GNU LD or IAR)
+                for archive/object file attribution on symbols.
 
         Raises:
             ELFAnalysisError: If the file doesn't exist or cannot be read.
@@ -84,31 +88,41 @@ class ELFAnalyzer:  # pylint: disable=too-many-instance-attributes
         # Open ELF file once and reuse throughout
         # pylint: disable=consider-using-with
         self._elf_file_handle = open(self.elf_path, 'rb')
-        self.elffile = ELFFile(self._elf_file_handle)
+        try:
+            self.elffile = ELFFile(self._elf_file_handle)
 
-        # Cache for expensive string operations and file paths
-        self._system_header_cache = {}
+            # Cache for expensive string operations and file paths
+            self._system_header_cache = {}
 
-        # Get symbol addresses we need to map
-        symbol_addresses = self._get_symbol_addresses_to_map(self.elffile)
+            # Get symbol addresses we need to map
+            symbol_addresses = self._get_symbol_addresses_to_map(self.elffile)
 
-        # Detect architecture for address tolerance
-        machine = self.elffile.header['e_machine']
+            # Detect architecture for address tolerance
+            machine = self.elffile.header['e_machine']
 
-        # Process DWARF information
-        dwarf_processor = DWARFProcessor(
-            self.elffile,
-            symbol_addresses,
-            skip_line_program=skip_line_program,
-            machine=machine
-        )
-        self._dwarf_data = dwarf_processor.process_dwarf_info()
+            # Process DWARF information
+            dwarf_processor = DWARFProcessor(
+                self.elffile,
+                symbol_addresses,
+                skip_line_program=skip_line_program,
+                machine=machine
+            )
+            self._dwarf_data = dwarf_processor.process_dwarf_info()
 
-        # Initialize specialized analyzers
-        self._source_resolver = SourceFileResolver(
-            self._dwarf_data, self._system_header_cache)
-        self._symbol_extractor = SymbolExtractor(self.elffile)
-        self._section_analyzer = SectionAnalyzer(self.elffile)
+            # Initialize specialized analyzers
+            self._source_resolver = SourceFileResolver(
+                self._dwarf_data, self._system_header_cache)
+            self._symbol_extractor = SymbolExtractor(self.elffile)
+            self._section_analyzer = SectionAnalyzer(self.elffile)
+
+            # Initialize map file resolver (optional)
+            if map_file_path:
+                self._map_resolver = MapFileResolver.from_file(map_file_path)
+            else:
+                self._map_resolver = MapFileResolver.null()
+        except Exception:
+            self._elf_file_handle.close()
+            raise
 
     def _validate_elf_file(self) -> None:
         """Validate that the ELF file exists and is readable."""
@@ -201,7 +215,8 @@ class ELFAnalyzer:  # pylint: disable=too-many-instance-attributes
             - ``source_file``: Source file path (if DWARF info available).
             - ``visibility``: Symbol visibility.
         """
-        return self._symbol_extractor.extract_symbols(self._source_resolver)
+        return self._symbol_extractor.extract_symbols(
+            self._source_resolver, self._map_resolver)
 
     def get_program_headers(self) -> List[Dict[str, Any]]:
         """Extract program headers."""

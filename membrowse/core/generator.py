@@ -8,7 +8,7 @@ the generation of comprehensive memory reports from ELF files and memory regions
 
 import time
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from .models import MemoryRegion, MemoryReport
 from .analyzer import ELFAnalyzer
 from ..analysis.mapper import MemoryMapper
@@ -55,7 +55,8 @@ class ReportGenerator:  # pylint: disable=too-few-public-methods
                  memory_regions_data: Dict[str,
                                            Dict[str,
                                                 Any]] = None,
-                 skip_line_program: bool = False):
+                 skip_line_program: bool = False,
+                 map_file_path: Optional[str] = None):
         """Initialize the report generator.
 
         Args:
@@ -65,9 +66,12 @@ class ReportGenerator:  # pylint: disable=too-few-public-methods
                 will not include memory layout utilization data.
             skip_line_program: Skip DWARF line program processing for faster
                 analysis at the cost of reduced source file coverage (~24-31% faster).
+            map_file_path: Optional path to a linker map file (GNU LD or IAR)
+                for archive/object file attribution on symbols.
         """
         self.elf_analyzer = ELFAnalyzer(
-            elf_path, skip_line_program=skip_line_program)
+            elf_path, skip_line_program=skip_line_program,
+            map_file_path=map_file_path)
         self.memory_regions_data = memory_regions_data
         self.elf_path = elf_path
         self.skip_line_program = skip_line_program
