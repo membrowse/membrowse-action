@@ -1,4 +1,4 @@
-name: 'MemBrowse - Binary Size and Memory Footprint Tracking'
+name: 'Binary Size & Memory Footprint Tracking'
 description: 'Track and analyze memory footprint across commits and PRs to catch memory regressions.'
 author: 'MemBrowse'
 
