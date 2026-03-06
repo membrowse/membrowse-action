@@ -1,5 +1,5 @@
-name: 'MemBrowse - Firmware Memory Tracking'
-description: 'Track RAM and Flash usage across commits and PRs to catch memory regressions.'
+name: 'MemBrowse - Binary Size and Memory Footprint Tracking'
+description: 'Track and analyze memory footprint across commits and PRs to catch memory regressions.'
 author: 'MemBrowse'
 
 inputs:
