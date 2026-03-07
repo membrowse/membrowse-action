@@ -11,6 +11,7 @@ import argparse
 
 from .commands.report import add_report_parser, run_report
 from .commands.onboard import add_onboard_parser, run_onboard
+from .commands.summary import add_summary_parser, run_summary
 
 LOG_LEVELS = {
     "WARNING": logging.WARNING,
@@ -33,6 +34,7 @@ def create_parser() -> argparse.ArgumentParser:
 subcommands:
   report    Generate memory footprint report (local or upload mode)
   onboard   Analyze and upload memory footprints across historical commits
+  summary   Retrieve memory footprint summary for a commit
 
 examples:
   # Local mode - human-readable output (default)
@@ -53,9 +55,13 @@ examples:
   membrowse onboard 50 "make build" build/firmware.elf "linker.ld" \\
       esp32 "$API_KEY" https://api.membrowse.com
 
+  # Summary - get memory footprint summary for a commit
+  membrowse summary abc123 --api-key "$API_KEY"
+
 For more help on a subcommand:
   membrowse report --help
   membrowse onboard --help
+  membrowse summary --help
         """
     )
 
@@ -78,6 +84,7 @@ For more help on a subcommand:
     # Add subcommand parsers
     add_report_parser(subparsers)
     add_onboard_parser(subparsers)
+    add_summary_parser(subparsers)
 
     return parser
 
@@ -103,6 +110,8 @@ def main() -> int:
         return run_report(args)
     if args.subcommand == 'onboard':
         return run_onboard(args)
+    if args.subcommand == 'summary':
+        return run_summary(args)
     parser.print_help()
     return 1
 

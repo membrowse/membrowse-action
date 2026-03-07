@@ -5,7 +5,20 @@ author: 'MemBrowse'
 inputs:
   json_files:
     description: 'Space-separated list of JSON report file paths or glob pattern (e.g., "reports/*.json")'
-    required: true
+    required: false
+  api_key:
+    description: 'MemBrowse API key (for summary mode — fetches data from the API instead of JSON files)'
+    required: false
+  commit:
+    description: 'Commit SHA to fetch summary for (requires api_key)'
+    required: false
+  pr_number:
+    description: 'PR number to post comment on (auto-detected from event context or commit SHA via GitHub API)'
+    required: false
+  api_url:
+    description: 'MemBrowse API base URL (default: https://api.membrowse.com)'
+    required: false
+    default: 'https://api.membrowse.com'
   comment_template:
     description: 'Optional path to custom Jinja2 template file for comment formatting'
     required: false
@@ -26,19 +39,49 @@ runs:
     - name: Post combined PR comment
       shell: bash
       run: |
-        # Expand glob patterns and convert to array
-        shopt -s nullglob
-        FILES=(${{ inputs.json_files }})
-        shopt -u nullglob
+        # Summary mode: api_key + commit
+        if [ -n "${{ inputs.api_key }}" ] && [ -n "${{ inputs.commit }}" ]; then
+          # 3-tier PR number resolution:
+          # 1. Explicit input
+          # 2. GitHub event context (pull_request trigger)
+          # 3. gh API lookup from commit SHA (workflow_run trigger)
+          PR_NUMBER="${{ inputs.pr_number }}"
+          if [ -z "$PR_NUMBER" ]; then
+            PR_NUMBER="${{ github.event.pull_request.number }}"
+          fi
+          if [ -z "$PR_NUMBER" ]; then
+            echo "No PR number from input or event context, looking up from commit SHA..."
+            PR_NUMBER=$(gh api "/repos/${{ github.repository }}/commits/${{ inputs.commit }}/pulls" --jq '.[0].number' 2>/dev/null || true)
+          fi
+          if [ -z "$PR_NUMBER" ]; then
+            echo "::warning::Could not resolve PR number — skipping comment (push event with no associated PR?)"
+            exit 0
+          fi
 
-        # Build command with optional template
-        ARGS=()
-        if [ -n "${{ inputs.comment_template }}" ]; then
-          ARGS+=(--comment-template "${{ inputs.comment_template }}")
+          # Build membrowse summary command
+          SUMMARY_ARGS=(summary "${{ inputs.commit }}" --api-key "${{ inputs.api_key }}" --api-url "${{ inputs.api_url }}")
+          if [ -n "${{ inputs.comment_template }}" ]; then
+            SUMMARY_ARGS+=(--template "${{ inputs.comment_template }}")
+          fi
+
+          # membrowse summary renders the template to stdout.
+          # github_comment --body prepends the logo header/comment marker
+          # and handles create-or-update (finds existing comment to avoid duplicates).
+          membrowse "${SUMMARY_ARGS[@]}" > /tmp/membrowse-comment-body.md
+          python -m membrowse.utils.github_comment --body /tmp/membrowse-comment-body.md --pr-number "$PR_NUMBER"
+        else
+          # File mode (backward compat)
+          ARGS=()
+          if [ -n "${{ inputs.comment_template }}" ]; then
+            ARGS+=(--comment-template "${{ inputs.comment_template }}")
+          fi
+
+          shopt -s nullglob
+          FILES=(${{ inputs.json_files }})
+          shopt -u nullglob
+
+          python -m membrowse.utils.github_comment "${ARGS[@]}" "${FILES[@]}"
         fi
-
-        # Invoke the existing Python module with all file paths
-        python -m membrowse.utils.github_comment "${ARGS[@]}" "${FILES[@]}"
 
 branding:
   icon: 'message-circle'
