@@ -132,4 +132,5 @@ def build_summary_template_context(summary_response: dict[str, Any]) -> dict[str
     return {
         'targets': targets,
         'has_alerts': has_any_alerts,
+        'dashboard_url': data.get('dashboard_url', ''),
     }
