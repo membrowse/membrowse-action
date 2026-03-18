@@ -291,6 +291,9 @@ class TestRunBinarySearchOnboard:
         assert failed == 0
         assert success == 10  # 2 built + 8 identical
         assert mock_build.call_count == 2  # Only endpoints built
+        # HEAD (c9) must be the last upload
+        last_upload_commit = mock_upload.call_args_list[-1][1]['commit_info']['commit_hash']
+        assert last_upload_commit == 'c9'
 
     @patch('membrowse.commands.onboard._build_and_generate_report')
     @patch('membrowse.commands.onboard.upload_report')

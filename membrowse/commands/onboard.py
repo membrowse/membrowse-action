@@ -726,7 +726,7 @@ def _run_binary_search_onboard(args, commits, current_branch, repo_name,
     built_indices.add(0)
     reports_cache[0] = first_report
 
-    # Build newest endpoint
+    # Build newest endpoint (but defer upload until after all intermediates)
     logger.info("Building endpoint %d/%d: %s (newest)",
                 total, total, commits[-1][:8])
     try:
@@ -738,16 +738,16 @@ def _run_binary_search_onboard(args, commits, current_branch, repo_name,
         counters['failed'] += 1
         return counters['successful'], counters['failed']
 
-    if not _upload_commit(last_report, commits[-1], args, current_branch,
-                          repo_name, build_failed=last_failed):
-        counters['failed'] += 1
-        return counters['successful'], counters['failed']
-    counters['successful'] += 1
     built_indices.add(total - 1)
     reports_cache[total - 1] = last_report
 
-    # Edge case: only two commits, already done
+    # Edge case: only two commits - upload HEAD now
     if total == 2:
+        if _upload_commit(last_report, commits[-1], args, current_branch,
+                          repo_name, build_failed=last_failed):
+            counters['successful'] += 1
+        else:
+            counters['failed'] += 1
         return counters['successful'], counters['failed']
 
     # If either endpoint failed to build, fingerprint comparison is meaningless
@@ -761,26 +761,32 @@ def _run_binary_search_onboard(args, commits, current_branch, repo_name,
             built_indices, reports_cache,
             args, linker_variables,
             current_branch, repo_name, counters)
-        return counters['successful'], counters['failed']
-
-    # Extract fingerprints and run binary search
-    first_fp = _extract_fingerprint(first_report)
-    last_fp = _extract_fingerprint(last_report)
-
-    if first_fp == last_fp:
-        logger.info(
-            "Endpoints have identical fingerprints - marking all %d "
-            "intermediate commits as identical", total - 2)
     else:
-        logger.info("Endpoints differ - searching for changes via binary search")
+        # Extract fingerprints and run binary search
+        first_fp = _extract_fingerprint(first_report)
+        last_fp = _extract_fingerprint(last_report)
 
-    if not _binary_search_range(
-            commits, 0, total - 1,
-            first_fp, last_fp,
-            built_indices, reports_cache,
-            args, linker_variables,
-            current_branch, repo_name, counters):
-        logger.error("Binary search aborted due to upload failure")
+        if first_fp == last_fp:
+            logger.info(
+                "Endpoints have identical fingerprints - marking all %d "
+                "intermediate commits as identical", total - 2)
+        else:
+            logger.info("Endpoints differ - searching for changes via binary search")
+
+        if not _binary_search_range(
+                commits, 0, total - 1,
+                first_fp, last_fp,
+                built_indices, reports_cache,
+                args, linker_variables,
+                current_branch, repo_name, counters):
+            logger.error("Binary search aborted due to upload failure")
+
+    # Upload HEAD (newest) last so it's the final upload
+    if _upload_commit(last_report, commits[-1], args, current_branch,
+                      repo_name, build_failed=last_failed):
+        counters['successful'] += 1
+    else:
+        counters['failed'] += 1
 
     return counters['successful'], counters['failed']
 
