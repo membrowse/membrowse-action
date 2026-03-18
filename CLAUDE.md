@@ -111,6 +111,19 @@ membrowse onboard 50 "make clean && make" build/firmware.elf \
 # ESP-IDF project (API URL is optional, defaults to https://api.membrowse.com)
 membrowse onboard 25 "idf.py build" build/firmware.elf \
     esp32 "$API_KEY" --ld-scripts "build/esp-idf/esp32/esp32.project.ld"
+
+# Binary search mode: minimize builds by detecting memory change points
+# Only builds endpoints and midpoints, marks unchanged ranges as identical
+membrowse onboard 50 "make clean && make" build/firmware.elf \
+    stm32f4 "$API_KEY" --binary-search
+
+# Dry-run mode: build and analyze but skip uploading (for testing)
+membrowse onboard 50 "make clean && make" build/firmware.elf \
+    stm32f4 "$API_KEY" --dry-run
+
+# Combine dry-run with binary search
+membrowse onboard 50 "make clean && make" build/firmware.elf \
+    stm32f4 "$API_KEY" --binary-search --dry-run
 ```
 
 ### Performance Options
