@@ -494,23 +494,28 @@ def _upload_commit(  # pylint: disable=too-many-arguments,too-many-positional-ar
 def _binary_search_range(  # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals,too-many-return-statements
     commits, left_idx, right_idx,
     left_fingerprint, right_fingerprint,
-    built_indices, reports_cache, commit_results,
+    built_indices, failed_indices, reports_cache, commit_results,
     args, linker_variables, flush_fn
 ):
     """
     Recursively classify a range of commits using binary search.
 
     Builds midpoints only where fingerprints differ, and marks identical
-    ranges. Does NOT upload — results are stored in commit_results for
+    ranges. Build failures are treated as a distinct fingerprint state
+    (None), allowing binary search to find where builds start/stop
+    failing. Does NOT upload — results are stored in commit_results for
     chronological upload via flush_fn.
 
     Args:
         commits: Full list of commit hashes (oldest first)
         left_idx: Index of the left boundary (already built)
         right_idx: Index of the right boundary (already built)
-        left_fingerprint: Fingerprint of the left boundary report
-        right_fingerprint: Fingerprint of the right boundary report
+        left_fingerprint: Fingerprint of the left boundary report,
+                          or None if the build failed
+        right_fingerprint: Fingerprint of the right boundary report,
+                           or None if the build failed
         built_indices: Set of indices that have been built
+        failed_indices: Set of indices where builds failed
         reports_cache: Dict mapping index -> report (for built commits)
         commit_results: Dict mapping index -> (report, build_failed, identical)
                         populated by this function for later upload
@@ -525,22 +530,36 @@ def _binary_search_range(  # pylint: disable=too-many-arguments,too-many-positio
     if right_idx - left_idx <= 1:
         return True
 
-    # Fingerprints match - all commits in between are identical
+    # Fingerprints match - all commits in between share the same state
     if left_fingerprint == right_fingerprint:
         count = right_idx - left_idx - 1
-        logger.info(
-            "Commits %d..%d have identical memory fingerprints, "
-            "marking %d intermediate commits as identical",
-            left_idx, right_idx, count)
+        both_failed = left_fingerprint is None
+
+        if both_failed:
+            logger.info(
+                "Commits %d..%d both failed to build, "
+                "marking %d intermediate commits as build failures",
+                left_idx, right_idx, count)
+        else:
+            logger.info(
+                "Commits %d..%d have identical memory fingerprints, "
+                "marking %d intermediate commits as identical",
+                left_idx, right_idx, count)
 
         for i in range(left_idx + 1, right_idx):
             if i in built_indices:
                 continue
             commit = commits[i]
-            report = _create_metadata_only_report(args.elf_path)
-            commit_results[i] = (report, False, True)
-            logger.info("(%s): Marked as identical (%d/%d)",
-                        commit[:8], i + 1, len(commits))
+            if both_failed:
+                report = _create_empty_report(args.elf_path)
+                commit_results[i] = (report, True, False)
+                logger.info("(%s): Marked as build failure (%d/%d)",
+                            commit[:8], i + 1, len(commits))
+            else:
+                report = _create_metadata_only_report(args.elf_path)
+                commit_results[i] = (report, False, True)
+                logger.info("(%s): Marked as identical (%d/%d)",
+                            commit[:8], i + 1, len(commits))
         flush_fn()
         return True
 
@@ -550,7 +569,7 @@ def _binary_search_range(  # pylint: disable=too-many-arguments,too-many-positio
     if mid_idx in built_indices:
         # Already built (shouldn't normally happen), use cached report
         mid_report = reports_cache[mid_idx]
-        mid_fingerprint = _extract_fingerprint(mid_report)
+        mid_fingerprint = None if mid_idx in failed_indices else _extract_fingerprint(mid_report)
     else:
         # Build the midpoint
         commit = commits[mid_idx]
@@ -561,90 +580,37 @@ def _binary_search_range(  # pylint: disable=too-many-arguments,too-many-positio
                 commit, args, linker_variables)
         except RuntimeError as e:
             logger.error("Checkout failed at midpoint %s: %s", commit[:8], e)
-            return _fallback_linear(
-                commits, left_idx, right_idx, built_indices, reports_cache,
-                commit_results, args, linker_variables, flush_fn)
+            mid_report = _create_empty_report(args.elf_path)
+            build_failed = True
         except ValueError as e:
             logger.error("Report generation failed at midpoint %s: %s",
                          commit[:8], e)
             return False
 
-        if build_failed:
-            logger.warning(
-                "Build failed at midpoint %s, falling back to linear "
-                "for range %d..%d",
-                commit[:8], left_idx, right_idx)
-            commit_results[mid_idx] = (mid_report, True, False)
-            built_indices.add(mid_idx)
-            reports_cache[mid_idx] = mid_report
-            flush_fn()
-            return _fallback_linear(
-                commits, left_idx, right_idx, built_indices, reports_cache,
-                commit_results, args, linker_variables, flush_fn)
-
-        commit_results[mid_idx] = (mid_report, False, False)
+        commit_results[mid_idx] = (mid_report, build_failed, False)
         built_indices.add(mid_idx)
         reports_cache[mid_idx] = mid_report
-        mid_fingerprint = _extract_fingerprint(mid_report)
         flush_fn()
+
+        if build_failed:
+            failed_indices.add(mid_idx)
+            mid_fingerprint = None
+        else:
+            mid_fingerprint = _extract_fingerprint(mid_report)
 
     # Recurse on both halves
     if not _binary_search_range(
             commits, left_idx, mid_idx,
             left_fingerprint, mid_fingerprint,
-            built_indices, reports_cache, commit_results,
+            built_indices, failed_indices, reports_cache, commit_results,
             args, linker_variables, flush_fn):
         return False
 
     return _binary_search_range(
         commits, mid_idx, right_idx,
         mid_fingerprint, right_fingerprint,
-        built_indices, reports_cache, commit_results,
+        built_indices, failed_indices, reports_cache, commit_results,
         args, linker_variables, flush_fn)
-
-
-def _fallback_linear(  # pylint: disable=too-many-arguments,too-many-positional-arguments
-    commits, left_idx, right_idx,
-    built_indices, reports_cache, commit_results,
-    args, linker_variables, flush_fn
-):
-    """
-    Fall back to linear processing for a range when binary search cannot
-    continue (e.g., build failure at midpoint).
-
-    Builds each unbuilt commit in the range and stores results for
-    chronological upload via flush_fn.
-
-    Returns:
-        True if processing should continue, False to abort
-    """
-    logger.info("Falling back to linear processing for commits %d..%d",
-                left_idx + 1, right_idx - 1)
-
-    for i in range(left_idx + 1, right_idx):
-        if i in built_indices:
-            continue
-        commit = commits[i]
-        logger.info("Linear build %d/%d: %s", i + 1, len(commits), commit[:8])
-
-        try:
-            report, build_failed = _build_and_generate_report(
-                commit, args, linker_variables)
-        except RuntimeError as e:
-            logger.error("Checkout failed for %s: %s", commit[:8], e)
-            commit_results[i] = (_create_empty_report(args.elf_path), True, False)
-            flush_fn()
-            continue
-        except ValueError as e:
-            logger.error("Report generation failed for %s: %s", commit[:8], e)
-            return False
-
-        commit_results[i] = (report, build_failed, False)
-        built_indices.add(i)
-        reports_cache[i] = report
-        flush_fn()
-
-    return True
 
 
 def _run_binary_search_onboard(  # pylint: disable=too-many-locals,too-many-statements
@@ -669,6 +635,7 @@ def _run_binary_search_onboard(  # pylint: disable=too-many-locals,too-many-stat
     """
     counters = {'successful': 0, 'failed': 0}
     built_indices = set()
+    failed_indices = set()
     reports_cache = {}
     commit_results = {}  # index -> (report, build_failed, identical)
     total = len(commits)
@@ -737,6 +704,8 @@ def _run_binary_search_onboard(  # pylint: disable=too-many-locals,too-many-stat
 
     commit_results[0] = (first_report, first_failed, False)
     built_indices.add(0)
+    if first_failed:
+        failed_indices.add(0)
     reports_cache[0] = first_report
     flush_fn()
 
@@ -754,6 +723,8 @@ def _run_binary_search_onboard(  # pylint: disable=too-many-locals,too-many-stat
 
     commit_results[total - 1] = (last_report, last_failed, False)
     built_indices.add(total - 1)
+    if last_failed:
+        failed_indices.add(total - 1)
     reports_cache[total - 1] = last_report
 
     # Edge case: only two commits
@@ -761,34 +732,28 @@ def _run_binary_search_onboard(  # pylint: disable=too-many-locals,too-many-stat
         flush_fn()
         return counters['successful'], counters['failed']
 
-    # If either endpoint failed to build, fingerprint comparison is meaningless
-    # Fall back to linear for all intermediate commits
-    if first_failed or last_failed:
-        logger.warning(
-            "Endpoint build failed - falling back to linear for "
-            "%d intermediate commits", total - 2)
-        _fallback_linear(
-            commits, 0, total - 1,
-            built_indices, reports_cache, commit_results,
-            args, linker_variables, flush_fn)
-    else:
-        # Extract fingerprints and run binary search
-        first_fp = _extract_fingerprint(first_report)
-        last_fp = _extract_fingerprint(last_report)
+    # Extract fingerprints (None for failed builds)
+    first_fp = None if first_failed else _extract_fingerprint(first_report)
+    last_fp = None if last_failed else _extract_fingerprint(last_report)
 
-        if first_fp == last_fp:
+    if first_fp == last_fp:
+        if first_fp is None:
+            logger.info(
+                "Both endpoints failed - searching for working builds "
+                "among %d intermediate commits", total - 2)
+        else:
             logger.info(
                 "Endpoints have identical fingerprints - marking all %d "
                 "intermediate commits as identical", total - 2)
-        else:
-            logger.info("Endpoints differ - searching for changes via binary search")
+    else:
+        logger.info("Endpoints differ - searching for changes via binary search")
 
-        if not _binary_search_range(
-                commits, 0, total - 1,
-                first_fp, last_fp,
-                built_indices, reports_cache, commit_results,
-                args, linker_variables, flush_fn):
-            logger.error("Binary search aborted due to upload failure")
+    if not _binary_search_range(
+            commits, 0, total - 1,
+            first_fp, last_fp,
+            built_indices, failed_indices, reports_cache, commit_results,
+            args, linker_variables, flush_fn):
+        logger.error("Binary search aborted due to upload failure")
 
     # Final flush to ensure HEAD (newest) is uploaded last
     flush_fn()

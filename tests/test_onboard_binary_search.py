@@ -152,7 +152,7 @@ class TestBinarySearchRange:
         result = _binary_search_range(
             commits, 0, 1,
             (('FLASH', 100),), (('FLASH', 100),),
-            {0, 1}, {}, commit_results,
+            {0, 1}, set(), {}, commit_results,
             _make_args(), {}, lambda: flush_called.append(True))
         assert result is True
         assert not commit_results
@@ -169,7 +169,7 @@ class TestBinarySearchRange:
         result = _binary_search_range(
             commits, 0, 4,
             fp, fp,
-            {0, 4}, {}, commit_results,
+            {0, 4}, set(), {}, commit_results,
             _make_args(), {}, lambda: flush_called.append(True))
 
         assert result is True
@@ -196,7 +196,7 @@ class TestBinarySearchRange:
         _binary_search_range(
             commits, 0, 4,
             fp_left, fp_right,
-            {0, 4}, {}, commit_results,
+            {0, 4}, set(), {}, commit_results,
             _make_args(), {}, lambda: None)
 
         # Midpoint (index 2) should have been built
@@ -205,24 +205,26 @@ class TestBinarySearchRange:
         assert 'c2' in build_commits
 
     @patch('membrowse.commands.onboard._build_and_generate_report')
-    def test_build_failure_falls_back_to_linear(self, mock_build):
-        """When midpoint build fails, falls back to linear for the range."""
-        # First call (midpoint) returns build failure, subsequent calls succeed
+    def test_build_failure_continues_binary_search(self, mock_build):
+        """When midpoint build fails, continues binary search with None fingerprint."""
         failed_report = _make_report({})
         success_report = _make_report(_make_layout(flash_used=1000))
-        mock_build.side_effect = [
-            (failed_report, True),   # midpoint (c2) build fails
-            (success_report, False), # linear fallback: c1
-            (success_report, False), # linear fallback: c3
-        ]
+
+        def build_side_effect(commit, _args, _linker_vars):
+            if commit == 'c2':
+                return failed_report, True
+            return success_report, False
+
+        mock_build.side_effect = build_side_effect
 
         commit_results = {}
+        failed_indices = set()
         commits = ['c0', 'c1', 'c2', 'c3', 'c4']
 
         result = _binary_search_range(
             commits, 0, 4,
             (('FLASH', 1000),), (('FLASH', 2000),),
-            {0, 4}, {}, commit_results,
+            {0, 4}, failed_indices, {}, commit_results,
             _make_args(), {}, lambda: None)
 
         assert result is True
@@ -230,6 +232,10 @@ class TestBinarySearchRange:
         assert 1 in commit_results
         assert 2 in commit_results
         assert 3 in commit_results
+        # c2 should be marked as build_failed
+        assert commit_results[2][1] is True
+        # c2 should be in failed_indices
+        assert 2 in failed_indices
 
 
 class TestRunBinarySearchOnboard:
@@ -346,23 +352,21 @@ class TestRunBinarySearchOnboard:
     @patch('membrowse.commands.onboard._build_and_generate_report')
     @patch('membrowse.commands.onboard.upload_report')
     @patch('membrowse.commands.onboard.get_commit_metadata')
-    def test_failed_endpoint_falls_back_to_linear(self, mock_metadata,
-                                                    mock_upload, mock_build):
-        """When an endpoint build fails, falls back to linear for intermediates."""
+    def test_failed_endpoint_uses_binary_search(self, mock_metadata,
+                                                mock_upload, mock_build):
+        """When an endpoint build fails, binary search finds the boundary."""
         mock_metadata.side_effect = _make_commit_metadata
         mock_upload.return_value = ({"status": "success"}, "")
 
         success_report = _make_report(_make_layout(flash_used=1000))
-        failed_report = _make_report({})
 
-        # Oldest endpoint succeeds, newest fails, then linear fallback builds
-        mock_build.side_effect = [
-            (success_report, False),  # oldest endpoint
-            (failed_report, True),    # newest endpoint fails
-            (success_report, False),  # linear: c1
-            (success_report, False),  # linear: c2
-            (success_report, False),  # linear: c3
-        ]
+        # c0 succeeds, c4 fails, intermediates succeed
+        def build_side_effect(commit, _args, _linker_vars):
+            if commit == 'c4':
+                return _make_report({}), True
+            return success_report, False
+
+        mock_build.side_effect = build_side_effect
 
         commits = ['c0', 'c1', 'c2', 'c3', 'c4']
         success, failed = _run_binary_search_onboard(
@@ -370,8 +374,8 @@ class TestRunBinarySearchOnboard:
 
         assert failed == 0
         assert success == 5
-        # Should build all 5 (2 endpoints + 3 linear fallback)
-        assert mock_build.call_count == 5
+        # Binary search should build fewer than 5 (c1 identical to c0/c2)
+        assert mock_build.call_count < 5
         # Uploads must be in chronological order
         upload_hashes = _get_upload_commit_hashes(mock_upload)
         assert upload_hashes == ['c0', 'c1', 'c2', 'c3', 'c4']
@@ -429,6 +433,70 @@ class TestRunBinarySearchOnboard:
         assert 'c7' in full_uploads
         assert len(full_uploads) == 3
         assert len(identical_uploads) == 7
+
+
+    @patch('membrowse.commands.onboard._build_and_generate_report')
+    @patch('membrowse.commands.onboard.upload_report')
+    @patch('membrowse.commands.onboard.get_commit_metadata')
+    def test_both_endpoints_fail_marks_intermediates_failed(self, mock_metadata,
+                                                            mock_upload, mock_build):
+        """When both endpoints fail, intermediates are marked as build_failed."""
+        mock_metadata.side_effect = _make_commit_metadata
+        mock_upload.return_value = ({"status": "success"}, "")
+
+        mock_build.return_value = (_make_report({}), True)  # All builds fail
+
+        commits = ['c0', 'c1', 'c2', 'c3', 'c4']
+        success, failed = _run_binary_search_onboard(
+            _make_args(), commits, 'main', 'repo', {})
+
+        assert failed == 0
+        assert success == 5
+        # Only endpoints built (both None fingerprint -> intermediates marked failed)
+        assert mock_build.call_count == 2
+        # All uploads should have build_failed=True
+        for call in mock_upload.call_args_list:
+            assert call.kwargs.get('build_failed') is True
+
+    @patch('membrowse.commands.onboard._build_and_generate_report')
+    @patch('membrowse.commands.onboard.upload_report')
+    @patch('membrowse.commands.onboard.get_commit_metadata')
+    def test_failure_boundary_detection(self, mock_metadata, mock_upload,
+                                        mock_build):
+        """Binary search finds where builds start and stop failing."""
+        mock_metadata.side_effect = _make_commit_metadata
+        mock_upload.return_value = ({"status": "success"}, "")
+
+        # c0,c1 succeed (fp A), c2,c3 fail, c4 succeeds (fp B)
+        # Different endpoints force recursion, which discovers the failures
+        def build_side_effect(commit, _args, _linker_vars):
+            idx = int(commit[1:])
+            if idx in (2, 3):
+                return _make_report({}), True
+            if idx == 4:
+                return _make_report(_make_layout(flash_used=2000)), False
+            return _make_report(_make_layout(flash_used=1000)), False
+
+        mock_build.side_effect = build_side_effect
+
+        commits = ['c0', 'c1', 'c2', 'c3', 'c4']
+        success, failed = _run_binary_search_onboard(
+            _make_args(), commits, 'main', 'repo', {})
+
+        assert failed == 0
+        assert success == 5
+        # Uploads must be in chronological order
+        upload_hashes = _get_upload_commit_hashes(mock_upload)
+        assert upload_hashes == ['c0', 'c1', 'c2', 'c3', 'c4']
+        # c2 and c3 should be build_failed
+        for call in mock_upload.call_args_list:
+            sha = call.kwargs['commit_info']['commit_hash']
+            if sha in ('c2', 'c3'):
+                assert call.kwargs.get('build_failed') is True, \
+                    f"{sha} should be build_failed"
+            else:
+                assert not call.kwargs.get('build_failed'), \
+                    f"{sha} should not be build_failed"
 
 
 class TestDryRun:
