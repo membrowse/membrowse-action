@@ -1,3 +1,4 @@
+# pylint: disable=too-many-lines
 """Onboard subcommand - historical analysis across multiple commits."""
 
 import os
@@ -437,8 +438,10 @@ def _build_commit_info(commit, current_branch, repo_name):
     }
 
 
-def _upload_commit(report, commit, args, current_branch, repo_name,
-                   build_failed=False, identical=False):
+def _upload_commit(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+    report, commit, args, current_branch, repo_name,
+    build_failed=False, identical=False
+):
     """
     Upload a report for a single commit with proper git metadata.
 
@@ -488,7 +491,7 @@ def _upload_commit(report, commit, args, current_branch, repo_name,
         return False
 
 
-def _binary_search_range(  # pylint: disable=too-many-arguments,too-many-locals
+def _binary_search_range(  # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals,too-many-return-statements
     commits, left_idx, right_idx,
     left_fingerprint, right_fingerprint,
     built_indices, reports_cache, commit_results,
@@ -600,7 +603,7 @@ def _binary_search_range(  # pylint: disable=too-many-arguments,too-many-locals
         args, linker_variables, flush_fn)
 
 
-def _fallback_linear(  # pylint: disable=too-many-arguments
+def _fallback_linear(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     commits, left_idx, right_idx,
     built_indices, reports_cache, commit_results,
     args, linker_variables, flush_fn
@@ -644,8 +647,9 @@ def _fallback_linear(  # pylint: disable=too-many-arguments
     return True
 
 
-def _run_binary_search_onboard(args, commits, current_branch, repo_name,
-                                linker_variables):
+def _run_binary_search_onboard(  # pylint: disable=too-many-locals,too-many-statements
+    args, commits, current_branch, repo_name, linker_variables
+):
     """
     Run onboard using binary search to minimize builds.
 
@@ -697,7 +701,7 @@ def _run_binary_search_onboard(args, commits, current_branch, repo_name,
             # previous fingerprint since their empty layout is not meaningful.
             if not build_failed:
                 fp = _extract_fingerprint(report)
-                if fp != ():
+                if fp:
                     flush_state['prev_fingerprint'] = fp
 
             flush_state['next_to_upload'] += 1
@@ -792,7 +796,7 @@ def _run_binary_search_onboard(args, commits, current_branch, repo_name,
     return counters['successful'], counters['failed']
 
 
-def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-locals,too-many-statements,too-many-branches
+def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-locals,too-many-statements,too-many-branches,too-many-return-statements
     """
     Execute the onboard subcommand.
 

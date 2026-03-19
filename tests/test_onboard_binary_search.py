@@ -1,16 +1,12 @@
 """Tests for binary search onboard mode."""
 
 import argparse
-from unittest.mock import patch, MagicMock
-import pytest
+from unittest.mock import patch
 
 from membrowse.commands.onboard import (
     _extract_fingerprint,
-    _build_and_generate_report,
-    _upload_commit,
     _binary_search_range,
     _run_binary_search_onboard,
-    _create_metadata_only_report,
     run_onboard,
 )
 
@@ -97,20 +93,25 @@ def _get_upload_commit_hashes(mock_upload):
 # --- Fingerprint tests ---
 
 class TestExtractFingerprint:
+    """Tests for _extract_fingerprint helper."""
+
     def test_basic_fingerprint(self):
+        """Extracts sorted region-name/used-size tuples."""
         report = _make_report(_make_layout(flash_used=1000, ram_used=500))
         fp = _extract_fingerprint(report)
         assert fp == (('FLASH', 1000), ('RAM', 500))
 
     def test_empty_layout(self):
+        """Empty layout returns empty tuple."""
         report = _make_report({})
         fp = _extract_fingerprint(report)
-        assert fp == ()
+        assert not fp
 
     def test_missing_layout_key(self):
+        """Missing memory_layout key returns empty tuple."""
         report = {'file_path': 'test.elf'}
         fp = _extract_fingerprint(report)
-        assert fp == ()
+        assert not fp
 
     def test_ignores_address_changes(self):
         """Two reports with same used_size but different addresses are identical."""
@@ -123,11 +124,13 @@ class TestExtractFingerprint:
                _extract_fingerprint(_make_report(layout2))
 
     def test_different_used_size_differs(self):
+        """Different used_size produces different fingerprints."""
         fp1 = _extract_fingerprint(_make_report(_make_layout(flash_used=1000)))
         fp2 = _extract_fingerprint(_make_report(_make_layout(flash_used=1001)))
         assert fp1 != fp2
 
     def test_sorted_by_region_name(self):
+        """Regions are sorted alphabetically by name."""
         layout = {
             'ZZZ': {'used_size': 100},
             'AAA': {'used_size': 200},
@@ -152,8 +155,8 @@ class TestBinarySearchRange:
             {0, 1}, {}, commit_results,
             _make_args(), {}, lambda: flush_called.append(True))
         assert result is True
-        assert commit_results == {}
-        assert flush_called == []
+        assert not commit_results
+        assert not flush_called
 
     def test_identical_range_marks_all_identical(self):
         """When fingerprints match, all intermediate commits are stored as identical."""
@@ -237,7 +240,7 @@ class TestRunBinarySearchOnboard:
     @patch('membrowse.commands.onboard.get_commit_metadata')
     def test_single_commit(self, mock_metadata, mock_upload, mock_build):
         """N=1: builds and uploads the single commit."""
-        mock_metadata.side_effect = lambda sha: _make_commit_metadata(sha)
+        mock_metadata.side_effect = _make_commit_metadata
         mock_upload.return_value = ({"status": "success"}, "")
         mock_build.return_value = (_make_report(_make_layout()), False)
 
@@ -253,7 +256,7 @@ class TestRunBinarySearchOnboard:
     @patch('membrowse.commands.onboard.get_commit_metadata')
     def test_two_commits(self, mock_metadata, mock_upload, mock_build):
         """N=2: builds both endpoints, no recursion."""
-        mock_metadata.side_effect = lambda sha: _make_commit_metadata(sha)
+        mock_metadata.side_effect = _make_commit_metadata
         mock_upload.return_value = ({"status": "success"}, "")
         mock_build.return_value = (_make_report(_make_layout()), False)
 
@@ -269,7 +272,7 @@ class TestRunBinarySearchOnboard:
     @patch('membrowse.commands.onboard.get_commit_metadata')
     def test_two_commits_identical_dedup(self, mock_metadata, mock_upload, mock_build):
         """N=2 with same fingerprint: second is uploaded as identical."""
-        mock_metadata.side_effect = lambda sha: _make_commit_metadata(sha)
+        mock_metadata.side_effect = _make_commit_metadata
         mock_upload.return_value = ({"status": "success"}, "")
         mock_build.return_value = (_make_report(_make_layout()), False)
 
@@ -286,7 +289,7 @@ class TestRunBinarySearchOnboard:
     @patch('membrowse.commands.onboard.get_commit_metadata')
     def test_all_identical(self, mock_metadata, mock_upload, mock_build):
         """All commits have same fingerprint: only 2 builds, rest marked identical."""
-        mock_metadata.side_effect = lambda sha: _make_commit_metadata(sha)
+        mock_metadata.side_effect = _make_commit_metadata
         mock_upload.return_value = ({"status": "success"}, "")
         report = _make_report(_make_layout(flash_used=1000, ram_used=500))
         mock_build.return_value = (report, False)
@@ -312,7 +315,7 @@ class TestRunBinarySearchOnboard:
     @patch('membrowse.commands.onboard.get_commit_metadata')
     def test_change_in_middle(self, mock_metadata, mock_upload, mock_build):
         """Change at midpoint: verifies correct recursion and chronological upload."""
-        mock_metadata.side_effect = lambda sha: _make_commit_metadata(sha)
+        mock_metadata.side_effect = _make_commit_metadata
         mock_upload.return_value = ({"status": "success"}, "")
 
         # Commits: c0..c4. c0-c1 have layout A, c2-c4 have layout B.
@@ -321,7 +324,7 @@ class TestRunBinarySearchOnboard:
         report_a = _make_report(layout_a)
         report_b = _make_report(layout_b)
 
-        def build_side_effect(commit, args, linker_vars):
+        def build_side_effect(commit, _args, _linker_vars):
             if commit in ('c0', 'c1'):
                 return report_a, False
             return report_b, False
@@ -346,7 +349,7 @@ class TestRunBinarySearchOnboard:
     def test_failed_endpoint_falls_back_to_linear(self, mock_metadata,
                                                     mock_upload, mock_build):
         """When an endpoint build fails, falls back to linear for intermediates."""
-        mock_metadata.side_effect = lambda sha: _make_commit_metadata(sha)
+        mock_metadata.side_effect = _make_commit_metadata
         mock_upload.return_value = ({"status": "success"}, "")
 
         success_report = _make_report(_make_layout(flash_used=1000))
@@ -376,9 +379,9 @@ class TestRunBinarySearchOnboard:
     @patch('membrowse.commands.onboard._build_and_generate_report')
     @patch('membrowse.commands.onboard.upload_report')
     @patch('membrowse.commands.onboard.get_commit_metadata')
-    def test_three_groups_chronological(self, mock_metadata, mock_upload, mock_build):
+    def test_three_groups_chronological(self, mock_metadata, mock_upload, mock_build):  # pylint: disable=too-many-locals
         """10 commits in 3 groups: only change-point commits get full uploads."""
-        mock_metadata.side_effect = lambda sha: _make_commit_metadata(sha)
+        mock_metadata.side_effect = _make_commit_metadata
         mock_upload.return_value = ({"status": "success"}, "")
 
         # c0-c2: fingerprint A, c3-c6: fingerprint B, c7-c9: fingerprint C
@@ -389,7 +392,7 @@ class TestRunBinarySearchOnboard:
         report_b = _make_report(layout_b)
         report_c = _make_report(layout_c)
 
-        def build_side_effect(commit, args, linker_vars):
+        def build_side_effect(commit, _args, _linker_vars):
             idx = int(commit[1:])  # "c3" -> 3
             if idx <= 2:
                 return report_a, False
@@ -436,7 +439,7 @@ class TestDryRun:
     @patch('membrowse.commands.onboard.get_commit_metadata')
     def test_dry_run_skips_upload(self, mock_metadata, mock_upload, mock_build):
         """Dry-run builds and analyzes but never calls upload_report."""
-        mock_metadata.side_effect = lambda sha: _make_commit_metadata(sha)
+        mock_metadata.side_effect = _make_commit_metadata
         mock_build.return_value = (_make_report(_make_layout()), False)
 
         args = _make_args(dry_run=True)
@@ -456,7 +459,7 @@ class TestDryRun:
     def test_dry_run_identical_skips_upload(self, mock_metadata, mock_upload,
                                             mock_build):
         """Dry-run marks identical commits without uploading."""
-        mock_metadata.side_effect = lambda sha: _make_commit_metadata(sha)
+        mock_metadata.side_effect = _make_commit_metadata
         report = _make_report(_make_layout(flash_used=1000))
         mock_build.return_value = (report, False)
 
@@ -471,7 +474,7 @@ class TestDryRun:
         mock_upload.assert_not_called()
 
 
-class TestMutualExclusivity:
+class TestMutualExclusivity:  # pylint: disable=too-few-public-methods
     """Test --binary-search and --build-dirs mutual exclusivity."""
 
     @patch('membrowse.commands.onboard._get_repository_info')
