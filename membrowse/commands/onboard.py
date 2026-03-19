@@ -491,15 +491,15 @@ def _upload_commit(report, commit, args, current_branch, repo_name,
 def _binary_search_range(  # pylint: disable=too-many-arguments,too-many-locals
     commits, left_idx, right_idx,
     left_fingerprint, right_fingerprint,
-    built_indices, reports_cache,
-    args, linker_variables,
-    current_branch, repo_name, counters
+    built_indices, reports_cache, commit_results,
+    args, linker_variables, flush_fn
 ):
     """
-    Recursively process a range of commits using binary search.
+    Recursively classify a range of commits using binary search.
 
-    Assumes commits[left_idx] and commits[right_idx] have already been
-    built, uploaded, and cached.
+    Builds midpoints only where fingerprints differ, and marks identical
+    ranges. Does NOT upload — results are stored in commit_results for
+    chronological upload via flush_fn.
 
     Args:
         commits: Full list of commit hashes (oldest first)
@@ -509,11 +509,11 @@ def _binary_search_range(  # pylint: disable=too-many-arguments,too-many-locals
         right_fingerprint: Fingerprint of the right boundary report
         built_indices: Set of indices that have been built
         reports_cache: Dict mapping index -> report (for built commits)
+        commit_results: Dict mapping index -> (report, build_failed, identical)
+                        populated by this function for later upload
         args: CLI args
         linker_variables: Parsed linker definitions
-        current_branch: Branch name
-        repo_name: Repository name
-        counters: Dict with 'successful' and 'failed' counts (mutated)
+        flush_fn: Callable that uploads consecutive ready commits in order
 
     Returns:
         True if processing should continue, False to abort
@@ -535,14 +535,10 @@ def _binary_search_range(  # pylint: disable=too-many-arguments,too-many-locals
                 continue
             commit = commits[i]
             report = _create_metadata_only_report(args.elf_path)
-            if _upload_commit(report, commit, args, current_branch, repo_name,
-                              identical=True):
-                logger.info("(%s): Marked as identical (%d/%d)",
-                            commit[:8], i + 1, len(commits))
-                counters['successful'] += 1
-            else:
-                counters['failed'] += 1
-                return False
+            commit_results[i] = (report, False, True)
+            logger.info("(%s): Marked as identical (%d/%d)",
+                        commit[:8], i + 1, len(commits))
+        flush_fn()
         return True
 
     # Fingerprints differ - binary search for the change point
@@ -564,11 +560,10 @@ def _binary_search_range(  # pylint: disable=too-many-arguments,too-many-locals
             logger.error("Checkout failed at midpoint %s: %s", commit[:8], e)
             return _fallback_linear(
                 commits, left_idx, right_idx, built_indices, reports_cache,
-                args, linker_variables, current_branch, repo_name, counters)
+                commit_results, args, linker_variables, flush_fn)
         except ValueError as e:
             logger.error("Report generation failed at midpoint %s: %s",
                          commit[:8], e)
-            counters['failed'] += 1
             return False
 
         if build_failed:
@@ -576,58 +571,46 @@ def _binary_search_range(  # pylint: disable=too-many-arguments,too-many-locals
                 "Build failed at midpoint %s, falling back to linear "
                 "for range %d..%d",
                 commit[:8], left_idx, right_idx)
-            # Upload the failed build report for this commit
-            if _upload_commit(mid_report, commit, args, current_branch,
-                              repo_name, build_failed=True):
-                counters['successful'] += 1
-            else:
-                counters['failed'] += 1
-                return False
+            commit_results[mid_idx] = (mid_report, True, False)
             built_indices.add(mid_idx)
             reports_cache[mid_idx] = mid_report
+            flush_fn()
             return _fallback_linear(
                 commits, left_idx, right_idx, built_indices, reports_cache,
-                args, linker_variables, current_branch, repo_name, counters)
+                commit_results, args, linker_variables, flush_fn)
 
-        # Upload midpoint report
-        if not _upload_commit(mid_report, commit, args, current_branch,
-                              repo_name):
-            counters['failed'] += 1
-            return False
-        counters['successful'] += 1
-
+        commit_results[mid_idx] = (mid_report, False, False)
         built_indices.add(mid_idx)
         reports_cache[mid_idx] = mid_report
         mid_fingerprint = _extract_fingerprint(mid_report)
+        flush_fn()
 
     # Recurse on both halves
     if not _binary_search_range(
             commits, left_idx, mid_idx,
             left_fingerprint, mid_fingerprint,
-            built_indices, reports_cache,
-            args, linker_variables,
-            current_branch, repo_name, counters):
+            built_indices, reports_cache, commit_results,
+            args, linker_variables, flush_fn):
         return False
 
     return _binary_search_range(
         commits, mid_idx, right_idx,
         mid_fingerprint, right_fingerprint,
-        built_indices, reports_cache,
-        args, linker_variables,
-        current_branch, repo_name, counters)
+        built_indices, reports_cache, commit_results,
+        args, linker_variables, flush_fn)
 
 
 def _fallback_linear(  # pylint: disable=too-many-arguments
     commits, left_idx, right_idx,
-    built_indices, reports_cache,
-    args, linker_variables,
-    current_branch, repo_name, counters
+    built_indices, reports_cache, commit_results,
+    args, linker_variables, flush_fn
 ):
     """
     Fall back to linear processing for a range when binary search cannot
     continue (e.g., build failure at midpoint).
 
-    Builds and uploads each unbuilt commit in the range sequentially.
+    Builds each unbuilt commit in the range and stores results for
+    chronological upload via flush_fn.
 
     Returns:
         True if processing should continue, False to abort
@@ -646,22 +629,17 @@ def _fallback_linear(  # pylint: disable=too-many-arguments
                 commit, args, linker_variables)
         except RuntimeError as e:
             logger.error("Checkout failed for %s: %s", commit[:8], e)
-            counters['failed'] += 1
+            commit_results[i] = (_create_empty_report(args.elf_path), True, False)
+            flush_fn()
             continue
         except ValueError as e:
             logger.error("Report generation failed for %s: %s", commit[:8], e)
-            counters['failed'] += 1
             return False
 
-        if _upload_commit(report, commit, args, current_branch, repo_name,
-                          build_failed=build_failed):
-            counters['successful'] += 1
-        else:
-            counters['failed'] += 1
-            return False
-
+        commit_results[i] = (report, build_failed, False)
         built_indices.add(i)
         reports_cache[i] = report
+        flush_fn()
 
     return True
 
@@ -670,6 +648,10 @@ def _run_binary_search_onboard(args, commits, current_branch, repo_name,
                                 linker_variables):
     """
     Run onboard using binary search to minimize builds.
+
+    Uploads are performed in chronological order via a flush mechanism.
+    Built commits whose fingerprint matches the previous upload are
+    automatically marked as identical.
 
     Args:
         args: CLI args
@@ -684,7 +666,41 @@ def _run_binary_search_onboard(args, commits, current_branch, repo_name,
     counters = {'successful': 0, 'failed': 0}
     built_indices = set()
     reports_cache = {}
+    commit_results = {}  # index -> (report, build_failed, identical)
     total = len(commits)
+
+    # Flush state: upload consecutive ready commits in chronological order
+    flush_state = {'next_to_upload': 0, 'prev_fingerprint': None}
+
+    def flush_fn():
+        """Upload consecutive ready commits starting from next_to_upload."""
+        while flush_state['next_to_upload'] in commit_results:
+            idx = flush_state['next_to_upload']
+            report, build_failed, identical = commit_results.pop(idx)
+
+            # If not already marked identical, compare fingerprint to previous
+            if not identical and not build_failed and flush_state['prev_fingerprint'] is not None:
+                fp = _extract_fingerprint(report)
+                if fp == flush_state['prev_fingerprint']:
+                    identical = True
+
+            if _upload_commit(report, commits[idx], args, current_branch,
+                              repo_name, build_failed=build_failed,
+                              identical=identical):
+                counters['successful'] += 1
+            else:
+                counters['failed'] += 1
+
+            # Update fingerprint for next comparison.
+            # Skip failed builds (no meaningful fingerprint).
+            # For identical commits with metadata-only reports, keep the
+            # previous fingerprint since their empty layout is not meaningful.
+            if not build_failed:
+                fp = _extract_fingerprint(report)
+                if fp != ():
+                    flush_state['prev_fingerprint'] = fp
+
+            flush_state['next_to_upload'] += 1
 
     logger.info("Binary search mode: %d commits to analyze", total)
 
@@ -700,11 +716,8 @@ def _run_binary_search_onboard(args, commits, current_branch, repo_name,
             counters['failed'] += 1
             return counters['successful'], counters['failed']
 
-        if _upload_commit(report, commit, args, current_branch, repo_name,
-                          build_failed=build_failed):
-            counters['successful'] += 1
-        else:
-            counters['failed'] += 1
+        commit_results[0] = (report, build_failed, False)
+        flush_fn()
         return counters['successful'], counters['failed']
 
     # Build oldest endpoint
@@ -718,15 +731,12 @@ def _run_binary_search_onboard(args, commits, current_branch, repo_name,
         counters['failed'] += 1
         return counters['successful'], counters['failed']
 
-    if not _upload_commit(first_report, commits[0], args, current_branch,
-                          repo_name, build_failed=first_failed):
-        counters['failed'] += 1
-        return counters['successful'], counters['failed']
-    counters['successful'] += 1
+    commit_results[0] = (first_report, first_failed, False)
     built_indices.add(0)
     reports_cache[0] = first_report
+    flush_fn()
 
-    # Build newest endpoint (but defer upload until after all intermediates)
+    # Build newest endpoint
     logger.info("Building endpoint %d/%d: %s (newest)",
                 total, total, commits[-1][:8])
     try:
@@ -738,16 +748,13 @@ def _run_binary_search_onboard(args, commits, current_branch, repo_name,
         counters['failed'] += 1
         return counters['successful'], counters['failed']
 
+    commit_results[total - 1] = (last_report, last_failed, False)
     built_indices.add(total - 1)
     reports_cache[total - 1] = last_report
 
-    # Edge case: only two commits - upload HEAD now
+    # Edge case: only two commits
     if total == 2:
-        if _upload_commit(last_report, commits[-1], args, current_branch,
-                          repo_name, build_failed=last_failed):
-            counters['successful'] += 1
-        else:
-            counters['failed'] += 1
+        flush_fn()
         return counters['successful'], counters['failed']
 
     # If either endpoint failed to build, fingerprint comparison is meaningless
@@ -758,9 +765,8 @@ def _run_binary_search_onboard(args, commits, current_branch, repo_name,
             "%d intermediate commits", total - 2)
         _fallback_linear(
             commits, 0, total - 1,
-            built_indices, reports_cache,
-            args, linker_variables,
-            current_branch, repo_name, counters)
+            built_indices, reports_cache, commit_results,
+            args, linker_variables, flush_fn)
     else:
         # Extract fingerprints and run binary search
         first_fp = _extract_fingerprint(first_report)
@@ -776,17 +782,12 @@ def _run_binary_search_onboard(args, commits, current_branch, repo_name,
         if not _binary_search_range(
                 commits, 0, total - 1,
                 first_fp, last_fp,
-                built_indices, reports_cache,
-                args, linker_variables,
-                current_branch, repo_name, counters):
+                built_indices, reports_cache, commit_results,
+                args, linker_variables, flush_fn):
             logger.error("Binary search aborted due to upload failure")
 
-    # Upload HEAD (newest) last so it's the final upload
-    if _upload_commit(last_report, commits[-1], args, current_branch,
-                      repo_name, build_failed=last_failed):
-        counters['successful'] += 1
-    else:
-        counters['failed'] += 1
+    # Final flush to ensure HEAD (newest) is uploaded last
+    flush_fn()
 
     return counters['successful'], counters['failed']
 

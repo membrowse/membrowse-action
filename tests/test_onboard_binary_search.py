@@ -10,6 +10,7 @@ from membrowse.commands.onboard import (
     _upload_commit,
     _binary_search_range,
     _run_binary_search_onboard,
+    _create_metadata_only_report,
     run_onboard,
 )
 
@@ -85,6 +86,14 @@ def _make_commit_metadata(sha):
     }
 
 
+def _get_upload_commit_hashes(mock_upload):
+    """Extract commit hashes from upload_report call args in order."""
+    return [
+        call.kwargs['commit_info']['commit_hash']
+        for call in mock_upload.call_args_list
+    ]
+
+
 # --- Fingerprint tests ---
 
 class TestExtractFingerprint:
@@ -127,79 +136,65 @@ class TestExtractFingerprint:
         assert fp == (('AAA', 200), ('ZZZ', 100))
 
 
-# --- Binary search integration tests ---
+# --- Binary search range tests ---
 
 class TestBinarySearchRange:
     """Tests for _binary_search_range recursive function."""
 
-    def _setup_mocks(self):
-        """Set up common mocks for binary search tests."""
-        self.upload_mock = MagicMock(return_value=({"status": "success"}, ""))
-        self.metadata_mock = MagicMock(
-            side_effect=lambda sha: _make_commit_metadata(sha))
-
-    @patch('membrowse.commands.onboard.upload_report')
-    @patch('membrowse.commands.onboard.get_commit_metadata')
-    def test_adjacent_indices_noop(self, mock_metadata, mock_upload):
+    def test_adjacent_indices_noop(self):
         """right_idx - left_idx <= 1 does nothing."""
-        counters = {'successful': 0, 'failed': 0}
+        commit_results = {}
+        flush_called = []
         commits = ['aaa', 'bbb']
         result = _binary_search_range(
             commits, 0, 1,
             (('FLASH', 100),), (('FLASH', 100),),
-            {0, 1}, {}, _make_args(), {},
-            'main', 'repo', counters)
+            {0, 1}, {}, commit_results,
+            _make_args(), {}, lambda: flush_called.append(True))
         assert result is True
-        assert counters == {'successful': 0, 'failed': 0}
-        mock_upload.assert_not_called()
+        assert commit_results == {}
+        assert flush_called == []
 
-    @patch('membrowse.commands.onboard.upload_report')
-    @patch('membrowse.commands.onboard.get_commit_metadata')
-    def test_identical_range_marks_all_identical(self, mock_metadata, mock_upload):
-        """When fingerprints match, all intermediate commits are marked identical."""
-        mock_metadata.side_effect = lambda sha: _make_commit_metadata(sha)
-        mock_upload.return_value = ({"status": "success"}, "")
+    def test_identical_range_marks_all_identical(self):
+        """When fingerprints match, all intermediate commits are stored as identical."""
+        commit_results = {}
+        flush_called = []
 
         commits = ['c0', 'c1', 'c2', 'c3', 'c4']
-        counters = {'successful': 0, 'failed': 0}
         fp = (('FLASH', 1000), ('RAM', 500))
 
         result = _binary_search_range(
             commits, 0, 4,
             fp, fp,
-            {0, 4}, {}, _make_args(), {},
-            'main', 'repo', counters)
+            {0, 4}, {}, commit_results,
+            _make_args(), {}, lambda: flush_called.append(True))
 
         assert result is True
-        assert counters['successful'] == 3  # c1, c2, c3
-        assert counters['failed'] == 0
-        # All uploads should have identical=True
-        for call in mock_upload.call_args_list:
-            assert call[1].get('identical') or call.kwargs.get('identical')
+        # c1, c2, c3 should be in commit_results as identical
+        for i in [1, 2, 3]:
+            assert i in commit_results
+            _report, build_failed, identical = commit_results[i]
+            assert identical is True
+            assert build_failed is False
+        assert len(flush_called) == 1
 
     @patch('membrowse.commands.onboard._build_and_generate_report')
-    @patch('membrowse.commands.onboard.upload_report')
-    @patch('membrowse.commands.onboard.get_commit_metadata')
-    def test_different_endpoints_builds_midpoint(self, mock_metadata, mock_upload,
-                                                  mock_build):
+    def test_different_endpoints_builds_midpoint(self, mock_build):
         """When endpoints differ, the midpoint is built."""
-        mock_metadata.side_effect = lambda sha: _make_commit_metadata(sha)
-        mock_upload.return_value = ({"status": "success"}, "")
-
         # All builds return same report (so recursion finds them identical)
         mid_report = _make_report(_make_layout(flash_used=1500))
         mock_build.return_value = (mid_report, False)
 
+        commit_results = {}
         commits = ['c0', 'c1', 'c2', 'c3', 'c4']
-        counters = {'successful': 0, 'failed': 0}
         fp_left = (('FLASH', 1000), ('RAM', 500))
         fp_right = (('FLASH', 2000), ('RAM', 500))
 
         _binary_search_range(
             commits, 0, 4,
             fp_left, fp_right,
-            {0, 4}, {}, _make_args(), {},
-            'main', 'repo', counters)
+            {0, 4}, {}, commit_results,
+            _make_args(), {}, lambda: None)
 
         # Midpoint (index 2) should have been built
         mock_build.assert_called()
@@ -207,14 +202,8 @@ class TestBinarySearchRange:
         assert 'c2' in build_commits
 
     @patch('membrowse.commands.onboard._build_and_generate_report')
-    @patch('membrowse.commands.onboard.upload_report')
-    @patch('membrowse.commands.onboard.get_commit_metadata')
-    def test_build_failure_falls_back_to_linear(self, mock_metadata,
-                                                 mock_upload, mock_build):
+    def test_build_failure_falls_back_to_linear(self, mock_build):
         """When midpoint build fails, falls back to linear for the range."""
-        mock_metadata.side_effect = lambda sha: _make_commit_metadata(sha)
-        mock_upload.return_value = ({"status": "success"}, "")
-
         # First call (midpoint) returns build failure, subsequent calls succeed
         failed_report = _make_report({})
         success_report = _make_report(_make_layout(flash_used=1000))
@@ -224,19 +213,20 @@ class TestBinarySearchRange:
             (success_report, False), # linear fallback: c3
         ]
 
+        commit_results = {}
         commits = ['c0', 'c1', 'c2', 'c3', 'c4']
-        counters = {'successful': 0, 'failed': 0}
 
         result = _binary_search_range(
             commits, 0, 4,
             (('FLASH', 1000),), (('FLASH', 2000),),
-            {0, 4}, {}, _make_args(), {},
-            'main', 'repo', counters)
+            {0, 4}, {}, commit_results,
+            _make_args(), {}, lambda: None)
 
         assert result is True
-        # All intermediate commits should be uploaded (1 failed midpoint + 2 linear)
-        # c2 (failed build upload) + c1, c3 (linear fallback)
-        assert counters['successful'] >= 3
+        # All intermediate commits should have results (c1, c2, c3)
+        assert 1 in commit_results
+        assert 2 in commit_results
+        assert 3 in commit_results
 
 
 class TestRunBinarySearchOnboard:
@@ -277,6 +267,23 @@ class TestRunBinarySearchOnboard:
     @patch('membrowse.commands.onboard._build_and_generate_report')
     @patch('membrowse.commands.onboard.upload_report')
     @patch('membrowse.commands.onboard.get_commit_metadata')
+    def test_two_commits_identical_dedup(self, mock_metadata, mock_upload, mock_build):
+        """N=2 with same fingerprint: second is uploaded as identical."""
+        mock_metadata.side_effect = lambda sha: _make_commit_metadata(sha)
+        mock_upload.return_value = ({"status": "success"}, "")
+        mock_build.return_value = (_make_report(_make_layout()), False)
+
+        success, failed = _run_binary_search_onboard(
+            _make_args(), ['aaa', 'bbb'], 'main', 'repo', {})
+
+        assert success == 2
+        assert failed == 0
+        # Second upload should be identical (same fingerprint as first)
+        assert mock_upload.call_args_list[1].kwargs.get('identical') is True
+
+    @patch('membrowse.commands.onboard._build_and_generate_report')
+    @patch('membrowse.commands.onboard.upload_report')
+    @patch('membrowse.commands.onboard.get_commit_metadata')
     def test_all_identical(self, mock_metadata, mock_upload, mock_build):
         """All commits have same fingerprint: only 2 builds, rest marked identical."""
         mock_metadata.side_effect = lambda sha: _make_commit_metadata(sha)
@@ -291,15 +298,20 @@ class TestRunBinarySearchOnboard:
         assert failed == 0
         assert success == 10  # 2 built + 8 identical
         assert mock_build.call_count == 2  # Only endpoints built
+        # All uploads should be in chronological order
+        upload_hashes = _get_upload_commit_hashes(mock_upload)
+        assert upload_hashes == [f'c{i}' for i in range(10)]
         # HEAD (c9) must be the last upload
-        last_upload_commit = mock_upload.call_args_list[-1][1]['commit_info']['commit_hash']
-        assert last_upload_commit == 'c9'
+        assert upload_hashes[-1] == 'c9'
+        # All uploads except c0 should be identical (fingerprint dedup)
+        for call in mock_upload.call_args_list[1:]:
+            assert call.kwargs.get('identical') is True
 
     @patch('membrowse.commands.onboard._build_and_generate_report')
     @patch('membrowse.commands.onboard.upload_report')
     @patch('membrowse.commands.onboard.get_commit_metadata')
     def test_change_in_middle(self, mock_metadata, mock_upload, mock_build):
-        """Change at midpoint: verifies correct recursion."""
+        """Change at midpoint: verifies correct recursion and chronological upload."""
         mock_metadata.side_effect = lambda sha: _make_commit_metadata(sha)
         mock_upload.return_value = ({"status": "success"}, "")
 
@@ -324,7 +336,9 @@ class TestRunBinarySearchOnboard:
         assert success == 5
         # Should build fewer than 5 commits (binary search saves some)
         assert mock_build.call_count < 5
-
+        # Uploads must be in chronological order
+        upload_hashes = _get_upload_commit_hashes(mock_upload)
+        assert upload_hashes == ['c0', 'c1', 'c2', 'c3', 'c4']
 
     @patch('membrowse.commands.onboard._build_and_generate_report')
     @patch('membrowse.commands.onboard.upload_report')
@@ -355,9 +369,63 @@ class TestRunBinarySearchOnboard:
         assert success == 5
         # Should build all 5 (2 endpoints + 3 linear fallback)
         assert mock_build.call_count == 5
-        # No upload should have identical=True (no binary search comparison happened)
+        # Uploads must be in chronological order
+        upload_hashes = _get_upload_commit_hashes(mock_upload)
+        assert upload_hashes == ['c0', 'c1', 'c2', 'c3', 'c4']
+
+    @patch('membrowse.commands.onboard._build_and_generate_report')
+    @patch('membrowse.commands.onboard.upload_report')
+    @patch('membrowse.commands.onboard.get_commit_metadata')
+    def test_three_groups_chronological(self, mock_metadata, mock_upload, mock_build):
+        """10 commits in 3 groups: only change-point commits get full uploads."""
+        mock_metadata.side_effect = lambda sha: _make_commit_metadata(sha)
+        mock_upload.return_value = ({"status": "success"}, "")
+
+        # c0-c2: fingerprint A, c3-c6: fingerprint B, c7-c9: fingerprint C
+        layout_a = _make_layout(flash_used=1000, ram_used=500)
+        layout_b = _make_layout(flash_used=2000, ram_used=500)
+        layout_c = _make_layout(flash_used=3000, ram_used=500)
+        report_a = _make_report(layout_a)
+        report_b = _make_report(layout_b)
+        report_c = _make_report(layout_c)
+
+        def build_side_effect(commit, args, linker_vars):
+            idx = int(commit[1:])  # "c3" -> 3
+            if idx <= 2:
+                return report_a, False
+            if idx <= 6:
+                return report_b, False
+            return report_c, False
+
+        mock_build.side_effect = build_side_effect
+
+        commits = [f'c{i}' for i in range(10)]
+        success, failed = _run_binary_search_onboard(
+            _make_args(), commits, 'main', 'repo', {})
+
+        assert failed == 0
+        assert success == 10
+
+        # Uploads must be in chronological order
+        upload_hashes = _get_upload_commit_hashes(mock_upload)
+        assert upload_hashes == [f'c{i}' for i in range(10)]
+
+        # Only change-point commits should be full (non-identical) uploads:
+        # c0 (first), c3 (A->B change), c7 (B->C change)
+        full_uploads = []
+        identical_uploads = []
         for call in mock_upload.call_args_list:
-            assert not call.kwargs.get('identical', False)
+            sha = call.kwargs['commit_info']['commit_hash']
+            if call.kwargs.get('identical'):
+                identical_uploads.append(sha)
+            else:
+                full_uploads.append(sha)
+
+        assert 'c0' in full_uploads
+        assert 'c3' in full_uploads
+        assert 'c7' in full_uploads
+        assert len(full_uploads) == 3
+        assert len(identical_uploads) == 7
 
 
 class TestDryRun:
