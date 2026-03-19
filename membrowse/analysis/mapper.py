@@ -77,10 +77,6 @@ class MemoryMapper:
             MemoryRegion that contains the section address (smallest if multiple),
             or None if not found
         """
-        # Skip sections with zero address (debug/metadata sections)
-        if section.address == 0:
-            return None
-
         # Find all regions that contain this address
         matching_regions = []
         for start_addr, end_addr, region in self._sorted_regions:

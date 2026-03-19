@@ -180,8 +180,8 @@ class TestMemoryMapper(unittest.TestCase):
         self.assertIsNotNone(region)
         self.assertEqual(region.address, 0x08004000)  # Should be FLASH_TEXT
 
-    def test_zero_address_section(self):
-        """Test that sections with zero address are skipped"""
+    def test_zero_address_section_no_matching_region(self):
+        """Test that sections at address 0 with no matching region return None"""
         regions = {
             'FLASH': MemoryRegion(
                 address=0x08000000,
@@ -191,7 +191,7 @@ class TestMemoryMapper(unittest.TestCase):
 
         mapper = MemoryMapper(regions)
 
-        # Debug section with zero address
+        # Section at address 0 with no region starting at 0
         section = MemorySection(
             name='.debug_info',
             address=0x00000000,
@@ -199,7 +199,33 @@ class TestMemoryMapper(unittest.TestCase):
             type='debug'
         )
         region = mapper.find_region_by_address(section)
-        self.assertIsNone(region)  # Should return None for zero address
+        self.assertIsNone(region)  # No region covers address 0
+
+    def test_zero_address_section_maps_to_region_at_zero(self):
+        """Test that sections at address 0 map to a region starting at 0"""
+        regions = {
+            'FLASH': MemoryRegion(
+                address=0x0,
+                limit_size=0x100000,
+                type='FLASH'),
+            'RAM': MemoryRegion(
+                address=0x20000000,
+                limit_size=0x30000,
+                type='RAM'),
+        }
+
+        mapper = MemoryMapper(regions)
+
+        # rom_start section at address 0 (e.g., Zephyr on NXP K64F)
+        section = MemorySection(
+            name='rom_start',
+            address=0x0,
+            size=0x410,
+            type='code'
+        )
+        region = mapper.find_region_by_address(section)
+        self.assertIsNotNone(region)
+        self.assertEqual(region.address, 0x0)  # Should map to FLASH at 0x0
 
     def test_section_not_in_any_region(self):
         """Test section that doesn't fit in any region"""
