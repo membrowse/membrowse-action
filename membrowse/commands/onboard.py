@@ -1088,6 +1088,9 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
                 return finalize_and_return(1)
 
             # Case 3b: Build succeeded but report has empty memory_layout
+            # (e.g. linker script parsing failed for this commit).
+            # Treat as a build failure so the API accepts it instead of
+            # rejecting with 400 "memory_layout is required and cannot be empty".
             if not report.get('memory_layout'):
                 logger.error(
                     "%s: Build succeeded but memory_layout is empty "
@@ -1097,6 +1100,7 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
                 report = _create_empty_report(args.elf_path)
                 build_failed = True
 
+        # Build commit_info in metadata['git'] format (map old keys to new)
         # When using --commits, fake the parent chain so commits appear connected
         if use_explicit_commits:
             faked_parent = commits[commit_count - 2] if commit_count > 1 else None

@@ -124,6 +124,8 @@ class MemBrowseClient:
 
         prefix = f"({log_context}) " if log_context else ""
 
+        prefix = f"({log_context}) " if log_context else ""
+
         for attempt in range(1, max_attempts + 1):
             try:
                 logger.warning(
