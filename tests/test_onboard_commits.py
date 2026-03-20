@@ -1,7 +1,8 @@
 """Tests for the --commits feature of the onboard subcommand."""
+# pylint: disable=too-many-arguments,too-many-positional-arguments
 
 import argparse
-from unittest.mock import patch, MagicMock, call
+from unittest.mock import patch, MagicMock
 
 import pytest
 
@@ -241,7 +242,7 @@ class TestFakedParentChain:
     @patch('membrowse.commands.onboard._resolve_and_validate_commits')
     @patch('membrowse.commands.onboard.os.path.exists', return_value=True)
     def test_single_commit_parent_is_none(
-        self, mock_exists, mock_resolve, mock_repo, mock_subprocess,
+        self, _mock_exists, mock_resolve, mock_repo, mock_subprocess,
         mock_metadata, mock_generate, mock_upload,
     ):
         """Single commit gets base_commit_hash=None."""
@@ -272,7 +273,7 @@ class TestFakedParentChain:
     @patch('membrowse.commands.onboard._resolve_and_validate_commits')
     @patch('membrowse.commands.onboard.os.path.exists', return_value=True)
     def test_two_commits_parent_chain(
-        self, mock_exists, mock_resolve, mock_repo, mock_subprocess,
+        self, _mock_exists, mock_resolve, mock_repo, mock_subprocess,
         mock_metadata, mock_generate, mock_upload,
     ):
         """Two commits: first gets None, second gets first's SHA."""
@@ -309,7 +310,7 @@ class TestFakedParentChain:
     @patch('membrowse.commands.onboard._resolve_and_validate_commits')
     @patch('membrowse.commands.onboard.os.path.exists', return_value=True)
     def test_three_commits_full_chain(
-        self, mock_exists, mock_resolve, mock_repo, mock_subprocess,
+        self, _mock_exists, mock_resolve, mock_repo, mock_subprocess,
         mock_metadata, mock_generate, mock_upload,
     ):
         """Three commits: A->None, B->A, C->B."""
@@ -343,7 +344,7 @@ class TestFakedParentChain:
     @patch('membrowse.commands.onboard._resolve_and_validate_commits')
     @patch('membrowse.commands.onboard.os.path.exists', return_value=True)
     def test_faked_parent_ignores_real_git_parent(
-        self, mock_exists, mock_resolve, mock_repo, mock_subprocess,
+        self, _mock_exists, mock_resolve, mock_repo, mock_subprocess,
         mock_metadata, mock_generate, mock_upload,
     ):
         """Faked parent chain ignores actual git ancestry."""
@@ -404,7 +405,7 @@ class TestCommitsBuildLoop:
     @patch('membrowse.commands.onboard._resolve_and_validate_commits')
     @patch('membrowse.commands.onboard.os.path.exists', return_value=True)
     def test_build_dirs_skipped_with_commits(
-        self, mock_exists, mock_resolve, mock_repo, mock_subprocess,
+        self, _mock_exists, mock_resolve, mock_repo, mock_subprocess,
         mock_changes, mock_metadata, mock_generate, mock_upload,
     ):
         """--build-dirs optimization is skipped when --commits is used."""
@@ -440,7 +441,7 @@ class TestCommitsBuildLoop:
     @patch('membrowse.commands.onboard._resolve_and_validate_commits')
     @patch('membrowse.commands.onboard.os.path.exists', return_value=True)
     def test_build_failure_uploads_empty_report(
-        self, mock_exists, mock_resolve, mock_repo, mock_subprocess,
+        self, _mock_exists, mock_resolve, mock_repo, mock_subprocess,
         mock_metadata, mock_generate, mock_upload,
     ):
         """Build failure with --commits uploads empty report and stops."""
@@ -476,8 +477,8 @@ class TestCommitsBuildLoop:
     @patch('membrowse.commands.onboard._resolve_and_validate_commits')
     @patch('membrowse.commands.onboard.os.path.exists', return_value=True)
     def test_checkout_failure_stops_onboard(
-        self, mock_exists, mock_resolve, mock_repo, mock_subprocess,
-        mock_metadata, mock_generate, mock_upload,
+        self, _mock_exists, mock_resolve, mock_repo, mock_subprocess,
+        _mock_metadata, mock_generate, mock_upload,
     ):
         """Checkout failure stops the entire onboard."""
         mock_resolve.return_value = ['aaa111', 'bbb222']
@@ -511,7 +512,7 @@ class TestCommitsUploadPayload:
     @patch('membrowse.commands.onboard._resolve_and_validate_commits')
     @patch('membrowse.commands.onboard.os.path.exists', return_value=True)
     def test_real_metadata_with_faked_parent(
-        self, mock_exists, mock_resolve, mock_repo, mock_subprocess,
+        self, _mock_exists, mock_resolve, mock_repo, mock_subprocess,
         mock_metadata, mock_generate, mock_upload,
     ):
         """Upload uses real commit metadata but faked parent."""
@@ -565,7 +566,7 @@ class TestCommitsUploadPayload:
     @patch('membrowse.commands.onboard._resolve_and_validate_commits')
     @patch('membrowse.commands.onboard.os.path.exists', return_value=True)
     def test_api_url_flag_used_in_upload(
-        self, mock_exists, mock_resolve, mock_repo, mock_subprocess,
+        self, _mock_exists, mock_resolve, mock_repo, mock_subprocess,
         mock_metadata, mock_generate, mock_upload,
     ):
         """--api-url flag value is used in the upload call."""
@@ -598,7 +599,7 @@ class TestCommitsUploadPayload:
     @patch('membrowse.commands.onboard._get_commit_list')
     @patch('membrowse.commands.onboard.os.path.exists', return_value=True)
     def test_api_url_flag_overrides_positional_in_num_commits_mode(
-        self, mock_exists, mock_commit_list, mock_repo, mock_subprocess,
+        self, _mock_exists, mock_commit_list, mock_repo, mock_subprocess,
         mock_metadata, mock_generate, mock_upload,
     ):
         """--api-url flag takes precedence over positional api_url in num_commits mode."""
@@ -628,7 +629,7 @@ class TestCommitsUploadPayload:
 # Validation Before Loop
 # ---------------------------------------------------------------------------
 
-class TestCommitsUpfrontValidation:
+class TestCommitsUpfrontValidation:  # pylint: disable=too-few-public-methods
     """Test that commit refs are validated before starting the build loop."""
 
     @patch('membrowse.commands.onboard.upload_report')
@@ -688,8 +689,8 @@ class TestCommitsEdgeCases:
     @patch('membrowse.commands.onboard._resolve_and_validate_commits')
     @patch('membrowse.commands.onboard.os.path.exists', return_value=True)
     def test_submodule_update_called_after_checkout(
-        self, mock_exists, mock_resolve, mock_repo, mock_subprocess,
-        mock_metadata, mock_generate, mock_upload,
+        self, _mock_exists, mock_resolve, mock_repo, mock_subprocess,
+        mock_metadata, mock_generate, _mock_upload,
     ):
         """git submodule update --init --recursive is called after checkout."""
         mock_resolve.return_value = ['aaa111']
