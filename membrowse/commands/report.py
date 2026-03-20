@@ -396,6 +396,13 @@ examples:
         help='Define linker script variable (can be specified multiple times, '
              'e.g., --def __flash_size__=4096K)'
     )
+    perf_group.add_argument(
+        '--map-file',
+        default=None,
+        metavar='PATH',
+        help='Path to linker map file for archive/object file attribution '
+             '(supports GNU LD and IAR formats; GNU LD generated with -Wl,-Map=output.map)'
+    )
 
     # Alert handling
     alert_group = parser.add_argument_group('alert options')
@@ -470,7 +477,8 @@ def generate_report(
     elf_path: str,
     ld_scripts: Optional[str] = None,
     skip_line_program: bool = False,
-    linker_variables: Optional[Dict[str, Any]] = None
+    linker_variables: Optional[Dict[str, Any]] = None,
+    map_file: Optional[str] = None
 ) -> dict:
     """
     Generate a memory footprint report from ELF and optionally linker scripts.
@@ -481,6 +489,7 @@ def generate_report(
             uses default Code/Data regions based on ELF section flags)
         skip_line_program: Skip DWARF line program processing for faster analysis
         linker_variables: Optional dict of user-defined linker script variables
+        map_file: Optional path to GNU LD map file for archive/object file attribution
 
     Returns:
         dict: Memory analysis report (JSON-serializable)
@@ -506,7 +515,8 @@ def generate_report(
         generator = ReportGenerator(
             elf_path,
             memory_regions_data,
-            skip_line_program=skip_line_program
+            skip_line_program=skip_line_program,
+            map_file_path=map_file
         )
         report = generator.generate_report()
 
@@ -870,7 +880,8 @@ def run_report(args: argparse.Namespace) -> int:
                 elf_path=args.elf_path,
                 ld_scripts=args.ld_scripts,
                 skip_line_program=getattr(args, 'skip_line_program', False),
-                linker_variables=linker_variables
+                linker_variables=linker_variables,
+                map_file=getattr(args, 'map_file', None)
             )
         except ValueError as e:
             logger.error("Failed to generate report: %s", e)
