@@ -8,7 +8,7 @@ including symbol filtering, type mapping, and source file resolution.
 """
 
 from typing import Dict, List
-import cxxfilt
+from itanium_demangler import parse as cpp_demangle
 from rust_demangler import demangle as rust_demangle
 from elftools.common.exceptions import ELFError
 from ..core.models import Symbol
@@ -27,7 +27,7 @@ class SymbolExtractor:  # pylint: disable=too-few-public-methods
         Demangle C++ and Rust symbol names.
 
         Supports:
-        - C++ symbols (Itanium ABI, _Z prefix) via cxxfilt
+        - C++ symbols (Itanium ABI, _Z prefix) via itanium_demangler
         - Rust v0 symbols (_R prefix) via rust_demangler
         - Rust legacy symbols (_ZN prefix) via rust_demangler
 
@@ -71,10 +71,11 @@ class SymbolExtractor:  # pylint: disable=too-few-public-methods
             return name
 
     def _demangle_cpp(self, name: str) -> str:
-        """Demangle C++ symbol names using cxxfilt."""
+        """Demangle C++ symbol names using itanium_demangler (pure Python)."""
         try:
-            return cxxfilt.demangle(name)
-        except (cxxfilt.InvalidName, cxxfilt.LibraryNotFound):
+            result = cpp_demangle(name)
+            return str(result) if result is not None else name
+        except Exception:  # pylint: disable=broad-exception-caught
             return name
 
     def extract_symbols(self, source_resolver) -> List[Symbol]:

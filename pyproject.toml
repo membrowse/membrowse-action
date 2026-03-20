@@ -47,7 +47,7 @@ requires-python = ">=3.7"
 dependencies = [
     "pyelftools>=0.29",
     "requests>=2.25.0",
-    "cxxfilt>=0.3.0",
+    "itanium-demangler>=1.0",
     "rust-demangler>=1.0.0",
     "jinja2>=3.0.0",
 ]
