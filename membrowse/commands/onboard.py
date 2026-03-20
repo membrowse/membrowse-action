@@ -409,6 +409,19 @@ def _build_and_generate_report(commit, args, linker_variables):
         skip_line_program=False,
         linker_variables=linker_variables
     )
+
+    # Case 3b: Build succeeded but report has empty memory_layout
+    # (e.g. linker script parsing failed for this commit).
+    # Treat as a build failure so the API accepts it instead of
+    # rejecting with 400 "memory_layout is required and cannot be empty".
+    if not report.get('memory_layout'):
+        logger.error(
+            "%s: Build succeeded but memory_layout is empty "
+            "(linker script parsing may have failed) - "
+            "treating as failed build",
+            log_prefix)
+        return _create_empty_report(args.elf_path), True
+
     return report, False
 
 
@@ -940,6 +953,16 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
                 logger.error("%s: Stopping onboard workflow...", log_prefix)
                 failed_uploads += 1
                 return finalize_and_return(1)
+
+            # Case 3b: Build succeeded but report has empty memory_layout
+            if not report.get('memory_layout'):
+                logger.error(
+                    "%s: Build succeeded but memory_layout is empty "
+                    "(linker script parsing may have failed) - "
+                    "treating as failed build",
+                    log_prefix)
+                report = _create_empty_report(args.elf_path)
+                build_failed = True
 
         if _upload_commit(report, commit, args, current_branch, repo_name,
                           build_failed=build_failed):

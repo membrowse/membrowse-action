@@ -79,7 +79,8 @@ class MemBrowseClient:
             report_to_send['metadata'].update(metadata_additions)
 
         url = f"{self.api_base_url}/upload"
-        return self._request_with_retry('POST', url, json=report_to_send)
+        commit_hash = report_to_send.get('metadata', {}).get('git', {}).get('commit_hash', '')
+        return self._request_with_retry('POST', url, log_context=commit_hash, json=report_to_send)
 
     def get_summary(self, commit_sha: str) -> Dict[str, Any]:
         """
@@ -103,6 +104,7 @@ class MemBrowseClient:
         self,
         method: str,
         url: str,
+        log_context: str = "",
         **kwargs
     ) -> Dict[str, Any]:
         """
@@ -111,6 +113,7 @@ class MemBrowseClient:
         Args:
             method: HTTP method ('GET' or 'POST')
             url: Request URL
+            log_context: Optional context string for log messages (e.g. commit hash)
             **kwargs: Additional arguments passed to requests
 
         Returns:
@@ -120,11 +123,13 @@ class MemBrowseClient:
         retry_delays = [10, 30, 60, 120]  # seconds between attempts
         timeout_seconds = 120
 
+        prefix = f"({log_context}) " if log_context else ""
+
         for attempt in range(1, max_attempts + 1):
             try:
                 logger.warning(
-                    "%s %s (attempt %d of %d)...",
-                    method, url, attempt, max_attempts
+                    "%s%s %s (attempt %d of %d)...",
+                    prefix, method, url, attempt, max_attempts
                 )
                 response = self.session.request(
                     method, url, timeout=timeout_seconds, **kwargs
@@ -143,13 +148,13 @@ class MemBrowseClient:
                 if attempt < max_attempts:
                     delay = retry_delays[attempt - 1] * random.uniform(1, 1.5)
                     logger.warning(
-                        "Request failed: %s. Retrying in %.1f seconds...",
-                        str(e), delay
+                        "%sRequest failed: %s. Retrying in %.1f seconds...",
+                        prefix, str(e), delay
                     )
                     time.sleep(delay)
                     continue
                 logger.error(
-                    "Request failed after %d attempts: %s", max_attempts, str(e)
+                    "%sRequest failed after %d attempts: %s", prefix, max_attempts, str(e)
                 )
                 raise type(e)(
                     f"Request to {url} failed after {max_attempts} "
@@ -162,8 +167,8 @@ class MemBrowseClient:
                 if status_code in (429, 502, 503, 504) and attempt < max_attempts:
                     delay = retry_delays[attempt - 1] * random.uniform(1, 1.5)
                     logger.warning(
-                        "Request failed with HTTP %d: %s. Retrying in %.1f seconds...",
-                        status_code, str(e), delay
+                        "%sRequest failed with HTTP %d: %s. Retrying in %.1f seconds...",
+                        prefix, status_code, str(e), delay
                     )
                     time.sleep(delay)
                     continue
