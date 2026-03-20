@@ -74,7 +74,7 @@ class SymbolExtractor:  # pylint: disable=too-few-public-methods
         """Demangle C++ symbol names using cxxfilt."""
         try:
             return cxxfilt.demangle(name)
-        except cxxfilt.InvalidName:
+        except (cxxfilt.InvalidName, cxxfilt.LibraryNotFound):
             return name
 
     def extract_symbols(self, source_resolver) -> List[Symbol]:
