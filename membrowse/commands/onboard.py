@@ -13,6 +13,9 @@ from .report import generate_report, upload_report, DEFAULT_API_URL, _parse_link
 # Set up logger
 logger = logging.getLogger(__name__)
 
+# Sentinel to distinguish "no override" from "override with None"
+_NO_OVERRIDE = object()
+
 
 def _create_empty_report(elf_path: str) -> dict:
     """
@@ -487,7 +490,7 @@ def _build_and_generate_report(commit, args, linker_variables):
     return report, False
 
 
-def _build_commit_info(commit, current_branch, repo_name, base_sha_override=None):
+def _build_commit_info(commit, current_branch, repo_name, base_sha_override=_NO_OVERRIDE):
     """
     Build commit_info dict for upload from a commit hash.
 
@@ -495,7 +498,7 @@ def _build_commit_info(commit, current_branch, repo_name, base_sha_override=None
         commit: Commit hash
         current_branch: Branch name
         repo_name: Repository name
-        base_sha_override: If provided, use this instead of the real git parent
+        base_sha_override: If provided (including None), use this instead of the real git parent
 
     Returns:
         Dict with Git metadata for upload_report
@@ -503,7 +506,9 @@ def _build_commit_info(commit, current_branch, repo_name, base_sha_override=None
     metadata = get_commit_metadata(commit)
     return {
         'commit_hash': metadata['commit_sha'],
-        'base_commit_hash': base_sha_override if base_sha_override is not None else metadata.get('base_sha'),
+        'base_commit_hash': (base_sha_override
+                              if base_sha_override is not _NO_OVERRIDE
+                              else metadata.get('base_sha')),
         'branch_name': current_branch,
         'repository': repo_name,
         'commit_message': metadata['commit_message'],
@@ -514,9 +519,9 @@ def _build_commit_info(commit, current_branch, repo_name, base_sha_override=None
     }
 
 
-def _upload_commit(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+def _upload_commit(  # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals
     report, commit, args, current_branch, repo_name,
-    build_failed=False, identical=False, api_url=None, base_sha_override=None
+    build_failed=False, identical=False, api_url=None, base_sha_override=_NO_OVERRIDE
 ):
     """
     Upload a report for a single commit with proper git metadata.
@@ -889,8 +894,7 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
         logger.error("--binary-search and --commits are mutually exclusive")
         return 1
     if use_explicit_commits and getattr(args, 'build_dirs', None):
-        logger.error("--build-dirs and --commits are mutually exclusive")
-        return 1
+        logger.info("--build-dirs is ignored when --commits is used")
     if use_explicit_commits and args.num_commits is not None:
         logger.error("Cannot use both num_commits and --commits")
         return 1
