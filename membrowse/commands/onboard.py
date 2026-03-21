@@ -1,3 +1,4 @@
+# pylint: disable=too-many-lines
 """Onboard subcommand - historical analysis across multiple commits."""
 
 import os
@@ -138,6 +139,21 @@ examples:
         help='Start processing from this commit hash (must be on the main branch, not a '
              'feature branch commit). If specified and the path from this commit to HEAD '
              'has fewer than num_commits, only those commits are processed.'
+    )
+    parser.add_argument(
+        '--binary-search',
+        dest='binary_search',
+        action='store_true',
+        help='Use binary search to minimize builds. Builds endpoints of commit ranges, '
+             'compares memory fingerprints, and only builds midpoints where changes are '
+             'detected. Mutually exclusive with --build-dirs.'
+    )
+    parser.add_argument(
+        '--dry-run',
+        dest='dry_run',
+        action='store_true',
+        help='Run the full onboard workflow (checkout, build, analyze) but skip '
+             'uploading reports. Logs what would be uploaded for each commit.'
     )
 
     return parser
@@ -309,7 +325,477 @@ def _handle_build_failure(result, log_prefix, elf_path):
     return _create_empty_report(elf_path)
 
 
-def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-locals,too-many-statements,too-many-branches
+def _extract_fingerprint(report: dict) -> tuple:
+    """
+    Extract a memory fingerprint from a report for comparison.
+
+    The fingerprint is a sorted tuple of (region_name, used_size) pairs,
+    capturing actual memory usage while ignoring address changes from
+    recompilation.
+
+    Args:
+        report: Memory analysis report dict with 'memory_layout' key
+
+    Returns:
+        Sorted tuple of (region_name, used_size) tuples
+    """
+    memory_layout = report.get('memory_layout', {})
+    return tuple(
+        (name, region_data.get('used_size', 0))
+        for name, region_data in sorted(memory_layout.items())
+    )
+
+
+def _build_and_generate_report(commit, args, linker_variables):
+    """
+    Checkout, build, and generate a memory report for a single commit.
+
+    Args:
+        commit: Commit hash
+        args: Parsed CLI arguments (build_script, elf_path, ld_scripts)
+        linker_variables: Parsed linker variable definitions
+
+    Returns:
+        Tuple of (report, build_failed) where report is the report dict
+        and build_failed is True if the build failed.
+
+    Raises:
+        RuntimeError: If checkout fails
+        ValueError: If report generation fails with a configuration error
+    """
+    log_prefix = f"({commit})"
+
+    # Checkout the commit
+    logger.info("%s: Checking out commit...", log_prefix)
+    result = subprocess.run(
+        ['git', 'checkout', commit, '--quiet'],
+        capture_output=True,
+        check=False
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"Failed to checkout commit {commit}")
+
+    # Clean previous build artifacts
+    logger.info("Cleaning previous build artifacts...")
+    subprocess.run(['git', 'clean', '-fd'],
+                   capture_output=True, check=False)
+
+    # Build the firmware
+    logger.info("%s: Building firmware with: %s", log_prefix, args.build_script)
+    result = subprocess.run(
+        ['bash', '-c', args.build_script],
+        capture_output=True,
+        text=True,
+        check=False
+    )
+
+    # Case 1: Build failed (non-zero exit code)
+    if result.returncode != 0:
+        return _handle_build_failure(result, log_prefix, args.elf_path), True
+
+    # Case 2: Build returned success but ELF missing
+    if not os.path.exists(args.elf_path):
+        logger.warning(
+            "%s: Build script succeeded (exit 0) but ELF file not found at %s - "
+            "treating as failed build",
+            log_prefix, args.elf_path)
+        return _handle_build_failure(result, log_prefix, args.elf_path), True
+
+    # Case 3: Build succeeded - generate report
+    logger.info("%s: Generating memory report...", log_prefix)
+    report = generate_report(
+        elf_path=args.elf_path,
+        ld_scripts=args.ld_scripts,
+        skip_line_program=False,
+        linker_variables=linker_variables
+    )
+
+    # Case 3b: Build succeeded but report has empty memory_layout
+    # (e.g. linker script parsing failed for this commit).
+    # Treat as a build failure so the API accepts it instead of
+    # rejecting with 400 "memory_layout is required and cannot be empty".
+    if not report.get('memory_layout'):
+        logger.error(
+            "%s: Build succeeded but memory_layout is empty "
+            "(linker script parsing may have failed) - "
+            "treating as failed build",
+            log_prefix)
+        return _create_empty_report(args.elf_path), True
+
+    return report, False
+
+
+def _build_commit_info(commit, current_branch, repo_name):
+    """
+    Build commit_info dict for upload from a commit hash.
+
+    Args:
+        commit: Commit hash
+        current_branch: Branch name
+        repo_name: Repository name
+
+    Returns:
+        Dict with Git metadata for upload_report
+    """
+    metadata = get_commit_metadata(commit)
+    return {
+        'commit_hash': metadata['commit_sha'],
+        'base_commit_hash': metadata.get('base_sha'),
+        'branch_name': current_branch,
+        'repository': repo_name,
+        'commit_message': metadata['commit_message'],
+        'commit_timestamp': metadata['commit_timestamp'],
+        'author_name': metadata.get('author_name'),
+        'author_email': metadata.get('author_email'),
+        'pr_number': None
+    }
+
+
+def _upload_commit(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+    report, commit, args, current_branch, repo_name,
+    build_failed=False, identical=False
+):
+    """
+    Upload a report for a single commit with proper git metadata.
+
+    In dry-run mode, logs what would be uploaded instead of uploading.
+
+    Args:
+        report: Report dict to upload
+        commit: Commit hash
+        args: CLI args (target_name, api_key, api_url)
+        current_branch: Branch name
+        repo_name: Repository name
+        build_failed: Whether the build failed
+        identical: Whether to mark as identical
+
+    Returns:
+        True if upload succeeded (or dry-run), False otherwise
+    """
+    commit_info = _build_commit_info(commit, current_branch, repo_name)
+    log_prefix = f"({commit})"
+
+    if getattr(args, 'dry_run', False):
+        status = ("identical" if identical
+                  else "build_failed" if build_failed
+                  else "ok")
+        layout = report.get('memory_layout', {})
+        regions = ", ".join(
+            f"{name}: {data.get('used_size', 0)}"
+            for name, data in sorted(layout.items())
+        ) if layout else "(empty)"
+        logger.info("%s: [DRY-RUN] Would upload: status=%s, regions={%s}",
+                    log_prefix, status, regions)
+        return True
+
+    try:
+        upload_report(
+            report=report,
+            commit_info=commit_info,
+            target_name=args.target_name,
+            api_key=args.api_key,
+            api_url=args.api_url,
+            build_failed=build_failed,
+            identical=identical
+        )
+        return True
+    except (ValueError, RuntimeError) as e:
+        logger.error("%s: Failed to upload report: %s", log_prefix, e)
+        return False
+
+
+def _mark_identical_range(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+    commits, left_idx, right_idx, left_fingerprint,
+    built_indices, commit_results, elf_path
+):
+    """Mark all commits between left and right as identical or build failures."""
+    count = right_idx - left_idx - 1
+    both_failed = left_fingerprint is None
+
+    if both_failed:
+        logger.info(
+            "Commits %d..%d both failed to build, "
+            "marking %d intermediate commits as build failures",
+            left_idx, right_idx, count)
+    else:
+        logger.info(
+            "Commits %d..%d have identical memory fingerprints, "
+            "marking %d intermediate commits as identical",
+            left_idx, right_idx, count)
+
+    for i in range(left_idx + 1, right_idx):
+        if i in built_indices:
+            continue
+        commit = commits[i]
+        if both_failed:
+            report = _create_empty_report(elf_path)
+            commit_results[i] = (report, True, False)
+            logger.info("(%s): Marked as build failure (%d/%d)",
+                        commit[:8], i + 1, len(commits))
+        else:
+            report = _create_metadata_only_report(elf_path)
+            commit_results[i] = (report, False, True)
+            logger.info("(%s): Marked as identical (%d/%d)",
+                        commit[:8], i + 1, len(commits))
+
+
+def _binary_search_range(  # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals,too-many-return-statements
+    commits, left_idx, right_idx,
+    left_fingerprint, right_fingerprint,
+    built_indices, failed_indices, reports_cache, commit_results,
+    args, linker_variables, flush_fn
+):
+    """
+    Recursively classify a range of commits using binary search.
+
+    Builds midpoints only where fingerprints differ, and marks identical
+    ranges. Build failures are treated as a distinct fingerprint state
+    (None), allowing binary search to find where builds start/stop
+    failing. Does NOT upload — results are stored in commit_results for
+    chronological upload via flush_fn.
+
+    Args:
+        commits: Full list of commit hashes (oldest first)
+        left_idx: Index of the left boundary (already built)
+        right_idx: Index of the right boundary (already built)
+        left_fingerprint: Fingerprint of the left boundary report,
+                          or None if the build failed
+        right_fingerprint: Fingerprint of the right boundary report,
+                           or None if the build failed
+        built_indices: Set of indices that have been built
+        failed_indices: Set of indices where builds failed
+        reports_cache: Dict mapping index -> report (for built commits)
+        commit_results: Dict mapping index -> (report, build_failed, identical)
+                        populated by this function for later upload
+        args: CLI args
+        linker_variables: Parsed linker definitions
+        flush_fn: Callable that uploads consecutive ready commits in order
+
+    Returns:
+        True if processing should continue, False to abort
+    """
+    # Base case: no commits between left and right
+    if right_idx - left_idx <= 1:
+        return True
+
+    # Fingerprints match - all commits in between share the same state
+    if left_fingerprint == right_fingerprint:
+        _mark_identical_range(
+            commits, left_idx, right_idx, left_fingerprint,
+            built_indices, commit_results, args.elf_path)
+        flush_fn()
+        return True
+
+    # Fingerprints differ - binary search for the change point
+    mid_idx = (left_idx + right_idx) // 2
+
+    if mid_idx in built_indices:
+        # Already built (shouldn't normally happen), use cached report
+        mid_report = reports_cache[mid_idx]
+        mid_fingerprint = None if mid_idx in failed_indices else _extract_fingerprint(mid_report)
+    else:
+        # Build the midpoint
+        commit = commits[mid_idx]
+        logger.info("Building midpoint commit %d/%d: %s",
+                     mid_idx + 1, len(commits), commit[:8])
+        try:
+            mid_report, build_failed = _build_and_generate_report(
+                commit, args, linker_variables)
+        except RuntimeError as e:
+            logger.error("Checkout failed at midpoint %s: %s", commit[:8], e)
+            mid_report = _create_empty_report(args.elf_path)
+            build_failed = True
+        except ValueError as e:
+            logger.error("Report generation failed at midpoint %s: %s",
+                         commit[:8], e)
+            return False
+
+        commit_results[mid_idx] = (mid_report, build_failed, False)
+        built_indices.add(mid_idx)
+        reports_cache[mid_idx] = mid_report
+        flush_fn()
+
+        if build_failed:
+            failed_indices.add(mid_idx)
+            mid_fingerprint = None
+        else:
+            mid_fingerprint = _extract_fingerprint(mid_report)
+
+    # Recurse on both halves
+    if not _binary_search_range(
+            commits, left_idx, mid_idx,
+            left_fingerprint, mid_fingerprint,
+            built_indices, failed_indices, reports_cache, commit_results,
+            args, linker_variables, flush_fn):
+        return False
+
+    return _binary_search_range(
+        commits, mid_idx, right_idx,
+        mid_fingerprint, right_fingerprint,
+        built_indices, failed_indices, reports_cache, commit_results,
+        args, linker_variables, flush_fn)
+
+
+def _run_binary_search_onboard(  # pylint: disable=too-many-locals,too-many-statements
+    args, commits, current_branch, repo_name, linker_variables
+):
+    """
+    Run onboard using binary search to minimize builds.
+
+    Uploads are performed in chronological order via a flush mechanism.
+    Built commits whose fingerprint matches the previous upload are
+    automatically marked as identical.
+
+    Args:
+        args: CLI args
+        commits: List of commit hashes (oldest first)
+        current_branch: Branch name
+        repo_name: Repository name
+        linker_variables: Parsed linker definitions
+
+    Returns:
+        Tuple of (successful_uploads, failed_uploads)
+    """
+    counters = {'successful': 0, 'failed': 0}
+    built_indices = set()
+    failed_indices = set()
+    reports_cache = {}
+    commit_results = {}  # index -> (report, build_failed, identical)
+    total = len(commits)
+
+    # Flush state: upload consecutive ready commits in chronological order
+    flush_state = {'next_to_upload': 0, 'prev_fingerprint': None, 'prev_build_failed': False}
+
+    def flush_fn():
+        """Upload consecutive ready commits starting from next_to_upload."""
+        while flush_state['next_to_upload'] in commit_results:
+            idx = flush_state['next_to_upload']
+            report, build_failed, identical = commit_results.pop(idx)
+
+            # If not already marked identical, compare fingerprint to previous
+            if not identical and not build_failed and flush_state['prev_fingerprint'] is not None:
+                fp = _extract_fingerprint(report)
+                if fp == flush_state['prev_fingerprint']:
+                    identical = True
+
+            # Cannot upload identical when parent is build_failed —
+            # convert to build_failed with empty report instead
+            if identical and flush_state['prev_build_failed']:
+                identical = False
+                build_failed = True
+                report = _create_empty_report(args.elf_path)
+
+            if _upload_commit(report, commits[idx], args, current_branch,
+                              repo_name, build_failed=build_failed,
+                              identical=identical):
+                counters['successful'] += 1
+            else:
+                counters['failed'] += 1
+
+            # Update fingerprint for next comparison.
+            # Reset after failed builds to prevent stale dedup.
+            # For identical commits with metadata-only reports, keep the
+            # previous fingerprint since their empty layout is not meaningful.
+            if build_failed:
+                flush_state['prev_fingerprint'] = None
+            else:
+                fp = _extract_fingerprint(report)
+                if fp:
+                    flush_state['prev_fingerprint'] = fp
+
+            flush_state['prev_build_failed'] = build_failed
+
+            flush_state['next_to_upload'] += 1
+
+    logger.info("Binary search mode: %d commits to analyze", total)
+
+    # Edge case: single commit
+    if total == 1:
+        commit = commits[0]
+        logger.info("Single commit to process: %s", commit[:8])
+        try:
+            report, build_failed = _build_and_generate_report(
+                commit, args, linker_variables)
+        except (RuntimeError, ValueError) as e:
+            logger.error("Failed to process commit %s: %s", commit[:8], e)
+            counters['failed'] += 1
+            return counters['successful'], counters['failed']
+
+        commit_results[0] = (report, build_failed, False)
+        flush_fn()
+        return counters['successful'], counters['failed']
+
+    # Build oldest endpoint
+    logger.info("Building endpoint 1/%d: %s (oldest)", total, commits[0][:8])
+    try:
+        first_report, first_failed = _build_and_generate_report(
+            commits[0], args, linker_variables)
+    except (RuntimeError, ValueError) as e:
+        logger.error("Failed to build oldest commit %s: %s",
+                     commits[0][:8], e)
+        counters['failed'] += 1
+        return counters['successful'], counters['failed']
+
+    commit_results[0] = (first_report, first_failed, False)
+    built_indices.add(0)
+    if first_failed:
+        failed_indices.add(0)
+    reports_cache[0] = first_report
+    flush_fn()
+
+    # Build newest endpoint
+    logger.info("Building endpoint %d/%d: %s (newest)",
+                total, total, commits[-1][:8])
+    try:
+        last_report, last_failed = _build_and_generate_report(
+            commits[-1], args, linker_variables)
+    except (RuntimeError, ValueError) as e:
+        logger.error("Failed to build newest commit %s: %s",
+                     commits[-1][:8], e)
+        counters['failed'] += 1
+        return counters['successful'], counters['failed']
+
+    commit_results[total - 1] = (last_report, last_failed, False)
+    built_indices.add(total - 1)
+    if last_failed:
+        failed_indices.add(total - 1)
+    reports_cache[total - 1] = last_report
+
+    # Edge case: only two commits
+    if total == 2:
+        flush_fn()
+        return counters['successful'], counters['failed']
+
+    # Extract fingerprints (None for failed builds)
+    first_fp = None if first_failed else _extract_fingerprint(first_report)
+    last_fp = None if last_failed else _extract_fingerprint(last_report)
+
+    if first_fp == last_fp:
+        if first_fp is None:
+            logger.info(
+                "Both endpoints failed - searching for working builds "
+                "among %d intermediate commits", total - 2)
+        else:
+            logger.info(
+                "Endpoints have identical fingerprints - marking all %d "
+                "intermediate commits as identical", total - 2)
+    else:
+        logger.info("Endpoints differ - searching for changes via binary search")
+
+    if not _binary_search_range(
+            commits, 0, total - 1,
+            first_fp, last_fp,
+            built_indices, failed_indices, reports_cache, commit_results,
+            args, linker_variables, flush_fn):
+        logger.error("Binary search aborted due to upload failure")
+
+    # Final flush to ensure HEAD (newest) is uploaded last
+    flush_fn()
+
+    return counters['successful'], counters['failed']
+
+
+def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-locals,too-many-statements,too-many-branches,too-many-return-statements
     """
     Execute the onboard subcommand.
 
@@ -319,6 +805,14 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
     Returns:
         Exit code (0 for success, 1 for error)
     """
+
+    # Validate mutually exclusive flags
+    if getattr(args, 'binary_search', False) and getattr(args, 'build_dirs', None):
+        logger.error("--binary-search and --build-dirs are mutually exclusive")
+        return 1
+
+    if getattr(args, 'dry_run', False):
+        logger.info("DRY-RUN MODE: will build and analyze but skip uploading")
 
     logger.info("Starting historical memory analysis for %s", args.target_name)
     logger.info("Processing last %d commits", args.num_commits)
@@ -378,6 +872,13 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
 
         return exit_code
 
+    # Binary search mode: delegate to binary search orchestrator
+    if getattr(args, 'binary_search', False):
+        successful_uploads, failed_uploads = _run_binary_search_onboard(
+            args, commits, current_branch, repo_name, linker_variables
+        )
+        return finalize_and_return(0 if failed_uploads == 0 else 1)
+
     # Process each commit
     for commit_count, commit in enumerate(commits, 1):
         log_prefix = f"({commit})"
@@ -393,35 +894,13 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
             # No changes in build directories - upload metadata-only with identical=True
             logger.info("%s: No changes in build directories, marking as identical", log_prefix)
 
-            metadata = get_commit_metadata(commit)
             report = _create_metadata_only_report(args.elf_path)
-            commit_info = {
-                'commit_hash': metadata['commit_sha'],
-                'base_commit_hash': metadata.get('base_sha'),
-                'branch_name': current_branch,
-                'repository': repo_name,
-                'commit_message': metadata['commit_message'],
-                'commit_timestamp': metadata['commit_timestamp'],
-                'author_name': metadata.get('author_name'),
-                'author_email': metadata.get('author_email'),
-                'pr_number': None
-            }
-
-            try:
-                upload_report(
-                    report=report,
-                    commit_info=commit_info,
-                    target_name=args.target_name,
-                    api_key=args.api_key,
-                    api_url=args.api_url,
-                    identical=True
-                )
+            if _upload_commit(report, commit, args, current_branch, repo_name,
+                              identical=True):
                 logger.info("%s: Identical report uploaded (commit %d of %d)",
                             log_prefix, commit_count, total_commits)
                 successful_uploads += 1
-            except (ValueError, RuntimeError) as e:
-                logger.error("%s: Failed to upload identical report", log_prefix)
-                logger.error("%s: Error: %s", log_prefix, e)
+            else:
                 failed_uploads += 1
                 return finalize_and_return(1)
 
@@ -455,9 +934,6 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
             text=True,
             check=False
         )
-
-        # Get commit metadata (returns old key names: commit_sha, base_sha)
-        metadata = get_commit_metadata(commit)
 
         # Handle build failures vs missing files after successful build
         build_failed = False
@@ -499,28 +975,18 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
                 failed_uploads += 1
                 return finalize_and_return(1)
 
-        # Build commit_info in metadata['git'] format (map old keys to new)
-        commit_info = {
-            'commit_hash': metadata['commit_sha'],
-            'base_commit_hash': metadata.get('base_sha'),
-            'branch_name': current_branch,
-            'repository': repo_name,
-            'commit_message': metadata['commit_message'],
-            'commit_timestamp': metadata['commit_timestamp'],
-            'author_name': metadata.get('author_name'),
-            'author_email': metadata.get('author_email'),
-            'pr_number': None
-        }
+            # Case 3b: Build succeeded but report has empty memory_layout
+            if not report.get('memory_layout'):
+                logger.error(
+                    "%s: Build succeeded but memory_layout is empty "
+                    "(linker script parsing may have failed) - "
+                    "treating as failed build",
+                    log_prefix)
+                report = _create_empty_report(args.elf_path)
+                build_failed = True
 
-        try:
-            upload_report(
-                report=report,
-                commit_info=commit_info,
-                target_name=args.target_name,
-                api_key=args.api_key,
-                api_url=args.api_url,
-                build_failed=build_failed
-            )
+        if _upload_commit(report, commit, args, current_branch, repo_name,
+                          build_failed=build_failed):
             if build_failed:
                 logger.info(
                     "%s: Empty report uploaded successfully for failed build (commit %d of %d)",
@@ -534,11 +1000,10 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
                     commit_count,
                     total_commits)
             successful_uploads += 1
-        except (ValueError, RuntimeError) as e:
+        else:
             logger.error(
                 "%s: Failed to upload memory report (commit %d of %d), stopping workflow...",
                 log_prefix, commit_count, total_commits)
-            logger.error("%s: Error: %s", log_prefix, e)
             failed_uploads += 1
             return finalize_and_return(1)
 
