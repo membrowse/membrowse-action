@@ -121,7 +121,6 @@ class MemBrowseClient:
         """
         max_attempts = 5
         retry_delays = [10, 30, 60, 120]  # seconds between attempts
-        timeout_seconds = 120
 
         prefix = f"({log_context}) " if log_context else ""
 
@@ -132,7 +131,7 @@ class MemBrowseClient:
                     prefix, method, url, attempt, max_attempts
                 )
                 response = self.session.request(
-                    method, url, timeout=timeout_seconds, **kwargs
+                    method, url, timeout=120, **kwargs
                 )
                 response.raise_for_status()
 

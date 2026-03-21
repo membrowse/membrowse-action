@@ -504,6 +504,41 @@ def _upload_commit(  # pylint: disable=too-many-arguments,too-many-positional-ar
         return False
 
 
+def _mark_identical_range(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+    commits, left_idx, right_idx, left_fingerprint,
+    built_indices, commit_results, elf_path
+):
+    """Mark all commits between left and right as identical or build failures."""
+    count = right_idx - left_idx - 1
+    both_failed = left_fingerprint is None
+
+    if both_failed:
+        logger.info(
+            "Commits %d..%d both failed to build, "
+            "marking %d intermediate commits as build failures",
+            left_idx, right_idx, count)
+    else:
+        logger.info(
+            "Commits %d..%d have identical memory fingerprints, "
+            "marking %d intermediate commits as identical",
+            left_idx, right_idx, count)
+
+    for i in range(left_idx + 1, right_idx):
+        if i in built_indices:
+            continue
+        commit = commits[i]
+        if both_failed:
+            report = _create_empty_report(elf_path)
+            commit_results[i] = (report, True, False)
+            logger.info("(%s): Marked as build failure (%d/%d)",
+                        commit[:8], i + 1, len(commits))
+        else:
+            report = _create_metadata_only_report(elf_path)
+            commit_results[i] = (report, False, True)
+            logger.info("(%s): Marked as identical (%d/%d)",
+                        commit[:8], i + 1, len(commits))
+
+
 def _binary_search_range(  # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals,too-many-return-statements
     commits, left_idx, right_idx,
     left_fingerprint, right_fingerprint,
@@ -545,34 +580,9 @@ def _binary_search_range(  # pylint: disable=too-many-arguments,too-many-positio
 
     # Fingerprints match - all commits in between share the same state
     if left_fingerprint == right_fingerprint:
-        count = right_idx - left_idx - 1
-        both_failed = left_fingerprint is None
-
-        if both_failed:
-            logger.info(
-                "Commits %d..%d both failed to build, "
-                "marking %d intermediate commits as build failures",
-                left_idx, right_idx, count)
-        else:
-            logger.info(
-                "Commits %d..%d have identical memory fingerprints, "
-                "marking %d intermediate commits as identical",
-                left_idx, right_idx, count)
-
-        for i in range(left_idx + 1, right_idx):
-            if i in built_indices:
-                continue
-            commit = commits[i]
-            if both_failed:
-                report = _create_empty_report(args.elf_path)
-                commit_results[i] = (report, True, False)
-                logger.info("(%s): Marked as build failure (%d/%d)",
-                            commit[:8], i + 1, len(commits))
-            else:
-                report = _create_metadata_only_report(args.elf_path)
-                commit_results[i] = (report, False, True)
-                logger.info("(%s): Marked as identical (%d/%d)",
-                            commit[:8], i + 1, len(commits))
+        _mark_identical_range(
+            commits, left_idx, right_idx, left_fingerprint,
+            built_indices, commit_results, args.elf_path)
         flush_fn()
         return True
 
