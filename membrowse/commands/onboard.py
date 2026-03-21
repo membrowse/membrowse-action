@@ -654,7 +654,7 @@ def _run_binary_search_onboard(  # pylint: disable=too-many-locals,too-many-stat
     total = len(commits)
 
     # Flush state: upload consecutive ready commits in chronological order
-    flush_state = {'next_to_upload': 0, 'prev_fingerprint': None}
+    flush_state = {'next_to_upload': 0, 'prev_fingerprint': None, 'prev_build_failed': False}
 
     def flush_fn():
         """Upload consecutive ready commits starting from next_to_upload."""
@@ -668,6 +668,13 @@ def _run_binary_search_onboard(  # pylint: disable=too-many-locals,too-many-stat
                 if fp == flush_state['prev_fingerprint']:
                     identical = True
 
+            # Cannot upload identical when parent is build_failed —
+            # convert to build_failed with empty report instead
+            if identical and flush_state['prev_build_failed']:
+                identical = False
+                build_failed = True
+                report = _create_empty_report(args.elf_path)
+
             if _upload_commit(report, commits[idx], args, current_branch,
                               repo_name, build_failed=build_failed,
                               identical=identical):
@@ -676,13 +683,17 @@ def _run_binary_search_onboard(  # pylint: disable=too-many-locals,too-many-stat
                 counters['failed'] += 1
 
             # Update fingerprint for next comparison.
-            # Skip failed builds (no meaningful fingerprint).
+            # Reset after failed builds to prevent stale dedup.
             # For identical commits with metadata-only reports, keep the
             # previous fingerprint since their empty layout is not meaningful.
-            if not build_failed:
+            if build_failed:
+                flush_state['prev_fingerprint'] = None
+            else:
                 fp = _extract_fingerprint(report)
                 if fp:
                     flush_state['prev_fingerprint'] = fp
+
+            flush_state['prev_build_failed'] = build_failed
 
             flush_state['next_to_upload'] += 1
 

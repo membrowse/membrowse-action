@@ -499,6 +499,55 @@ class TestRunBinarySearchOnboard:
                     f"{sha} should not be build_failed"
 
 
+    @patch('membrowse.commands.onboard._build_and_generate_report')
+    @patch('membrowse.commands.onboard.upload_report')
+    @patch('membrowse.commands.onboard.get_commit_metadata')
+    def test_no_identical_after_build_failed(
+            self, mock_metadata, mock_upload, mock_build):
+        """After a build_failed upload, the next commit must not be
+        deduped to identical even if its fingerprint matches a prior
+        successful commit. This prevents the API from rejecting
+        identical reports whose parent is build_failed."""
+        mock_metadata.side_effect = _make_commit_metadata
+        mock_upload.return_value = ({"status": "success"}, "")
+
+        # c0: fp X (1000), c4: fp Y (2000) — different endpoints force
+        # binary search. c2 fails. c1,c3 succeed with fp X (same as c0).
+        # Without the fix, flush dedup would mark c3 identical because
+        # prev_fingerprint=X persists across c2's build_failed.
+        def build_side_effect(commit, _args, _linker_vars):
+            idx = int(commit[1:])
+            if idx == 2:
+                return _make_report({}), True  # c2 fails
+            if idx == 4:
+                return _make_report(_make_layout(flash_used=2000)), False
+            return _make_report(_make_layout(flash_used=1000)), False
+
+        mock_build.side_effect = build_side_effect
+
+        commits = ['c0', 'c1', 'c2', 'c3', 'c4']
+        success, failed = _run_binary_search_onboard(
+            _make_args(), commits, 'main', 'repo', {})
+
+        assert failed == 0
+        assert success == 5
+        upload_hashes = _get_upload_commit_hashes(mock_upload)
+        assert upload_hashes == ['c0', 'c1', 'c2', 'c3', 'c4']
+
+        for call in mock_upload.call_args_list:
+            sha = call.kwargs['commit_info']['commit_hash']
+            if sha == 'c2':
+                assert call.kwargs.get('build_failed') is True, \
+                    "c2 should be build_failed"
+            elif sha == 'c3':
+                # Key assertion: c3 must NOT be identical (parent c2 is
+                # build_failed). It should upload as a regular report.
+                assert not call.kwargs.get('identical'), \
+                    "c3 must not be identical after build_failed parent"
+                assert not call.kwargs.get('build_failed'), \
+                    "c3 built successfully and should not be build_failed"
+
+
 class TestDryRun:
     """Test --dry-run mode."""
 
