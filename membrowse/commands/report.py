@@ -378,6 +378,8 @@ examples:
     git_group.add_argument('--author-email', help='Commit author email')
     git_group.add_argument('--pr-number', help='Pull request number')
     git_group.add_argument('--pr-name', help='Pull request name/title')
+    git_group.add_argument('--tags', nargs='*', default=None,
+                               help='Git tag name(s)')
     git_group.add_argument('--pr-author-name', help='Pull request author name')
     git_group.add_argument('--pr-author-email', help='Pull request author email')
 
@@ -896,6 +898,7 @@ def run_report(args: argparse.Namespace) -> int:
         'commit_timestamp': 'commit_timestamp',
         'author_name': 'author_name',
         'author_email': 'author_email',
+        'tags': 'tags',
         'pr_number': 'pr_number',
         'pr_name': 'pr_name',
         'pr_author_name': 'pr_author_name',

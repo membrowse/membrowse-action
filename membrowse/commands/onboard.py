@@ -92,6 +92,10 @@ examples:
   membrowse onboard --commits "v1.0 v1.1 v2.0" "make clean && make" \\
       build/firmware.elf stm32f4 "$API_KEY" --ld-scripts "linker.ld"
 
+  # Chain two --commits runs (e.g. when build path changed between versions)
+  membrowse onboard --commits "v2.0 v3.0 v4.0" --initial-parent v1.1 \\
+      "make clean && make" build/firmware.elf stm32f4 "$API_KEY"
+
   # ESP-IDF project with custom API URL
   membrowse onboard 25 "idf.py build" build/firmware.elf \\
       esp32 "$API_KEY" https://custom-api.example.com \\
@@ -173,6 +177,15 @@ examples:
              'Example: --commits "v1.0 v1.1 abc123 v2.0"'
     )
     parser.add_argument(
+        '--initial-parent',
+        dest='initial_parent',
+        metavar='REF',
+        help='Set the parent of the first commit when using --commits. '
+             'Use this to chain multiple --commits runs together. '
+             'The ref is resolved to a commit hash. '
+             'Only valid with --commits.'
+    )
+    parser.add_argument(
         '--binary-search',
         dest='binary_search',
         action='store_true',
@@ -238,9 +251,17 @@ def _get_repository_info():
                         '--format=%(refname:short)', 'refs/heads/']) or
         os.environ.get('GITHUB_REF_NAME', 'unknown')
     )
+    if current_branch == 'unknown':
+        logger.warning(
+            "Running from detached HEAD — branch will be reported as 'unknown'. "
+            "Consider checking out a branch first (e.g. 'git checkout master')."
+        )
 
-    # Save current HEAD
-    original_head = run_git_command(['rev-parse', 'HEAD'])
+    # Save current HEAD — prefer symbolic ref so we restore to the branch, not detached HEAD
+    original_head = (
+        run_git_command(['symbolic-ref', '--short', 'HEAD']) or
+        run_git_command(['rev-parse', 'HEAD'])
+    )
     if not original_head:
         return None, None, None
 
@@ -515,6 +536,7 @@ def _build_commit_info(commit, current_branch, repo_name, base_sha_override=_NO_
         'commit_timestamp': metadata['commit_timestamp'],
         'author_name': metadata.get('author_name'),
         'author_email': metadata.get('author_email'),
+        'tags': metadata.get('tags', []),
         'pr_number': None
     }
 
@@ -901,6 +923,10 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
     if use_explicit_commits and initial_commit:
         logger.error("Cannot use both --commits and --initial-commit")
         return 1
+    initial_parent = getattr(args, 'initial_parent', None)
+    if initial_parent and not use_explicit_commits:
+        logger.error("--initial-parent can only be used with --commits")
+        return 1
     if not use_explicit_commits and args.num_commits is None:
         logger.error("Either num_commits or --commits is required")
         return 1
@@ -926,6 +952,14 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
     if linker_variables:
         for key, value in linker_variables.items():
             logger.info("User-defined linker variable: %s = %s", key, value)
+
+    # Resolve --initial-parent to a commit hash
+    if initial_parent:
+        initial_parent = run_git_command(['rev-parse', initial_parent])
+        if not initial_parent:
+            logger.error("--initial-parent: could not resolve ref")
+            return 1
+        logger.info("Initial parent for first commit: %s", initial_parent)
 
     # Get repository information
     current_branch, original_head, repo_name = _get_repository_info()
@@ -1107,7 +1141,7 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
         # Build commit_info in metadata['git'] format (map old keys to new)
         # When using --commits, fake the parent chain so commits appear connected
         if use_explicit_commits:
-            faked_parent = commits[commit_count - 2] if commit_count > 1 else None
+            faked_parent = commits[commit_count - 2] if commit_count > 1 else initial_parent
         else:
             faked_parent = None
 

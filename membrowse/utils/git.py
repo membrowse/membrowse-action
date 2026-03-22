@@ -44,6 +44,24 @@ def get_parent_commit() -> Optional[str]:
     return run_git_command(['rev-parse', 'HEAD~1'])
 
 
+def get_commit_tags(commit_sha: str) -> list:
+    """
+    Get all tags pointing at a specific commit.
+
+    Args:
+        commit_sha: Git commit SHA to check for tags
+
+    Returns:
+        List of tag names pointing at the commit, or empty list if none.
+    """
+    if not commit_sha:
+        return []
+    result = run_git_command(['tag', '--points-at', commit_sha])
+    if not result:
+        return []
+    return [tag.strip() for tag in result.splitlines() if tag.strip()]
+
+
 def _parse_pull_request_event(event_data: Dict[str, Any]) -> tuple:
     """Extract metadata from pull request event."""
     pr = event_data.get('pull_request', {})
@@ -199,6 +217,9 @@ def detect_git_metadata() -> Dict[str, Any]:
     # Get commit details
     commit_message, commit_timestamp, author_name, author_email = _get_commit_details(commit_sha)
 
+    # Get tags if commit is tagged
+    tags = get_commit_tags(commit_sha)
+
     return {
         'commit_hash': commit_sha or None,
         'parent_commit_hash': parent_sha or None,
@@ -209,6 +230,7 @@ def detect_git_metadata() -> Dict[str, Any]:
         'commit_timestamp': commit_timestamp or None,
         'author_name': author_name or None,
         'author_email': author_email or None,
+        'tags': tags,
         'pr_number': None,
         'pr_name': None,
         'pr_author_name': None,
@@ -225,6 +247,8 @@ def _build_metadata_result(
     commit_message, commit_timestamp, author_name, author_email = commit_details
     pr_number, pr_name, pr_author_name, pr_author_email = pr_info
 
+    tags = get_commit_tags(git_context.commit_sha)
+
     return {
         'commit_hash': git_context.commit_sha or None,
         'parent_commit_hash': git_context.parent_sha or None,
@@ -235,6 +259,7 @@ def _build_metadata_result(
         'commit_timestamp': commit_timestamp or None,
         'author_name': author_name or None,
         'author_email': author_email or None,
+        'tags': tags,
         'pr_number': pr_number or None,
         'pr_name': pr_name or None,
         'pr_author_name': pr_author_name or None,
@@ -287,13 +312,14 @@ def detect_github_metadata() -> Dict[str, Any]:
     # Override with GitHub-specific values where available
     if commit_sha:
         metadata['commit_hash'] = commit_sha
-        # Re-fetch commit details for the GitHub commit SHA
+        # Re-fetch commit details and tag for the GitHub commit SHA
         (commit_message, commit_timestamp,
          author_name, author_email) = _get_commit_details(commit_sha)
         metadata['commit_message'] = commit_message
         metadata['commit_timestamp'] = commit_timestamp
         metadata['author_name'] = author_name
         metadata['author_email'] = author_email
+        metadata['tags'] = get_commit_tags(commit_sha)
 
     if branch_name:
         metadata['branch_name'] = branch_name
@@ -336,6 +362,7 @@ def get_commit_metadata(commit_sha: str) -> Dict[str, Any]:
         'commit_timestamp': datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
         'author_name': 'Unknown',
         'author_email': 'unknown@example.com',
+        'tags': [],
     }
 
     # Get parent commit
@@ -362,5 +389,8 @@ def get_commit_metadata(commit_sha: str) -> Dict[str, Any]:
     auth_email = run_git_command(['log', '-1', '--pretty=format:%ae', commit_sha])
     if auth_email:
         metadata['author_email'] = auth_email
+
+    # Get tags if commit is tagged
+    metadata['tags'] = get_commit_tags(commit_sha)
 
     return metadata
