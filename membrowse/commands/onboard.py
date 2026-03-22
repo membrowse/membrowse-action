@@ -13,6 +13,9 @@ from .report import generate_report, upload_report, DEFAULT_API_URL, _parse_link
 # Set up logger
 logger = logging.getLogger(__name__)
 
+# Sentinel to distinguish "no override" from "override with None"
+_NO_OVERRIDE = object()
+
 
 def _create_empty_report(elf_path: str) -> dict:
     """
@@ -55,11 +58,15 @@ def add_onboard_parser(subparsers) -> argparse.ArgumentParser:
         description="""
 Analyzes memory footprints across historical commits and uploads them to MemBrowse.
 
-This command iterates through the last N commits in your Git repository, builds
-the firmware for each commit, and uploads the memory footprint analysis to MemBrowse.
+This command iterates through commits in your Git repository, builds the firmware
+for each commit, and uploads the memory footprint analysis to MemBrowse.
+
+Two modes of commit selection:
+  - Last N commits: provide num_commits to process the most recent N commits
+  - Explicit list: use --commits to specify exact commits/tags to process
 
 How it works:
-  1. Iterates through the last N commits in reverse chronological order (oldest first)
+  1. Iterates through commits (oldest first)
   2. Checks out each commit
   3. Runs the build command to compile the firmware
   4. Analyzes the resulting ELF file and linker scripts
@@ -81,17 +88,23 @@ examples:
   membrowse onboard 50 "make clean && make" build/firmware.elf \\
       stm32f4 "$API_KEY"
 
+  # Analyze specific commits/tags (parent chain is faked)
+  membrowse onboard --commits "v1.0 v1.1 v2.0" "make clean && make" \\
+      build/firmware.elf stm32f4 "$API_KEY" --ld-scripts "linker.ld"
+
   # ESP-IDF project with custom API URL
   membrowse onboard 25 "idf.py build" build/firmware.elf \\
       esp32 "$API_KEY" https://custom-api.example.com \\
       --ld-scripts "build/esp-idf/esp32/esp32.project.ld"
         """)
 
-    # Required positional arguments
+    # Positional arguments (num_commits is optional when --commits is used)
     parser.add_argument(
         'num_commits',
         type=int,
-        help='Number of historical commits to process')
+        nargs='?',
+        default=None,
+        help='Number of historical commits to process (required unless --commits is used)')
     parser.add_argument(
         'build_script',
         help='Shell command to build firmware (quoted)')
@@ -104,7 +117,16 @@ examples:
         'api_url',
         nargs='?',
         default=DEFAULT_API_URL,
-        help='MemBrowse API base URL (default: %(default)s, /upload appended automatically)'
+        help='MemBrowse API base URL (default: %(default)s, /upload appended automatically). '
+             'When using --commits, use --api-url instead of the positional argument.'
+    )
+    parser.add_argument(
+        '--api-url',
+        dest='api_url_flag',
+        metavar='URL',
+        default=None,
+        help='MemBrowse API base URL (alternative to positional api_url, '
+             'required when using --commits with a custom URL)'
     )
 
     # Optional flags
@@ -138,7 +160,17 @@ examples:
         metavar='HASH',
         help='Start processing from this commit hash (must be on the main branch, not a '
              'feature branch commit). If specified and the path from this commit to HEAD '
-             'has fewer than num_commits, only those commits are processed.'
+             'has fewer than num_commits, only those commits are processed. '
+             'Mutually exclusive with --commits.'
+    )
+    parser.add_argument(
+        '--commits',
+        dest='commits',
+        metavar='REFS',
+        help='Space-separated list of commit hashes and/or tags to process (quoted). '
+             'Commits are processed in the given order with a faked parent chain. '
+             'Mutually exclusive with num_commits and --initial-commit. '
+             'Example: --commits "v1.0 v1.1 abc123 v2.0"'
     )
     parser.add_argument(
         '--binary-search',
@@ -157,6 +189,39 @@ examples:
     )
 
     return parser
+
+
+def _resolve_and_validate_commits(commits_str: str) -> list[str]:
+    """
+    Resolve commit references (hashes, tags) and validate they exist.
+
+    Args:
+        commits_str: Space-separated string of commit refs
+
+    Returns:
+        List of resolved full commit SHAs
+
+    Raises:
+        ValueError: If any ref cannot be resolved
+    """
+    refs = commits_str.split()
+    if not refs:
+        raise ValueError("--commits requires at least one commit reference")
+
+    resolved = []
+    invalid = []
+    for ref in refs:
+        sha = run_git_command(['rev-parse', '--verify', f'{ref}^{{commit}}'])
+        if sha:
+            resolved.append(sha)
+        else:
+            invalid.append(ref)
+
+    if invalid:
+        raise ValueError(
+            f"Cannot resolve commit reference(s): {', '.join(invalid)}")
+
+    return resolved
 
 
 def _get_repository_info():
@@ -425,7 +490,7 @@ def _build_and_generate_report(commit, args, linker_variables):
     return report, False
 
 
-def _build_commit_info(commit, current_branch, repo_name):
+def _build_commit_info(commit, current_branch, repo_name, base_sha_override=_NO_OVERRIDE):
     """
     Build commit_info dict for upload from a commit hash.
 
@@ -433,6 +498,7 @@ def _build_commit_info(commit, current_branch, repo_name):
         commit: Commit hash
         current_branch: Branch name
         repo_name: Repository name
+        base_sha_override: If provided (including None), use this instead of the real git parent
 
     Returns:
         Dict with Git metadata for upload_report
@@ -440,7 +506,9 @@ def _build_commit_info(commit, current_branch, repo_name):
     metadata = get_commit_metadata(commit)
     return {
         'commit_hash': metadata['commit_sha'],
-        'base_commit_hash': metadata.get('base_sha'),
+        'base_commit_hash': (base_sha_override
+                              if base_sha_override is not _NO_OVERRIDE
+                              else metadata.get('base_sha')),
         'branch_name': current_branch,
         'repository': repo_name,
         'commit_message': metadata['commit_message'],
@@ -451,9 +519,9 @@ def _build_commit_info(commit, current_branch, repo_name):
     }
 
 
-def _upload_commit(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+def _upload_commit(  # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals
     report, commit, args, current_branch, repo_name,
-    build_failed=False, identical=False
+    build_failed=False, identical=False, api_url=None, base_sha_override=_NO_OVERRIDE
 ):
     """
     Upload a report for a single commit with proper git metadata.
@@ -468,12 +536,16 @@ def _upload_commit(  # pylint: disable=too-many-arguments,too-many-positional-ar
         repo_name: Repository name
         build_failed: Whether the build failed
         identical: Whether to mark as identical
+        api_url: Resolved API URL (overrides args.api_url if provided)
+        base_sha_override: If provided, use this as the parent commit hash
 
     Returns:
         True if upload succeeded (or dry-run), False otherwise
     """
-    commit_info = _build_commit_info(commit, current_branch, repo_name)
+    commit_info = _build_commit_info(commit, current_branch, repo_name,
+                                     base_sha_override=base_sha_override)
     log_prefix = f"({commit})"
+    resolved_api_url = api_url if api_url is not None else args.api_url
 
     if getattr(args, 'dry_run', False):
         status = ("identical" if identical
@@ -494,7 +566,7 @@ def _upload_commit(  # pylint: disable=too-many-arguments,too-many-positional-ar
             commit_info=commit_info,
             target_name=args.target_name,
             api_key=args.api_key,
-            api_url=args.api_url,
+            api_url=resolved_api_url,
             build_failed=build_failed,
             identical=identical
         )
@@ -806,16 +878,42 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
         Exit code (0 for success, 1 for error)
     """
 
-    # Validate mutually exclusive flags
+    commits_arg = getattr(args, 'commits', None)
+    initial_commit = getattr(args, 'initial_commit', None)
+    use_explicit_commits = commits_arg is not None
+
+    # Resolve api_url: --api-url flag takes precedence over positional
+    api_url_flag = getattr(args, 'api_url_flag', None)
+    api_url = api_url_flag if api_url_flag is not None else args.api_url
+
+    # Validate mutually exclusive options
     if getattr(args, 'binary_search', False) and getattr(args, 'build_dirs', None):
         logger.error("--binary-search and --build-dirs are mutually exclusive")
+        return 1
+    if use_explicit_commits and getattr(args, 'binary_search', False):
+        logger.error("--binary-search and --commits are mutually exclusive")
+        return 1
+    if use_explicit_commits and getattr(args, 'build_dirs', None):
+        logger.info("--build-dirs is ignored when --commits is used")
+    if use_explicit_commits and args.num_commits is not None:
+        logger.error("Cannot use both num_commits and --commits")
+        return 1
+    if use_explicit_commits and initial_commit:
+        logger.error("Cannot use both --commits and --initial-commit")
+        return 1
+    if not use_explicit_commits and args.num_commits is None:
+        logger.error("Either num_commits or --commits is required")
         return 1
 
     if getattr(args, 'dry_run', False):
         logger.info("DRY-RUN MODE: will build and analyze but skip uploading")
 
+
     logger.info("Starting historical memory analysis for %s", args.target_name)
-    logger.info("Processing last %d commits", args.num_commits)
+    if use_explicit_commits:
+        logger.info("Processing explicit commit list")
+    else:
+        logger.info("Processing last %d commits", args.num_commits)
     logger.info("Build script: %s", args.build_script)
     logger.info("ELF file: %s", args.elf_path)
     if args.ld_scripts:
@@ -836,10 +934,18 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
         return 1
 
     # Get commit list
-    commits = _get_commit_list(args.num_commits, getattr(args, 'initial_commit', None))
-    if not commits:
-        logger.error("Failed to get commit history")
-        return 1
+    if use_explicit_commits:
+        try:
+            commits = _resolve_and_validate_commits(commits_arg)
+        except ValueError as e:
+            logger.error("Invalid --commits: %s", e)
+            return 1
+        logger.info("Resolved %d commit(s) to process", len(commits))
+    else:
+        commits = _get_commit_list(args.num_commits, initial_commit)
+        if not commits:
+            logger.error("Failed to get commit history")
+            return 1
 
     total_commits = len(commits)
 
@@ -889,14 +995,17 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
 
         # Check if we need to build this commit (when --build-dirs is specified)
         # First commit is always built to establish baseline
+        # Skip this optimization when using --commits (explicit commit list)
         build_dirs = getattr(args, 'build_dirs', None)
-        if build_dirs and commit_count > 1 and not _commit_has_changes_in_dirs(commit, build_dirs):
+        if (build_dirs and not use_explicit_commits
+                and commit_count > 1
+                and not _commit_has_changes_in_dirs(commit, build_dirs)):
             # No changes in build directories - upload metadata-only with identical=True
             logger.info("%s: No changes in build directories, marking as identical", log_prefix)
 
             report = _create_metadata_only_report(args.elf_path)
             if _upload_commit(report, commit, args, current_branch, repo_name,
-                              identical=True):
+                              identical=True, api_url=api_url):
                 logger.info("%s: Identical report uploaded (commit %d of %d)",
                             log_prefix, commit_count, total_commits)
                 successful_uploads += 1
@@ -914,9 +1023,16 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
             check=False
         )
         if result.returncode != 0:
-            logger.error("%s: Failed to checkout commit", log_prefix)
+            logger.error("%s: Failed to checkout commit — stopping onboard", log_prefix)
             failed_uploads += 1
-            continue
+            return finalize_and_return(1)
+
+        # Update submodules to match the checked-out commit
+        logger.info("%s: Updating submodules...", log_prefix)
+        subprocess.run(
+            ['git', 'submodule', 'update', '--init', '--recursive', '--quiet'],
+            capture_output=True, check=False
+        )
 
         # Clean previous build artifacts
         logger.info("Cleaning previous build artifacts...")
@@ -976,6 +1092,9 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
                 return finalize_and_return(1)
 
             # Case 3b: Build succeeded but report has empty memory_layout
+            # (e.g. linker script parsing failed for this commit).
+            # Treat as a build failure so the API accepts it instead of
+            # rejecting with 400 "memory_layout is required and cannot be empty".
             if not report.get('memory_layout'):
                 logger.error(
                     "%s: Build succeeded but memory_layout is empty "
@@ -985,8 +1104,16 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
                 report = _create_empty_report(args.elf_path)
                 build_failed = True
 
+        # Build commit_info in metadata['git'] format (map old keys to new)
+        # When using --commits, fake the parent chain so commits appear connected
+        if use_explicit_commits:
+            faked_parent = commits[commit_count - 2] if commit_count > 1 else None
+        else:
+            faked_parent = None
+
         if _upload_commit(report, commit, args, current_branch, repo_name,
-                          build_failed=build_failed):
+                          build_failed=build_failed, api_url=api_url,
+                          base_sha_override=faked_parent):
             if build_failed:
                 logger.info(
                     "%s: Empty report uploaded successfully for failed build (commit %d of %d)",
