@@ -536,6 +536,7 @@ def _build_commit_info(commit, current_branch, repo_name, base_sha_override=_NO_
         'commit_timestamp': metadata['commit_timestamp'],
         'author_name': metadata.get('author_name'),
         'author_email': metadata.get('author_email'),
+        'tags': metadata.get('tags', []),
         'pr_number': None
     }
 
