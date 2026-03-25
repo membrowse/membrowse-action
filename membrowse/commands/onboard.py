@@ -469,10 +469,11 @@ def _build_and_generate_report(commit, args, linker_variables):
     # Build the firmware
     logger.info("%s: Building firmware with: %s", log_prefix, args.build_script)
     result = subprocess.run(
-        ['bash', '-c', args.build_script],
+        args.build_script,
         capture_output=True,
         text=True,
-        check=False
+        check=False,
+        shell=True
     )
 
     # Case 1: Build failed (non-zero exit code)
@@ -1079,10 +1080,11 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
             log_prefix,
             args.build_script)
         result = subprocess.run(
-            ['bash', '-c', args.build_script],
+            args.build_script,
             capture_output=True,
             text=True,
-            check=False
+            check=False,
+            shell=True
         )
 
         # Handle build failures vs missing files after successful build
