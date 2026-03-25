@@ -8,7 +8,6 @@ This test:
 3. Verifies that C++ symbols are properly demangled
 """
 
-import shutil
 import subprocess
 import tempfile
 import unittest

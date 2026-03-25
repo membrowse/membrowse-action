@@ -5,7 +5,6 @@ Test the hybrid source file mapping implementation
 # pylint: disable=protected-access,too-many-branches
 # pylint: disable=too-many-statements,broad-exception-caught,duplicate-code
 
-import platform
 import sys
 from pathlib import Path
 

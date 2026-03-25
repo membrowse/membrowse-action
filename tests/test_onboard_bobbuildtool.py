@@ -10,6 +10,7 @@ with --dry-run to verify the full workflow without uploading.
 Requires bobbuildtool (pip install bobbuildtool) and a C compiler to be installed.
 """
 
+import argparse
 import logging
 import os
 import platform
@@ -173,10 +174,10 @@ checkoutSCM:
     url: src
 
 buildScript: |
-    {cc} -g -nostdlib -static -T %1/linker.ld -o firmware.elf %1/firmware.c
+    {cc} -g -nostdlib -static -T $1/linker.ld -o firmware.elf $1/firmware.c
 
 packageScript: |
-    copy %1\\firmware.elf .
+    cp $1/firmware.elf .
 """
 
 
@@ -250,10 +251,10 @@ def bob_repo(tmp_path):
     return repo, commits
 
 
-class TestOnboardBobbuildtool:
+class TestOnboardBobbuildtool:  # pylint: disable=too-few-public-methods
     """End-to-end onboard test using actual bobbuildtool as meta build system."""
 
-    def test_dry_run_four_commits(self, bob_repo, caplog):
+    def test_dry_run_four_commits(self, bob_repo, caplog):  # pylint: disable=too-many-locals,redefined-outer-name
         """Run onboard on the last 4 commits with --dry-run.
 
         Verifies that:
@@ -268,7 +269,6 @@ class TestOnboardBobbuildtool:
         try:
             os.chdir(repo)
 
-            import argparse
             args = argparse.Namespace(
                 num_commits=4,
                 build_script=BOB_BUILD_CMD,
