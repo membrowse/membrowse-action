@@ -10,8 +10,10 @@ with --dry-run to verify the full workflow without uploading.
 Requires bobbuildtool (pip install bobbuildtool) and a C compiler to be installed.
 """
 
+import logging
 import os
 import platform
+import re
 import subprocess
 import shutil
 
@@ -251,13 +253,14 @@ def bob_repo(tmp_path):
 class TestOnboardBobbuildtool:
     """End-to-end onboard test using actual bobbuildtool as meta build system."""
 
-    def test_dry_run_four_commits(self, bob_repo):
+    def test_dry_run_four_commits(self, bob_repo, caplog):
         """Run onboard on the last 4 commits with --dry-run.
 
         Verifies that:
         - The onboard command completes successfully (exit code 0)
         - All 4 commits are processed (checkout, bob build, analyse)
         - No uploads are attempted (dry-run mode)
+        - Memory usage grows across commits (each adds a 64-byte buffer)
         """
         repo, commits = bob_repo
         original_cwd = os.getcwd()
@@ -285,9 +288,52 @@ class TestOnboardBobbuildtool:
                 skip_line_program=False,
             )
 
-            exit_code = run_onboard(args)
+            with caplog.at_level(logging.INFO, logger='membrowse.commands.onboard'):
+                exit_code = run_onboard(args)
 
             assert exit_code == 0, "onboard --dry-run should succeed"
+
+            # Verify all 4 commits were processed via dry-run log messages
+            dry_run_messages = [
+                msg for msg in caplog.messages if '[DRY-RUN]' in msg
+            ]
+            assert len(dry_run_messages) == 4, (
+                f"Expected 4 dry-run messages, got {len(dry_run_messages)}: {dry_run_messages}"
+            )
+
+            # All dry-run messages should report status=ok (successful builds)
+            for msg in dry_run_messages:
+                assert 'status=ok' in msg, f"Expected status=ok in: {msg}"
+
+            # Verify each dry-run message references one of the last 4 commits
+            last_four = commits[1:]  # commits 1-4 (onboard processes last N)
+            for commit in last_four:
+                matching = [m for m in dry_run_messages if commit in m]
+                assert len(matching) == 1, (
+                    f"Expected exactly one dry-run message for commit {commit[:8]}"
+                )
+
+            # Verify memory usage grows across commits by extracting RAM used_size
+            # Each commit adds an extra 64-byte buffer in RAM (.bss)
+            ram_sizes = []
+            for msg in dry_run_messages:
+                match = re.search(r'RAM: (\d+)', msg)
+                assert match, f"Expected RAM size in dry-run message: {msg}"
+                ram_sizes.append(int(match.group(1)))
+
+            for i in range(1, len(ram_sizes)):
+                assert ram_sizes[i] > ram_sizes[i - 1], (
+                    f"RAM usage should grow: commit {i} ({ram_sizes[i]}) "
+                    f"<= commit {i-1} ({ram_sizes[i-1]})"
+                )
+
+            # Verify the summary log reports 4 commits processed
+            summary_messages = [
+                msg for msg in caplog.messages if 'Processed' in msg
+            ]
+            assert any('4 commits' in msg for msg in summary_messages), (
+                f"Expected summary with '4 commits': {summary_messages}"
+            )
 
         finally:
             os.chdir(original_cwd)
