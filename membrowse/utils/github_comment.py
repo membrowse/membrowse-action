@@ -233,12 +233,11 @@ def post_summary_comment(
         pr_number: PR number override (auto-extracted from JSON if None)
         template_path: Custom Jinja2 template path, or None for default
     """
-    try:
-        with open(summary_json_path, 'r', encoding='utf-8') as f:
-            response = json.load(f)
-    except (json.JSONDecodeError, IOError) as e:
-        logger.error("Failed to read summary JSON: %s", e)
-        sys.exit(1)
+    with open(summary_json_path, 'r', encoding='utf-8') as f:
+        response = json.load(f)
+
+    if not isinstance(response.get('data'), dict):
+        raise ValueError(f"Invalid summary JSON: expected 'data' object, got {type(response.get('data'))}")
 
     # Extract PR number from API response if not provided
     if not pr_number:
@@ -254,11 +253,7 @@ def post_summary_comment(
 
     # Render template from the same response
     context = build_summary_template_context(response)
-    if template_path:
-        body = render_jinja2_template(template_path, context)
-    else:
-        default_template = _get_default_template_path()
-        body = render_jinja2_template(str(default_template), context)
+    body = _render_comment_body(context, template_path)
 
     post_pr_comment_from_body(body, pr_number)
 
@@ -309,11 +304,15 @@ def main():
 
     # Summary JSON mode: extract PR number, render, and post in one step
     if args.summary_json:
-        post_summary_comment(
-            args.summary_json,
-            pr_number=args.pr_number,
-            template_path=args.template_path,
-        )
+        try:
+            post_summary_comment(
+                args.summary_json,
+                pr_number=args.pr_number,
+                template_path=args.template_path,
+            )
+        except (json.JSONDecodeError, IOError, ValueError) as e:
+            logger.error("Failed to post summary comment: %s", e)
+            sys.exit(1)
         return
 
     # Body mode: post pre-rendered content
