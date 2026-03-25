@@ -17,7 +17,7 @@ from pathlib import Path
 from elftools.elf.elffile import ELFFile
 from membrowse.analysis.symbols import SymbolExtractor
 from membrowse.analysis.sources import SourceFileResolver
-from tests.test_helpers import run_compilation
+from tests.test_helpers import run_compilation, can_compile_embedded, rmtree_robust
 
 
 class TestCppDemanglingIntegration(unittest.TestCase):
@@ -53,7 +53,7 @@ class TestCppDemanglingIntegration(unittest.TestCase):
     def tearDown(self):
         """Clean up test environment"""
         if self.temp_dir.exists():
-            shutil.rmtree(self.temp_dir)
+            rmtree_robust(self.temp_dir)
 
     def test_01_check_prerequisites(self):
         """Test that required tools are available"""
@@ -65,6 +65,8 @@ class TestCppDemanglingIntegration(unittest.TestCase):
         """Test compilation of the C++ test program"""
         if not self.gxx_command:
             self.skipTest("C++ compiler not available")
+        if not can_compile_embedded(self.gxx_command):
+            self.skipTest("Native compiler on Windows cannot link embedded linker scripts")
 
         # Compile the test program
         compile_cmd = [
@@ -91,6 +93,8 @@ class TestCppDemanglingIntegration(unittest.TestCase):
         """Test that C++ symbols are properly demangled"""
         if not self.gxx_command:
             self.skipTest("C++ compiler not available")
+        if not can_compile_embedded(self.gxx_command):
+            self.skipTest("Native compiler on Windows cannot link embedded linker scripts")
 
         # Ensure compilation has happened
         if not self.elf_file.exists():
@@ -170,6 +174,8 @@ class TestCppDemanglingIntegration(unittest.TestCase):
         """Verify that symbols are demangled (no _Z prefixes in display names)"""
         if not self.gxx_command:
             self.skipTest("C++ compiler not available")
+        if not can_compile_embedded(self.gxx_command):
+            self.skipTest("Native compiler on Windows cannot link embedded linker scripts")
 
         # Ensure compilation has happened
         if not self.elf_file.exists():
@@ -200,6 +206,8 @@ class TestCppDemanglingIntegration(unittest.TestCase):
         """Verify that C-style symbols remain unchanged"""
         if not self.gxx_command:
             self.skipTest("C++ compiler not available")
+        if not can_compile_embedded(self.gxx_command):
+            self.skipTest("Native compiler on Windows cannot link embedded linker scripts")
 
         # Ensure compilation has happened
         if not self.elf_file.exists():

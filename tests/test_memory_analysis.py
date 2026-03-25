@@ -21,7 +21,7 @@ from pathlib import Path
 from membrowse.core import ReportGenerator
 from membrowse.linker.parser import parse_linker_scripts
 from tests.test_utils import validate_memory_regions
-from tests.test_helpers import run_compilation
+from tests.test_helpers import run_compilation, can_compile_embedded, rmtree_robust
 
 try:
     import jsonschema
@@ -72,7 +72,7 @@ class TestMemoryAnalysis(unittest.TestCase):
     def tearDown(self):
         """Clean up test environment"""
         if self.temp_dir.exists():
-            shutil.rmtree(self.temp_dir)
+            rmtree_robust(self.temp_dir)
 
     def test_01_check_prerequisites(self):
         """Test that required tools are available"""
@@ -101,6 +101,9 @@ class TestMemoryAnalysis(unittest.TestCase):
 
     def test_02_compile_test_program(self):
         """Test compilation of the test program"""
+        if not can_compile_embedded(self.gcc_command):
+            self.skipTest("Native compiler on Windows cannot link embedded linker scripts")
+
         # Compile the test program
         compile_cmd = [
             self.gcc_command,
@@ -162,6 +165,9 @@ class TestMemoryAnalysis(unittest.TestCase):
 
     def test_04_generate_bloaty_data(self):
         """Test generation of Bloaty analysis data"""
+        if not can_compile_embedded(self.gcc_command):
+            self.skipTest("Native compiler on Windows cannot link embedded linker scripts")
+
         # Ensure we have the ELF file from previous test
         if not self.elf_file.exists():
             self.test_02_compile_test_program()
@@ -241,6 +247,9 @@ LOAD,256,1280
 
     def test_05_generate_memory_report(self):
         """Test generation of the memory report"""
+        if not can_compile_embedded(self.gcc_command):
+            self.skipTest("Native compiler on Windows cannot link embedded linker scripts")
+
         # Ensure we have all prerequisites
         if not self.elf_file.exists():
             self.test_02_compile_test_program()

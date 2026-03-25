@@ -5,11 +5,15 @@ Test the hybrid source file mapping implementation
 # pylint: disable=protected-access,too-many-branches
 # pylint: disable=too-many-statements,broad-exception-caught,duplicate-code
 
+import platform
 import sys
 from pathlib import Path
 
+import pytest
+
 from membrowse.core import ELFAnalyzer
 from tests.test_memory_analysis import TestMemoryAnalysis
+from tests.test_helpers import can_compile_embedded
 
 # Add shared directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent / 'shared'))
@@ -21,6 +25,10 @@ def test_hybrid_mapping():
     # Generate test ELF file
     test = TestMemoryAnalysis()
     test.setUp()
+
+    if not can_compile_embedded(test.gcc_command):
+        pytest.skip("Native compiler on Windows cannot link embedded linker scripts")
+
     test.test_02_compile_test_program()
 
     elf_file = test.temp_dir / 'simple_program.elf'

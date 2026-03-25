@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from membrowse.core.generator import ReportGenerator
+from tests.test_helpers import rmtree_robust
 
 # Add shared module to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
@@ -33,7 +34,7 @@ class TestStaticVariableSourceMapping(unittest.TestCase):
     def tearDown(self):
         """Clean up test environment"""
         if self.temp_dir.exists():
-            shutil.rmtree(self.temp_dir)
+            rmtree_robust(self.temp_dir)
 
     def _compile_test_case(
             self,
