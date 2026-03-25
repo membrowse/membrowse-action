@@ -7,6 +7,7 @@ to map symbols to their source files with intelligent optimizations.
 """
 
 import os
+import posixpath
 import logging
 import bisect
 from typing import Dict, List, Optional, Any, Tuple
@@ -346,8 +347,8 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
                 comp_dir = self._extract_string_value(comp_dir_attr.value)
 
         if cu_name:
-            if comp_dir and not os.path.isabs(cu_name):
-                cu_source_file = os.path.join(comp_dir, cu_name)
+            if comp_dir and not posixpath.isabs(cu_name):
+                cu_source_file = posixpath.join(comp_dir, cu_name)
             else:
                 cu_source_file = cu_name
 
