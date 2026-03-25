@@ -41,34 +41,28 @@ runs:
       run: |
         # Summary mode: api_key + commit
         if [ -n "${{ inputs.api_key }}" ] && [ -n "${{ inputs.commit }}" ]; then
-          # 3-tier PR number resolution:
-          # 1. Explicit input
-          # 2. GitHub event context (pull_request trigger)
-          # 3. gh API lookup from commit SHA (workflow_run trigger)
+          # Resolve PR number from explicit input or event context
           PR_NUMBER="${{ inputs.pr_number }}"
           if [ -z "$PR_NUMBER" ]; then
             PR_NUMBER="${{ github.event.pull_request.number }}"
           fi
-          if [ -z "$PR_NUMBER" ]; then
-            echo "No PR number from input or event context, looking up from commit SHA..."
-            PR_NUMBER=$(gh api "/repos/${{ github.repository }}/commits/${{ inputs.commit }}/pulls" --jq '.[0].number' 2>/dev/null || true)
-          fi
-          if [ -z "$PR_NUMBER" ]; then
-            echo "::warning::Could not resolve PR number — skipping comment (push event with no associated PR?)"
-            exit 0
-          fi
 
-          # Build membrowse summary command
-          SUMMARY_ARGS=(summary "${{ inputs.commit }}" --api-key "${{ inputs.api_key }}" --api-url "${{ inputs.api_url }}")
+          # Fetch summary JSON (single API call)
+          membrowse summary "${{ inputs.commit }}" \
+            --api-key "${{ inputs.api_key }}" \
+            --api-url "${{ inputs.api_url }}" \
+            --json > /tmp/membrowse-summary.json
+
+          # Post comment: extracts pr_number from JSON if not provided,
+          # renders template, and posts in one step
+          COMMENT_ARGS=(--summary-json /tmp/membrowse-summary.json)
+          if [ -n "$PR_NUMBER" ]; then
+            COMMENT_ARGS+=(--pr-number "$PR_NUMBER")
+          fi
           if [ -n "${{ inputs.comment_template }}" ]; then
-            SUMMARY_ARGS+=(--template "${{ inputs.comment_template }}")
+            COMMENT_ARGS+=(--comment-template "${{ inputs.comment_template }}")
           fi
-
-          # membrowse summary renders the template to stdout.
-          # github_comment --body prepends the logo header/comment marker
-          # and handles create-or-update (finds existing comment to avoid duplicates).
-          membrowse "${SUMMARY_ARGS[@]}" > /tmp/membrowse-comment-body.md
-          python -m membrowse.utils.github_comment --body /tmp/membrowse-comment-body.md --pr-number "$PR_NUMBER"
+          python -m membrowse.utils.github_comment "${COMMENT_ARGS[@]}"
         else
           # File mode (backward compat)
           ARGS=()
