@@ -6,7 +6,6 @@ This module handles the parsing and processing of DWARF debug information
 to map symbols to their source files with intelligent optimizations.
 """
 
-import os
 import posixpath
 import logging
 import bisect
