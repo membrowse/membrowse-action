@@ -8,8 +8,8 @@ on:
     types: [opened, synchronize, reopened]
 
 jobs:
-  test:
-    name: Test Python ${{ matrix.python-version }}
+  test-linux:
+    name: Test Python ${{ matrix.python-version }} (Linux)
     runs-on: ubuntu-latest
 
     strategy:
@@ -60,7 +60,58 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-results-py${{ matrix.python-version }}
+          name: test-results-py${{ matrix.python-version }}-linux
+          path: |
+            pytest-*.xml
+            .coverage
+          retention-days: 7
+
+  test-windows:
+    name: Test Python ${{ matrix.python-version }} (Windows)
+    runs-on: windows-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.9', '3.10', '3.11', '3.12']
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Checkout LFS objects
+        run: git lfs pull
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install pytest pytest-mock pytest-cov pytest-xdist
+
+      - name: Verify Git LFS files
+        run: |
+          echo "Checking STM32 firmware..."
+          Get-Item tests\fixtures\micropython\stm32\firmware.elf
+          echo "Checking ESP32 firmware..."
+          Get-Item tests\fixtures\micropython\esp32\micropython.elf
+
+      - name: Run tests
+        run: |
+          python -m pytest tests/ -v --tb=short
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-py${{ matrix.python-version }}-windows
           path: |
             pytest-*.xml
             .coverage
