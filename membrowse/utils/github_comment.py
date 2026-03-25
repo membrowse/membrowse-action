@@ -11,6 +11,7 @@ from typing import Optional
 from jinja2 import TemplateError as Jinja2TemplateError
 
 from .summary_formatter import (
+    build_summary_template_context,
     enrich_regions, enrich_sections, process_alerts, render_jinja2_template,
 )
 from .github_common import (
@@ -237,7 +238,10 @@ def post_summary_comment(
         response = json.load(f)
 
     if not isinstance(response.get('data'), dict):
-        raise ValueError(f"Invalid summary JSON: expected 'data' object, got {type(response.get('data'))}")
+        data_type = type(response.get('data'))
+        raise ValueError(
+            f"Invalid summary JSON: expected 'data' object, got {data_type}"
+        )
 
     # Extract PR number from API response if not provided
     if not pr_number:
@@ -328,13 +332,20 @@ def main():
         return
 
     # File mode
+    _handle_file_mode(parser, args)
+
+
+def _handle_file_mode(parser, args):
+    """Handle file mode: load JSON result files and post combined comment."""
     result_files = []
     if args.files:
         result_files = [Path(f) for f in args.files]
     elif args.directory:
         result_files = list(Path(args.directory).glob('*.json'))
     else:
-        parser.error("Either provide JSON files, use --dir, --summary-json, or use --body")
+        parser.error(
+            "Either provide JSON files, use --dir, --summary-json, or use --body"
+        )
 
     if not result_files:
         logger.error("No result files found")
