@@ -90,6 +90,9 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
 
+      - name: Install ARM cross-compiler
+        uses: carlosperate/arm-none-eabi-gcc-action@v2
+
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
