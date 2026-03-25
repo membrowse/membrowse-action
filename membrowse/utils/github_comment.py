@@ -216,13 +216,61 @@ def _render_comment_body(
     return _render_template(str(default_template), context)
 
 
+def post_summary_comment(
+    summary_json_path: str,
+    pr_number: Optional[str] = None,
+    template_path: Optional[str] = None,
+) -> None:
+    """
+    Post a PR comment from a saved /summary API response JSON file.
+
+    Extracts pr_number from the response if not provided, renders the
+    template, and posts the comment. Single entry point for the
+    comment-action's API mode.
+
+    Args:
+        summary_json_path: Path to the saved /summary JSON response
+        pr_number: PR number override (auto-extracted from JSON if None)
+        template_path: Custom Jinja2 template path, or None for default
+    """
+    try:
+        with open(summary_json_path, 'r', encoding='utf-8') as f:
+            response = json.load(f)
+    except (json.JSONDecodeError, IOError) as e:
+        logger.error("Failed to read summary JSON: %s", e)
+        sys.exit(1)
+
+    # Extract PR number from API response if not provided
+    if not pr_number:
+        pr_number = response.get('data', {}).get('pr_number')
+        if pr_number:
+            pr_number = str(pr_number)
+            logger.info("Resolved PR number %s from API response", pr_number)
+
+    if not pr_number:
+        logger.warning("Could not resolve PR number — skipping comment")
+        print("::warning::Could not resolve PR number — skipping comment")
+        return
+
+    # Render template from the same response
+    context = build_summary_template_context(response)
+    if template_path:
+        body = render_jinja2_template(template_path, context)
+    else:
+        default_template = _get_default_template_path()
+        body = render_jinja2_template(str(default_template), context)
+
+    post_pr_comment_from_body(body, pr_number)
+
+
 def main():
     """
     Main entry point for combined GitHub comment posting.
 
-    Supports two modes:
-    - File mode: reads JSON result files from --output-raw-response
+    Supports three modes:
+    - Summary mode: reads /summary API JSON, extracts PR number, renders and posts
     - Body mode: posts pre-rendered content (e.g., from 'membrowse summary')
+    - File mode: reads JSON result files from --output-raw-response
     """
     parser = argparse.ArgumentParser(
         description='Post combined MemBrowse PR comment from multiple target results'
@@ -238,6 +286,11 @@ def main():
         help='Directory containing JSON result files'
     )
     parser.add_argument(
+        '--summary-json',
+        dest='summary_json',
+        help='Path to saved /summary API response JSON file'
+    )
+    parser.add_argument(
         '--body',
         dest='body_file',
         help='File with pre-rendered comment body (e.g., from membrowse summary)'
@@ -245,7 +298,7 @@ def main():
     parser.add_argument(
         '--pr-number',
         dest='pr_number',
-        help='PR number to post comment on (required with --body)'
+        help='PR number to post comment on (auto-detected from summary JSON)'
     )
     parser.add_argument(
         '--comment-template',
@@ -253,6 +306,15 @@ def main():
         help='Path to custom Jinja2 template file for comment formatting'
     )
     args = parser.parse_args()
+
+    # Summary JSON mode: extract PR number, render, and post in one step
+    if args.summary_json:
+        post_summary_comment(
+            args.summary_json,
+            pr_number=args.pr_number,
+            template_path=args.template_path,
+        )
+        return
 
     # Body mode: post pre-rendered content
     if args.body_file:
@@ -273,7 +335,7 @@ def main():
     elif args.directory:
         result_files = list(Path(args.directory).glob('*.json'))
     else:
-        parser.error("Either provide JSON files, use --dir, or use --body")
+        parser.error("Either provide JSON files, use --dir, --summary-json, or use --body")
 
     if not result_files:
         logger.error("No result files found")
