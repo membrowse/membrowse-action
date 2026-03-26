@@ -681,7 +681,160 @@ class TestCommitsEdgeCases:
         mock_git.assert_called_once_with(
             ['rev-parse', '--verify', 'v1.0^{commit}'])
 
+
+# ---------------------------------------------------------------------------
+# --initial-parent Resolution
+# ---------------------------------------------------------------------------
+
+class TestInitialParentResolution:
+    """Test that --initial-parent dereferences annotated tags via ^{commit}."""
+
+    def _make_args(self, commits_str, initial_parent=None):
+        """Create a Namespace with --commits and optional --initial-parent."""
+        return argparse.Namespace(
+            num_commits=None,
+            commits=commits_str,
+            initial_commit=None,
+            initial_parent=initial_parent,
+            build_script='true',
+            elf_path='fw.elf',
+            target_name='stm32',
+            api_key='KEY',
+            api_url='https://api.membrowse.com',
+            api_url_flag=None,
+            ld_scripts=None,
+            linker_defs=None,
+            build_dirs=None,
+        )
+
     @patch('membrowse.commands.onboard.upload_report')
+    @patch('membrowse.commands.onboard.generate_report')
+    @patch('membrowse.commands.onboard.get_commit_metadata')
+    @patch('membrowse.commands.onboard.subprocess')
+    @patch('membrowse.commands.onboard._get_repository_info')
+    @patch('membrowse.commands.onboard.run_git_command')
+    @patch('membrowse.commands.onboard.os.path.exists', return_value=True)
+    def test_initial_parent_dereferences_annotated_tag(
+        self, _mock_exists, mock_git, mock_repo, mock_subprocess,
+        mock_metadata, mock_generate, mock_upload,
+    ):
+        """--initial-parent resolves annotated tags to commit hash via ^{commit}."""
+        # Annotated tag 'v1.0' has tag object hash 'tag_obj_aaa' but
+        # the underlying commit hash is 'commit_aaa'.
+        # _resolve_and_validate_commits for --commits 'v2.0':
+        #   rev-parse --verify v2.0^{commit} -> 'commit_bbb'
+        # --initial-parent resolution for 'v1.0':
+        #   rev-parse --verify v1.0^{commit} -> 'commit_aaa'
+        def git_side_effect(cmd):
+            if cmd == ['rev-parse', '--verify', 'v2.0^{commit}']:
+                return 'commit_bbb'
+            if cmd == ['rev-parse', '--verify', 'v1.0^{commit}']:
+                return 'commit_aaa'
+            return None
+
+        mock_git.side_effect = git_side_effect
+        mock_repo.return_value = ('main', 'original_head', 'my-repo')
+        mock_subprocess.run.return_value = MagicMock(returncode=0)
+        mock_metadata.return_value = {
+            'commit_sha': 'commit_bbb', 'base_sha': 'real_parent',
+            'commit_message': 'msg', 'commit_timestamp': 'ts',
+            'author_name': 'A', 'author_email': 'a@t.com',
+        }
+        mock_generate.return_value = {'memory_layout': {}}
+
+        run_onboard(self._make_args('v2.0', initial_parent='v1.0'))
+
+        # The first (and only) commit should have the resolved commit hash
+        # as its parent, NOT the tag object hash
+        commit_info = mock_upload.call_args[1]['commit_info']
+        assert commit_info['base_commit_hash'] == 'commit_aaa'
+
+        # Verify ^{commit} was used for initial-parent resolution
+        mock_git.assert_any_call(
+            ['rev-parse', '--verify', 'v1.0^{commit}'])
+
+    @patch('membrowse.commands.onboard.upload_report')
+    @patch('membrowse.commands.onboard.generate_report')
+    @patch('membrowse.commands.onboard.get_commit_metadata')
+    @patch('membrowse.commands.onboard.subprocess')
+    @patch('membrowse.commands.onboard._get_repository_info')
+    @patch('membrowse.commands.onboard.run_git_command')
+    @patch('membrowse.commands.onboard.os.path.exists', return_value=True)
+    def test_initial_parent_chains_with_commits(
+        self, _mock_exists, mock_git, mock_repo, mock_subprocess,
+        mock_metadata, mock_generate, mock_upload,
+    ):
+        """--initial-parent sets parent of first commit; subsequent commits chain normally."""
+        def git_side_effect(cmd):
+            if cmd == ['rev-parse', '--verify', 'v2.0^{commit}']:
+                return 'commit_bbb'
+            if cmd == ['rev-parse', '--verify', 'v3.0^{commit}']:
+                return 'commit_ccc'
+            if cmd == ['rev-parse', '--verify', 'v1.0^{commit}']:
+                return 'commit_aaa'
+            return None
+
+        mock_git.side_effect = git_side_effect
+        mock_repo.return_value = ('main', 'original_head', 'my-repo')
+        mock_subprocess.run.return_value = MagicMock(returncode=0)
+        mock_metadata.side_effect = [
+            {
+                'commit_sha': 'commit_bbb', 'base_sha': 'real_parent_b',
+                'commit_message': 'msg1', 'commit_timestamp': 'ts1',
+                'author_name': 'A', 'author_email': 'a@t.com',
+            },
+            {
+                'commit_sha': 'commit_ccc', 'base_sha': 'real_parent_c',
+                'commit_message': 'msg2', 'commit_timestamp': 'ts2',
+                'author_name': 'B', 'author_email': 'b@t.com',
+            },
+        ]
+        mock_generate.return_value = {'memory_layout': {}}
+
+        run_onboard(self._make_args('v2.0 v3.0', initial_parent='v1.0'))
+
+        assert mock_upload.call_count == 2
+        first_info = mock_upload.call_args_list[0][1]['commit_info']
+        second_info = mock_upload.call_args_list[1][1]['commit_info']
+        # First commit's parent is the resolved initial-parent
+        assert first_info['base_commit_hash'] == 'commit_aaa'
+        # Second commit's parent is the first commit (normal chain)
+        assert second_info['base_commit_hash'] == 'commit_bbb'
+
+    @patch('membrowse.commands.onboard._get_repository_info')
+    @patch('membrowse.commands.onboard.run_git_command', return_value=None)
+    def test_unresolvable_initial_parent_errors(self, _mock_git, mock_repo):
+        """--initial-parent that cannot be resolved returns error."""
+        mock_repo.return_value = ('main', 'original_head', 'my-repo')
+
+        result = run_onboard(self._make_args('aaa', initial_parent='bad_ref'))
+
+        assert result == 1
+
+    @patch('membrowse.commands.onboard._get_repository_info')
+    def test_initial_parent_without_commits_errors(self, mock_repo):
+        """--initial-parent without --commits returns error."""
+        args = argparse.Namespace(
+            num_commits=10,
+            commits=None,
+            initial_commit=None,
+            initial_parent='v1.0',
+            build_script='make',
+            elf_path='fw.elf',
+            target_name='stm32',
+            api_key='KEY',
+            api_url='https://api.membrowse.com',
+            api_url_flag=None,
+            ld_scripts=None,
+            linker_defs=None,
+            build_dirs=None,
+        )
+        result = run_onboard(args)
+        assert result == 1
+        mock_repo.assert_not_called()
+
+    @patch('membrowse.commands.onboard.upload_report')
+
     @patch('membrowse.commands.onboard.generate_report')
     @patch('membrowse.commands.onboard.get_commit_metadata')
     @patch('membrowse.commands.onboard.subprocess')

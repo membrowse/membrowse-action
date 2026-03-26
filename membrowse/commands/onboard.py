@@ -956,7 +956,8 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
 
     # Resolve --initial-parent to a commit hash
     if initial_parent:
-        initial_parent = run_git_command(['rev-parse', initial_parent])
+        initial_parent = run_git_command(
+            ['rev-parse', '--verify', f'{initial_parent}^{{commit}}'])
         if not initial_parent:
             logger.error("--initial-parent: could not resolve ref")
             return 1
