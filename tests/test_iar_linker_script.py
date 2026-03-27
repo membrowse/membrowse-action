@@ -996,5 +996,112 @@ class TestICFInvalidScripts(_ICFTestBase):
         self.assertNotIn("BAD", regions)
 
 
+class TestICFUserDefOverride(_ICFTestBase):
+    """Bug: --def values are overwritten by ICF 'define symbol' statements.
+
+    When a user supplies --def __sym__=0x1234 and the ICF file also contains
+    'define symbol __sym__ = <expr referencing unknown symbols>;', the ICF
+    define_raw() call overwrites the user-seeded value.  This causes the
+    symbol to become unresolvable even though the user explicitly provided
+    a value.
+
+    Real-world scenario: IAR ICF files that use build-time symbols like
+    __region_ROM_APPL_start__ which can only be supplied via --def.
+    """
+
+    def test_user_def_not_overwritten_by_icf_define_symbol(self):
+        """User --def values must survive ICF 'define symbol' extraction."""
+        script = self._write_icf("""
+        define symbol __region_ROM_APPL_start__ = __some_unknown_base__ + 0x100;
+        define symbol __region_ROM_APPL_end__   = __some_unknown_limit__;
+        define memory mem with size = 4G;
+        define region ROM_region = mem:[from __region_ROM_APPL_start__
+                                        to   __region_ROM_APPL_end__];
+        """)
+        user_variables = {
+            '__region_ROM_APPL_start__': '0x8002a00',
+            '__region_ROM_APPL_end__': '0x8017200',
+        }
+        parser = LinkerScriptParser(
+            ld_scripts=[script],
+            user_variables=user_variables,
+        )
+        regions = parser.parse_memory_regions()
+
+        self.assertIn("ROM_region", regions,
+                       "ROM_region should be resolved using --def values, "
+                       "but ICF 'define symbol' overwrote them")
+        self.assertEqual(regions["ROM_region"]["address"], 0x8002a00)
+        self.assertEqual(regions["ROM_region"]["end_address"], 0x8017200)
+
+    def test_user_def_override_emits_warning(self):
+        """Overriding an ICF symbol via --def should log a warning."""
+        script = self._write_icf("""
+        define symbol MY_ADDR = 0x08000000;
+        define memory mem with size = 4G;
+        define region ROM = mem:[from MY_ADDR size 0x100000];
+        """)
+        user_variables = {'MY_ADDR': '0x08040000'}
+        parser = LinkerScriptParser(
+            ld_scripts=[script],
+            user_variables=user_variables,
+        )
+        with self.assertLogs('membrowse.linker.icf_parser', level='WARNING') as cm:
+            parser.parse_memory_regions()
+        self.assertTrue(
+            any("--def MY_ADDR overrides ICF" in msg for msg in cm.output),
+            f"Expected override warning, got: {cm.output}")
+
+    def test_user_def_takes_precedence_over_icf_value(self):
+        """When both user --def and ICF define a symbol, user wins."""
+        script = self._write_icf("""
+        define symbol FLASH_START = 0x08000000;
+        define symbol FLASH_END   = 0x080FFFFF;
+        define memory mem with size = 4G;
+        define region ROM = mem:[from FLASH_START to FLASH_END];
+        """)
+        # User overrides the ICF-defined value
+        user_variables = {
+            'FLASH_START': '0x08010000',
+        }
+        parser = LinkerScriptParser(
+            ld_scripts=[script],
+            user_variables=user_variables,
+        )
+        regions = parser.parse_memory_regions()
+
+        self.assertIn("ROM", regions)
+        self.assertEqual(regions["ROM"]["address"], 0x08010000,
+                         "User --def should override ICF 'define symbol'")
+
+    def test_user_def_resolves_conditional_regions(self):
+        """Regions guarded by isdefinedsymbol() should work with --def."""
+        script = self._write_icf("""
+        if (isdefinedsymbol(__APPL_START__))
+        {
+            define symbol ROM_START = __APPL_START__;
+        }
+        else
+        {
+            define symbol ROM_START = 0x08000000;
+        }
+        define symbol ROM_END = 0x080FFFFF;
+        define memory mem with size = 4G;
+        define region ROM = mem:[from ROM_START to ROM_END];
+        """)
+        user_variables = {
+            '__APPL_START__': '0x08002000',
+        }
+        parser = LinkerScriptParser(
+            ld_scripts=[script],
+            user_variables=user_variables,
+        )
+        regions = parser.parse_memory_regions()
+
+        self.assertIn("ROM", regions)
+        self.assertEqual(regions["ROM"]["address"], 0x08002000,
+                         "isdefinedsymbol() branch should use --def value")
+
+
 if __name__ == "__main__":
     unittest.main()

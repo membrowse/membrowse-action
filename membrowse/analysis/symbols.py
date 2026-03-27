@@ -108,19 +108,6 @@ class SymbolExtractor:  # pylint: disable=too-few-public-methods
                     symbol_name, symbol_type, symbol_address
                 )
 
-                # Get symbol visibility
-                visibility = 'DEFAULT'  # Default value
-                try:
-                    if hasattr(
-                            symbol,
-                            'st_other') and hasattr(
-                            symbol['st_other'],
-                            'visibility'):
-                        visibility = symbol['st_other']['visibility'].replace(
-                            'STV_', '')
-                except (KeyError, AttributeError):
-                    pass
-
                 symbols.append(Symbol(
                     name=symbol_name,
                     address=symbol_address,
@@ -129,7 +116,6 @@ class SymbolExtractor:  # pylint: disable=too-few-public-methods
                     binding=symbol_binding,
                     section=section_name,
                     source_file=source_file,
-                    visibility=visibility
                 ))
 
         except (IOError, OSError) as e:
@@ -206,13 +192,3 @@ class SymbolExtractor:  # pylint: disable=too-few-public-methods
         }
         return binding_map.get(symbol_binding, symbol_binding)
 
-    def _get_symbol_visibility(self, st_other: int) -> str:
-        """Map symbol visibility to readable string."""
-        visibility = st_other & 0x3  # Lower 2 bits contain visibility
-        visibility_map = {
-            0: 'DEFAULT',  # STV_DEFAULT
-            1: 'INTERNAL',  # STV_INTERNAL
-            2: 'HIDDEN',   # STV_HIDDEN
-            3: 'PROTECTED'  # STV_PROTECTED
-        }
-        return visibility_map.get(visibility, 'DEFAULT')

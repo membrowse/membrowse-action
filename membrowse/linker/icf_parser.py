@@ -123,13 +123,28 @@ class ICFSymbolTable:
         self._resolved: Dict[str, int] = {}
         self._unresolved: Dict[str, str] = {}
         self._regions: Dict[str, ICFRegionSpec] = {}
+        self._user_overrides: set = set()
 
     def define_raw(self, name: str, raw_expr: str) -> None:
         """Record a raw symbol definition for later resolution."""
+        if name in self._user_overrides:
+            logger.warning(
+                "ICF: --def %s overrides ICF 'define symbol %s = %s'",
+                name, name, raw_expr.strip())
+            return
         self._unresolved[name] = raw_expr.strip()
 
-    def seed(self, variables: Dict[str, Any]) -> None:
-        """Pre-populate with user-supplied or architecture-default variables."""
+    def seed(self, variables: Dict[str, Any],
+             user_overrides: Optional[set] = None) -> None:
+        """Pre-populate with user-supplied or architecture-default variables.
+
+        Args:
+            variables: Dict of variable names to values (int or str).
+            user_overrides: Set of variable names supplied via --def that
+                must not be overwritten by ICF 'define symbol' statements.
+        """
+        if user_overrides:
+            self._user_overrides.update(user_overrides)
         for k, v in variables.items():
             if isinstance(v, int):
                 self._resolved[k] = v
@@ -658,8 +673,10 @@ class IARLinkerScriptParser(LinkerScriptFormatParser):
     when content-based detection identifies an ICF file.
     """
 
-    def __init__(self, user_variables: Optional[Dict[str, Any]] = None) -> None:
+    def __init__(self, user_variables: Optional[Dict[str, Any]] = None,
+                 user_overrides: Optional[set] = None) -> None:
         self._user_variables = user_variables or {}
+        self._user_overrides = user_overrides or set()
 
     @staticmethod
     def detect(content: str) -> bool:
@@ -688,7 +705,7 @@ class IARLinkerScriptParser(LinkerScriptFormatParser):
 
         # Stage 2-3: Build and resolve symbol table
         symbols = ICFSymbolTable()
-        symbols.seed(self._user_variables)
+        symbols.seed(self._user_variables, user_overrides=self._user_overrides)
         self._extract_symbols(content, symbols)
         symbols.resolve_all()
 

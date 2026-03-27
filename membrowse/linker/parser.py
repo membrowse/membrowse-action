@@ -1094,8 +1094,9 @@ class LinkerScriptParser:  # pylint: disable=too-few-public-methods,too-many-ins
         self._icf_scripts: set = set()
 
         # Apply user-defined variables (override architecture defaults)
-        if user_variables:
-            self.evaluator.add_variables(user_variables)
+        self._user_variables = user_variables or {}
+        if self._user_variables:
+            self.evaluator.add_variables(self._user_variables)
 
     def _validate_scripts(self) -> None:
         """Validate that all linker scripts exist"""
@@ -1227,7 +1228,8 @@ class LinkerScriptParser:  # pylint: disable=too-few-public-methods,too-many-ins
         logger.info("Detected IAR ICF format in %s, delegating to IARLinkerScriptParser",
                      script_path)
         icf_parser = IARLinkerScriptParser(
-            user_variables=dict(self.evaluator.variables)
+            user_variables=dict(self.evaluator.variables),
+            user_overrides=set(self._user_variables) if self._user_variables else None
         )
         return icf_parser.parse(script_path)
 

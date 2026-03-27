@@ -84,7 +84,7 @@ class ReportGenerator:  # pylint: disable=too-few-public-methods
             - ``entry_point`` (int): Entry point address.
             - ``file_type`` (str): ELF file type, e.g., "ET_EXEC".
             - ``symbols`` (list): List of symbol dicts with keys: name, address,
-              size, type, binding, section, source_file, visibility.
+              size, type, binding, section, source_file.
             - ``program_headers`` (list): ELF program headers/segments.
             - ``memory_layout`` (dict): Memory region utilization data (only if
               memory_regions_data was provided). Maps region names to dicts with:
