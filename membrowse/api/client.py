@@ -6,6 +6,8 @@ uploading memory analysis reports and retrieving summaries.
 """
 
 import copy
+import gzip
+import json
 import logging
 import os
 import random
@@ -52,6 +54,10 @@ class MemBrowseClient:
         headers['User-Agent'] = f'MemBrowse-Client/{PACKAGE_VERSION} ({ci_platform})'
         self.session.headers.update(headers)
 
+        # Tracks whether the server supports gzip request bodies.
+        # None = unknown (not yet probed), True/False = cached result.
+        self._server_supports_gzip = None
+
     def upload_report(self, report_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Upload report to MemBrowse API.
@@ -80,7 +86,49 @@ class MemBrowseClient:
 
         url = f"{self.api_base_url}/upload"
         commit_hash = report_to_send.get('metadata', {}).get('git', {}).get('commit_hash', '')
-        return self._request_with_retry('POST', url, log_context=commit_hash, json=report_to_send)
+
+        json_bytes = json.dumps(report_to_send).encode('utf-8')
+
+        # Try gzip if server support is not known to be absent
+        if self._server_supports_gzip is not False:
+            compressed = gzip.compress(json_bytes)
+            logger.info(
+                "Compressed upload payload: %d -> %d bytes (%.0f%% reduction)",
+                len(json_bytes), len(compressed),
+                (1 - len(compressed) / len(json_bytes)) * 100 if json_bytes else 0
+            )
+            try:
+                result = self._request_with_retry(
+                    'POST', url, log_context=commit_hash,
+                    data=compressed,
+                    headers={
+                        'Content-Type': 'application/json',
+                        'Content-Encoding': 'gzip',
+                    },
+                )
+                self._server_supports_gzip = True
+                return result
+            except requests.exceptions.HTTPError as e:
+                status_code = e.response.status_code if e.response is not None else None
+                if status_code in (400, 500) and self._server_supports_gzip is None:
+                    logger.warning(
+                        "Server returned %d for gzip upload, "
+                        "retrying uncompressed. Gzip disabled for future uploads.",
+                        status_code
+                    )
+                    self._server_supports_gzip = False
+                else:
+                    raise
+
+        # Send uncompressed
+        logger.info("Uploading uncompressed payload: %d bytes", len(json_bytes))
+        return self._request_with_retry(
+            'POST', url, log_context=commit_hash,
+            data=json_bytes,
+            headers={
+                'Content-Type': 'application/json',
+            },
+        )
 
     def get_summary(self, commit_sha: str) -> Dict[str, Any]:
         """
@@ -183,7 +231,8 @@ class MemBrowseClient:
                     except Exception:  # pylint: disable=broad-exception-caught
                         pass
                 raise requests.exceptions.HTTPError(
-                    f"HTTP error from {url}: {e}{error_detail}"
+                    f"HTTP error from {url}: {e}{error_detail}",
+                    response=e.response
                 ) from e
             except requests.exceptions.RequestException as e:
                 raise requests.exceptions.RequestException(
