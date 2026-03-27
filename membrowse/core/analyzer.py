@@ -199,7 +199,6 @@ class ELFAnalyzer:  # pylint: disable=too-many-instance-attributes
             - ``binding``: Symbol binding, e.g., "STB_GLOBAL", "STB_LOCAL".
             - ``section``: Section name, e.g., ".text", ".data", ".bss".
             - ``source_file``: Source file path (if DWARF info available).
-            - ``visibility``: Symbol visibility.
         """
         return self._symbol_extractor.extract_symbols(self._source_resolver)
 

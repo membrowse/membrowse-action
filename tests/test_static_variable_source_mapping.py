@@ -575,7 +575,7 @@ class TestStaticVariableSourceMapping(unittest.TestCase):
 
         for symbol in foo_symbols:
             symbol_fields = ['name', 'address', 'size', 'type', 'binding',
-                             'section', 'source_file', 'visibility']
+                             'section', 'source_file']
             for field in symbol_fields:
                 self.assertIn(
                     field, symbol, f"Symbol should contain {field} field")
