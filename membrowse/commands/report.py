@@ -594,7 +594,8 @@ def upload_report(  # pylint: disable=too-many-arguments
     api_url: str = DEFAULT_API_URL,
     build_failed: bool = None,
     identical: bool = False,
-    is_github_mode: bool = False
+    is_github_mode: bool = False,
+    client: Optional[MemBrowseClient] = None
 ) -> tuple[dict, str]:
     """
     Upload a memory footprint report to MemBrowse platform.
@@ -648,7 +649,8 @@ def upload_report(  # pylint: disable=too-many-arguments
 
     # Upload to MemBrowse
     response_data = _perform_upload(
-        enriched_report, api_key, api_url, log_prefix, is_github_mode=is_github_mode
+        enriched_report, api_key, api_url, log_prefix,
+        is_github_mode=is_github_mode, client=client
     )
 
     # Always print upload response details (success or failure)
@@ -696,21 +698,23 @@ def _build_enriched_report(
     }
 
 
-def _perform_upload(
+def _perform_upload(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     enriched_report: dict,
     api_key: Optional[str],
     api_url: str,
     log_prefix: str,
-    is_github_mode: bool = False
+    is_github_mode: bool = False,
+    client: Optional[MemBrowseClient] = None
 ) -> dict:
     """Perform the actual upload to MemBrowse."""
     try:
-        # Determine authentication strategy
-        auth_context = determine_auth_strategy(
-            api_key=api_key,
-            auto_detect_fork=is_github_mode
-        )
-        client = MemBrowseClient(auth_context, api_url)
+        if client is None:
+            # Determine authentication strategy
+            auth_context = determine_auth_strategy(
+                api_key=api_key,
+                auto_detect_fork=is_github_mode
+            )
+            client = MemBrowseClient(auth_context, api_url)
         return client.upload_report(enriched_report)
     except Exception as e:  # pylint: disable=broad-exception-caught
         logger.error("%s: Failed to upload report to %s: %s", log_prefix, api_url, e)
