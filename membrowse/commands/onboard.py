@@ -8,6 +8,8 @@ import logging
 from datetime import datetime
 
 from ..utils.git import run_git_command, get_commit_metadata
+from ..api.client import MemBrowseClient
+from ..auth.strategy import determine_auth_strategy
 from .report import generate_report, upload_report, DEFAULT_API_URL, _parse_linker_definitions
 
 # Set up logger
@@ -542,9 +544,17 @@ def _build_commit_info(commit, current_branch, repo_name, base_sha_override=_NO_
     }
 
 
+def _create_client(args, api_url=None):
+    """Create a reusable MemBrowseClient from onboard args."""
+    resolved_api_url = api_url if api_url is not None else args.api_url
+    auth_context = determine_auth_strategy(api_key=args.api_key)
+    return MemBrowseClient(auth_context, resolved_api_url)
+
+
 def _upload_commit(  # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals
     report, commit, args, current_branch, repo_name,
-    build_failed=False, identical=False, api_url=None, base_sha_override=_NO_OVERRIDE
+    build_failed=False, identical=False, api_url=None, base_sha_override=_NO_OVERRIDE,
+    client=None
 ):
     """
     Upload a report for a single commit with proper git metadata.
@@ -591,7 +601,8 @@ def _upload_commit(  # pylint: disable=too-many-arguments,too-many-positional-ar
             api_key=args.api_key,
             api_url=resolved_api_url,
             build_failed=build_failed,
-            identical=identical
+            identical=identical,
+            client=client
         )
         return True
     except (ValueError, RuntimeError) as e:
@@ -758,6 +769,9 @@ def _run_binary_search_onboard(  # pylint: disable=too-many-locals,too-many-stat
     commit_results = {}  # index -> (report, build_failed, identical)
     total = len(commits)
 
+    # Create a single client to reuse across all uploads (preserves gzip support detection)
+    client = _create_client(args) if not getattr(args, 'dry_run', False) else None
+
     # Flush state: upload consecutive ready commits in chronological order
     flush_state = {'next_to_upload': 0, 'prev_fingerprint': None, 'prev_build_failed': False}
 
@@ -782,7 +796,7 @@ def _run_binary_search_onboard(  # pylint: disable=too-many-locals,too-many-stat
 
             if _upload_commit(report, commits[idx], args, current_branch,
                               repo_name, build_failed=build_failed,
-                              identical=identical):
+                              identical=identical, client=client):
                 counters['successful'] += 1
             else:
                 counters['failed'] += 1
@@ -985,6 +999,9 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
 
     total_commits = len(commits)
 
+    # Create a single client to reuse across all uploads (preserves gzip support detection)
+    client = _create_client(args, api_url) if not getattr(args, 'dry_run', False) else None
+
     # Progress tracking
     successful_uploads = 0
     failed_uploads = 0
@@ -1041,7 +1058,7 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
 
             report = _create_metadata_only_report(args.elf_path)
             if _upload_commit(report, commit, args, current_branch, repo_name,
-                              identical=True, api_url=api_url):
+                              identical=True, api_url=api_url, client=client):
                 logger.info("%s: Identical report uploaded (commit %d of %d)",
                             log_prefix, commit_count, total_commits)
                 successful_uploads += 1
@@ -1150,7 +1167,7 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
 
         if _upload_commit(report, commit, args, current_branch, repo_name,
                           build_failed=build_failed, api_url=api_url,
-                          base_sha_override=faked_parent):
+                          base_sha_override=faked_parent, client=client):
             if build_failed:
                 logger.info(
                     "%s: Empty report uploaded successfully for failed build (commit %d of %d)",
