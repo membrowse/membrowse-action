@@ -769,7 +769,7 @@ def _run_binary_search_onboard(  # pylint: disable=too-many-locals,too-many-stat
     commit_results = {}  # index -> (report, build_failed, identical)
     total = len(commits)
 
-    # Create a single client to reuse across all uploads (preserves gzip support detection)
+    # Create a single client to reuse across all uploads
     client = _create_client(args) if not getattr(args, 'dry_run', False) else None
 
     # Flush state: upload consecutive ready commits in chronological order
@@ -999,7 +999,7 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
 
     total_commits = len(commits)
 
-    # Create a single client to reuse across all uploads (preserves gzip support detection)
+    # Create a single client to reuse across all uploads
     client = _create_client(args, api_url) if not getattr(args, 'dry_run', False) else None
 
     # Progress tracking
