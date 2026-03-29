@@ -454,7 +454,7 @@ def _build_and_generate_report(commit, args, linker_variables):
     log_prefix = f"({commit})"
 
     # Checkout the commit
-    logger.info("%s: Checking out commit...", log_prefix)
+    logger.debug("%s: Checking out commit...", log_prefix)
     result = subprocess.run(
         ['git', 'checkout', commit, '--quiet'],
         capture_output=True,
@@ -464,12 +464,12 @@ def _build_and_generate_report(commit, args, linker_variables):
         raise RuntimeError(f"Failed to checkout commit {commit}")
 
     # Clean previous build artifacts
-    logger.info("Cleaning previous build artifacts...")
+    logger.debug("Cleaning previous build artifacts...")
     subprocess.run(['git', 'clean', '-fd'],
                    capture_output=True, check=False)
 
     # Build the firmware
-    logger.info("%s: Building firmware with: %s", log_prefix, args.build_script)
+    logger.debug("%s: Building firmware with: %s", log_prefix, args.build_script)
     result = subprocess.run(
         args.build_script,
         capture_output=True,
@@ -491,7 +491,7 @@ def _build_and_generate_report(commit, args, linker_variables):
         return _handle_build_failure(result, log_prefix, args.elf_path), True
 
     # Case 3: Build succeeded - generate report
-    logger.info("%s: Generating memory report...", log_prefix)
+    logger.debug("%s: Generating memory report...", log_prefix)
     report = generate_report(
         elf_path=args.elf_path,
         ld_scripts=args.ld_scripts,
@@ -619,12 +619,12 @@ def _mark_identical_range(  # pylint: disable=too-many-arguments,too-many-positi
     both_failed = left_fingerprint is None
 
     if both_failed:
-        logger.info(
+        logger.debug(
             "Commits %d..%d both failed to build, "
             "marking %d intermediate commits as build failures",
             left_idx, right_idx, count)
     else:
-        logger.info(
+        logger.debug(
             "Commits %d..%d have identical memory fingerprints, "
             "marking %d intermediate commits as identical",
             left_idx, right_idx, count)
@@ -636,13 +636,13 @@ def _mark_identical_range(  # pylint: disable=too-many-arguments,too-many-positi
         if both_failed:
             report = _create_empty_report(elf_path)
             commit_results[i] = (report, True, False)
-            logger.info("(%s): Marked as build failure (%d/%d)",
-                        commit[:8], i + 1, len(commits))
+            logger.debug("(%s): Marked as build failure (%d/%d)",
+                         commit[:8], i + 1, len(commits))
         else:
             report = _create_metadata_only_report(elf_path)
             commit_results[i] = (report, False, True)
-            logger.info("(%s): Marked as identical (%d/%d)",
-                        commit[:8], i + 1, len(commits))
+            logger.debug("(%s): Marked as identical (%d/%d)",
+                         commit[:8], i + 1, len(commits))
 
 
 def _binary_search_range(  # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals,too-many-return-statements
@@ -702,8 +702,8 @@ def _binary_search_range(  # pylint: disable=too-many-arguments,too-many-positio
     else:
         # Build the midpoint
         commit = commits[mid_idx]
-        logger.info("Building midpoint commit %d/%d: %s",
-                     mid_idx + 1, len(commits), commit[:8])
+        logger.debug("Building midpoint commit %d/%d: %s",
+                      mid_idx + 1, len(commits), commit[:8])
         try:
             mid_report, build_failed = _build_and_generate_report(
                 commit, args, linker_variables)
@@ -821,7 +821,7 @@ def _run_binary_search_onboard(  # pylint: disable=too-many-locals,too-many-stat
     # Edge case: single commit
     if total == 1:
         commit = commits[0]
-        logger.info("Single commit to process: %s", commit[:8])
+        logger.debug("Single commit to process: %s", commit[:8])
         try:
             report, build_failed = _build_and_generate_report(
                 commit, args, linker_variables)
@@ -835,7 +835,7 @@ def _run_binary_search_onboard(  # pylint: disable=too-many-locals,too-many-stat
         return counters['successful'], counters['failed']
 
     # Build oldest endpoint
-    logger.info("Building endpoint 1/%d: %s (oldest)", total, commits[0][:8])
+    logger.debug("Building endpoint 1/%d: %s (oldest)", total, commits[0][:8])
     try:
         first_report, first_failed = _build_and_generate_report(
             commits[0], args, linker_variables)
@@ -853,8 +853,8 @@ def _run_binary_search_onboard(  # pylint: disable=too-many-locals,too-many-stat
     flush_fn()
 
     # Build newest endpoint
-    logger.info("Building endpoint %d/%d: %s (newest)",
-                total, total, commits[-1][:8])
+    logger.debug("Building endpoint %d/%d: %s (newest)",
+                  total, total, commits[-1][:8])
     try:
         last_report, last_failed = _build_and_generate_report(
             commits[-1], args, linker_variables)
@@ -881,15 +881,15 @@ def _run_binary_search_onboard(  # pylint: disable=too-many-locals,too-many-stat
 
     if first_fp == last_fp:
         if first_fp is None:
-            logger.info(
+            logger.debug(
                 "Both endpoints failed - searching for working builds "
                 "among %d intermediate commits", total - 2)
         else:
-            logger.info(
+            logger.debug(
                 "Endpoints have identical fingerprints - marking all %d "
                 "intermediate commits as identical", total - 2)
     else:
-        logger.info("Endpoints differ - searching for changes via binary search")
+        logger.debug("Endpoints differ - searching for changes via binary search")
 
     if not _binary_search_range(
             commits, 0, total - 1,
@@ -931,7 +931,7 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
         logger.error("--binary-search and --commits are mutually exclusive")
         return 1
     if use_explicit_commits and getattr(args, 'build_dirs', None):
-        logger.info("--build-dirs is ignored when --commits is used")
+        logger.debug("--build-dirs is ignored when --commits is used")
     if use_explicit_commits and args.num_commits is not None:
         logger.error("Cannot use both num_commits and --commits")
         return 1
@@ -952,21 +952,21 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
 
     logger.info("Starting historical memory analysis for %s", args.target_name)
     if use_explicit_commits:
-        logger.info("Processing explicit commit list")
+        logger.debug("Processing explicit commit list")
     else:
-        logger.info("Processing last %d commits", args.num_commits)
-    logger.info("Build script: %s", args.build_script)
-    logger.info("ELF file: %s", args.elf_path)
+        logger.debug("Processing last %d commits", args.num_commits)
+    logger.debug("Build script: %s", args.build_script)
+    logger.debug("ELF file: %s", args.elf_path)
     if args.ld_scripts:
-        logger.info("Linker scripts: %s", args.ld_scripts)
+        logger.debug("Linker scripts: %s", args.ld_scripts)
     else:
-        logger.info("Using default Code/Data regions (no linker scripts)")
+        logger.debug("Using default Code/Data regions (no linker scripts)")
 
     # Parse linker variable definitions
     linker_variables = _parse_linker_definitions(getattr(args, 'linker_defs', None))
     if linker_variables:
         for key, value in linker_variables.items():
-            logger.info("User-defined linker variable: %s = %s", key, value)
+            logger.debug("User-defined linker variable: %s = %s", key, value)
 
     # Resolve --initial-parent to a commit hash
     if initial_parent:
@@ -975,7 +975,7 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
         if not initial_parent:
             logger.error("--initial-parent: could not resolve ref")
             return 1
-        logger.info("Initial parent for first commit: %s", initial_parent)
+        logger.debug("Initial parent for first commit: %s", initial_parent)
 
     # Get repository information
     current_branch, original_head, repo_name = _get_repository_info()
@@ -990,7 +990,7 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
         except ValueError as e:
             logger.error("Invalid --commits: %s", e)
             return 1
-        logger.info("Resolved %d commit(s) to process", len(commits))
+        logger.debug("Resolved %d commit(s) to process", len(commits))
     else:
         commits = _get_commit_list(args.num_commits, initial_commit)
         if not commits:
@@ -1011,8 +1011,8 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
     def finalize_and_return(exit_code: int) -> int:
         """Restore original HEAD, print summary, and return exit code."""
         # Restore original HEAD
-        logger.info("")
-        logger.info("Restoring original HEAD...")
+        logger.debug("")
+        logger.debug("Restoring original HEAD...")
         subprocess.run(['git', 'checkout', original_head, '--quiet'], check=False)
 
         # Print summary
@@ -1021,7 +1021,7 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
         seconds = int(elapsed.total_seconds() % 60)
         elapsed_str = f"{minutes:02d}:{seconds:02d}"
 
-        logger.info("")
+        logger.debug("")
         logger.info("Historical analysis completed!")
         logger.info("Processed %d commits", len(commits))
         logger.info("Successful uploads: %d", successful_uploads)
@@ -1042,8 +1042,8 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
     for commit_count, commit in enumerate(commits, 1):
         log_prefix = f"({commit})"
 
-        logger.info("")
-        logger.info("Processing commit %d/%d: %s",
+        logger.debug("")
+        logger.debug("Processing commit %d/%d: %s",
                        commit_count, total_commits, commit[:8])
 
         # Check if we need to build this commit (when --build-dirs is specified)
@@ -1054,12 +1054,12 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
                 and commit_count > 1
                 and not _commit_has_changes_in_dirs(commit, build_dirs)):
             # No changes in build directories - upload metadata-only with identical=True
-            logger.info("%s: No changes in build directories, marking as identical", log_prefix)
+            logger.debug("%s: No changes in build directories, marking as identical", log_prefix)
 
             report = _create_metadata_only_report(args.elf_path)
             if _upload_commit(report, commit, args, current_branch, repo_name,
                               identical=True, api_url=api_url, client=client):
-                logger.info("%s: Identical report uploaded (commit %d of %d)",
+                logger.debug("%s: Identical report uploaded (commit %d of %d)",
                             log_prefix, commit_count, total_commits)
                 successful_uploads += 1
             else:
@@ -1069,7 +1069,7 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
             continue  # Skip to next commit - no checkout/build needed
 
         # Checkout the commit
-        logger.info("%s: Checking out commit...", log_prefix)
+        logger.debug("%s: Checking out commit...", log_prefix)
         result = subprocess.run(
             ['git', 'checkout', commit, '--quiet'],
             capture_output=True,
@@ -1081,19 +1081,19 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
             return finalize_and_return(1)
 
         # Update submodules to match the checked-out commit
-        logger.info("%s: Updating submodules...", log_prefix)
+        logger.debug("%s: Updating submodules...", log_prefix)
         subprocess.run(
             ['git', 'submodule', 'update', '--init', '--recursive', '--quiet'],
             capture_output=True, check=False
         )
 
         # Clean previous build artifacts
-        logger.info("Cleaning previous build artifacts...")
+        logger.debug("Cleaning previous build artifacts...")
         subprocess.run(['git', 'clean', '-fd'],
                        capture_output=True, check=False)
 
         # Build the firmware
-        logger.info(
+        logger.debug(
             "%s: Building firmware with: %s",
             log_prefix,
             args.build_script)
@@ -1127,7 +1127,7 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
 
         # Case 3: Build succeeded and files exist - generate report
         else:
-            logger.info("%s: Generating memory report (commit %d of %d)...",
+            logger.debug("%s: Generating memory report (commit %d of %d)...",
                           log_prefix, commit_count, total_commits)
             try:
                 report = generate_report(
@@ -1169,13 +1169,13 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
                           build_failed=build_failed, api_url=api_url,
                           base_sha_override=faked_parent, client=client):
             if build_failed:
-                logger.info(
+                logger.debug(
                     "%s: Empty report uploaded successfully for failed build (commit %d of %d)",
                     log_prefix,
                     commit_count,
                     total_commits)
             else:
-                logger.info(
+                logger.debug(
                     "%s: Memory report uploaded successfully (commit %d of %d)",
                     log_prefix,
                     commit_count,

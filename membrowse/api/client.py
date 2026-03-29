@@ -83,7 +83,7 @@ class MemBrowseClient:
         commit_hash = report_to_send.get('metadata', {}).get('git', {}).get('commit_hash', '')
 
         json_bytes = json.dumps(report_to_send).encode('utf-8')
-        logger.info("Uploading payload: %d bytes", len(json_bytes))
+        logger.debug("Uploading payload: %d bytes", len(json_bytes))
         return self._request_with_retry(
             'POST', url, log_context=commit_hash,
             data=json_bytes,
@@ -138,7 +138,7 @@ class MemBrowseClient:
 
         for attempt in range(1, max_attempts + 1):
             try:
-                logger.warning(
+                logger.info(
                     "%s%s %s (attempt %d of %d)...",
                     prefix, method, url, attempt, max_attempts
                 )

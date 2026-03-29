@@ -84,7 +84,7 @@ def post_combined_pr_comment(
 
     try:
         create_or_update_comment(comment_body, pr_number, COMMENT_MARKER)
-        logger.info("Posted combined PR comment for %d targets", len(results))
+        logger.debug("Posted combined PR comment for %d targets", len(results))
     except subprocess.CalledProcessError as e:
         handle_comment_error(e, "PR comment")
     except Exception as e:  # pylint: disable=broad-exception-caught
@@ -111,7 +111,7 @@ def post_pr_comment_from_body(body: str, pr_number: str) -> None:
 
     try:
         create_or_update_comment(comment_body, pr_number, COMMENT_MARKER)
-        logger.info("Posted PR comment")
+        logger.debug("Posted PR comment")
     except subprocess.CalledProcessError as e:
         handle_comment_error(e, "PR comment")
     except Exception as e:  # pylint: disable=broad-exception-caught
@@ -209,7 +209,7 @@ def _render_comment_body(
         str: Markdown-formatted comment body
     """
     if template_path:
-        logger.info("Rendering comment using custom template: %s", template_path)
+        logger.debug("Rendering comment using custom template: %s", template_path)
         return _render_template(template_path, context)
 
     # Use default template
@@ -248,7 +248,7 @@ def post_summary_comment(
         pr_number = response.get('data', {}).get('pr_number')
         if pr_number:
             pr_number = str(pr_number)
-            logger.info("Resolved PR number %s from API response", pr_number)
+            logger.debug("Resolved PR number %s from API response", pr_number)
 
     if not pr_number:
         logger.warning("Could not resolve PR number — skipping comment")
@@ -358,7 +358,7 @@ def _handle_file_mode(parser, args):
             with open(filepath, 'r', encoding='utf-8') as f:
                 data = json.load(f)
                 results.append(data)
-                logger.info("Loaded result from %s", filepath)
+                logger.debug("Loaded result from %s", filepath)
         except (json.JSONDecodeError, IOError) as e:
             logger.warning("Failed to load %s: %s", filepath, e)
 

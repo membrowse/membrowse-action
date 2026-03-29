@@ -158,10 +158,10 @@ def create_or_update_comment(
     existing_comment_id = find_existing_comment(pr_num, marker)
 
     if existing_comment_id:
-        logger.info("Updating existing comment %d", existing_comment_id)
+        logger.debug("Updating existing comment %d", existing_comment_id)
         update_comment(existing_comment_id, body)
     else:
-        logger.info("Creating new comment")
+        logger.debug("Creating new comment")
         create_comment(body, pr_num)
 
 

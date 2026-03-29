@@ -14,9 +14,9 @@ from .commands.onboard import add_onboard_parser, run_onboard
 from .commands.summary import add_summary_parser, run_summary
 
 LOG_LEVELS = {
+    "INFO": logging.INFO,
     "WARNING": logging.WARNING,
     "DEBUG": logging.DEBUG,
-    "INFO": logging.INFO
 }
 
 def create_parser() -> argparse.ArgumentParser:
