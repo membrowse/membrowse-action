@@ -1163,7 +1163,7 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
         if use_explicit_commits:
             faked_parent = commits[commit_count - 2] if commit_count > 1 else initial_parent
         else:
-            faked_parent = None
+            faked_parent = _NO_OVERRIDE
 
         if _upload_commit(report, commit, args, current_branch, repo_name,
                           build_failed=build_failed, api_url=api_url,
