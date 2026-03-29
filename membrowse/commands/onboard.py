@@ -589,7 +589,7 @@ def _upload_commit(  # pylint: disable=too-many-arguments,too-many-positional-ar
             f"{name}: {data.get('used_size', 0)}"
             for name, data in sorted(layout.items())
         ) if layout else "(empty)"
-        logger.debug("%s: [DRY-RUN] Would upload: status=%s, regions={%s}",
+        logger.info("%s: [DRY-RUN] Would upload: status=%s, regions={%s}",
                     log_prefix, status, regions)
         return True
 
