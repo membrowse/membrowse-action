@@ -191,4 +191,3 @@ class SymbolExtractor:  # pylint: disable=too-few-public-methods
             'STB_WEAK': 'WEAK'
         }
         return binding_map.get(symbol_binding, symbol_binding)
-

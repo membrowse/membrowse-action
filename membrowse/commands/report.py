@@ -698,7 +698,7 @@ def _build_enriched_report(
     }
 
 
-def _perform_upload(
+def _perform_upload(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     enriched_report: dict,
     api_key: Optional[str],
     api_url: str,
