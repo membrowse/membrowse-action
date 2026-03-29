@@ -37,7 +37,7 @@ membrowse -v INFO report firmware.elf "linker.ld"
 membrowse report firmware.elf "mem.ld sections.ld"
 ```
 
-**Note**: By default, output is human-readable and only warnings/errors are logged. Use `-v INFO` or `-v DEBUG` before the subcommand to see progress messages.
+**Note**: By default, output is human-readable and INFO-level messages are logged (one line per upload). Use `-v DEBUG` before the subcommand for detailed progress, or `-v WARNING` to suppress INFO messages.
 
 **Upload Mode** - Upload report to MemBrowse platform:
 ```bash

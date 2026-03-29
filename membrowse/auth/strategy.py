@@ -98,7 +98,7 @@ def determine_auth_strategy(
 
     # If auto-detect enabled and we're in fork PR, use tokenless
     if auto_detect_fork and is_fork_pr():
-        logger.info("Fork PR detected, using tokenless upload mode")
+        logger.debug("Fork PR detected, using tokenless upload mode")
         try:
             fork_context = get_fork_pr_context()
             github_context = _fork_context_to_dict(fork_context)

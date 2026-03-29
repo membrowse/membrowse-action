@@ -92,7 +92,7 @@ class MemBrowseClient:
         # Try gzip if server support is not known to be absent
         if self._server_supports_gzip is not False:
             compressed = gzip.compress(json_bytes)
-            logger.info(
+            logger.debug(
                 "Compressed upload payload: %d -> %d bytes (%.0f%% reduction)",
                 len(json_bytes), len(compressed),
                 (1 - len(compressed) / len(json_bytes)) * 100 if json_bytes else 0
@@ -121,7 +121,7 @@ class MemBrowseClient:
                     raise
 
         # Send uncompressed
-        logger.info("Uploading uncompressed payload: %d bytes", len(json_bytes))
+        logger.debug("Uploading uncompressed payload: %d bytes", len(json_bytes))
         return self._request_with_retry(
             'POST', url, log_context=commit_hash,
             data=json_bytes,
@@ -176,7 +176,7 @@ class MemBrowseClient:
 
         for attempt in range(1, max_attempts + 1):
             try:
-                logger.warning(
+                logger.info(
                     "%s%s %s (attempt %d of %d)...",
                     prefix, method, url, attempt, max_attempts
                 )

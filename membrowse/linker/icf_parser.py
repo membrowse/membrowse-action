@@ -750,7 +750,7 @@ class IARLinkerScriptParser(LinkerScriptFormatParser):
                     f"ICF parser could not resolve any memory regions "
                     f"from {path.name}: {', '.join(sorted(non_empty_specs))}")
 
-        logger.info("ICF parser extracted %d memory regions from %s",
+        logger.debug("ICF parser extracted %d memory regions from %s",
                      len(result), path.name)
         return result
 

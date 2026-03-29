@@ -1072,7 +1072,7 @@ class LinkerScriptParser:  # pylint: disable=too-few-public-methods,too-many-ins
             if self.elf_info:
                 self.parsing_strategy = get_linker_parsing_strategy(
                     self.elf_info)
-                logger.info("Detected architecture: %s, platform: %s",
+                logger.debug("Detected architecture: %s, platform: %s",
                             self.elf_info.architecture.value,
                             self.elf_info.platform.value)
             else:
@@ -1225,7 +1225,7 @@ class LinkerScriptParser:  # pylint: disable=too-few-public-methods,too-many-ins
     def _parse_icf_script(self, script_path: str) -> Dict[str, MemoryRegion]:
         """Delegate ICF file parsing to IARLinkerScriptParser."""
         from .icf_parser import IARLinkerScriptParser  # pylint: disable=import-outside-toplevel
-        logger.info("Detected IAR ICF format in %s, delegating to IARLinkerScriptParser",
+        logger.debug("Detected IAR ICF format in %s, delegating to IARLinkerScriptParser",
                      script_path)
         icf_parser = IARLinkerScriptParser(
             user_variables=dict(self.evaluator.variables),

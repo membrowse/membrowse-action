@@ -44,7 +44,7 @@ def print_upload_response(response_data: dict) -> str:
     comparison_url = None
 
     if success:
-        logger.info("Report uploaded successfully to MemBrowse")
+        logger.debug("Report uploaded successfully to MemBrowse")
 
         # Display comparison link if available and capture URL
         comparison_url = _display_comparison_link(response_data)
@@ -57,7 +57,7 @@ def print_upload_response(response_data: dict) -> str:
     # Display API message if present
     api_message = response_data.get('message')
     if api_message:
-        logger.info("%s", api_message)
+        logger.debug("%s", api_message)
 
     # Handle error responses
     if not success:
@@ -104,11 +104,11 @@ def print_upload_response(response_data: dict) -> str:
 
 def _display_changes_summary(changes_summary: dict) -> None:
     """Display memory changes summary in human-readable format"""
-    logger.info("Memory Changes Summary:")
+    logger.debug("Memory Changes Summary:")
 
     # Check if changes_summary is empty or None
     if not changes_summary:
-        logger.info("  No changes detected")
+        logger.debug("  No changes detected")
         return
 
     # Track if we found any actual changes
@@ -128,34 +128,34 @@ def _display_changes_summary(changes_summary: dict) -> None:
 
         # We found at least one change
         has_changes = True
-        logger.info("  %s:", region_name)
+        logger.debug("  %s:", region_name)
 
         if used_change != 0:
             direction = "increased" if used_change > 0 else "decreased"
-            logger.info("    Used: %s by %s bytes", direction, f"{abs(used_change):,}")
+            logger.debug("    Used: %s by %s bytes", direction, f"{abs(used_change):,}")
 
         if free_change != 0:
             direction = "increased" if free_change > 0 else "decreased"
-            logger.info("    Free: %s by %s bytes", direction, f"{abs(free_change):,}")
+            logger.debug("    Free: %s by %s bytes", direction, f"{abs(free_change):,}")
 
     # If we processed regions but found no changes
     if not has_changes:
-        logger.info("  No changes detected")
+        logger.debug("  No changes detected")
 
 
 def _display_budget_alerts(budget_alerts: list) -> None:
     """Display budget alerts in human-readable format"""
-    logger.info("Budget Alerts:")
+    logger.debug("Budget Alerts:")
 
     current_budget = None
     for alert in iter_budget_alerts(budget_alerts):
         # Print budget name header when we encounter a new budget
         if current_budget != alert.budget_name:
             current_budget = alert.budget_name
-            logger.info("  %s:", alert.budget_name)
+            logger.debug("  %s:", alert.budget_name)
 
         # Display region alert
-        logger.info("    %s: %s bytes (exceeded by %s bytes)",
+        logger.debug("    %s: %s bytes (exceeded by %s bytes)",
                     alert.region, f"{alert.usage:,}", f"{alert.exceeded:,}")
 
 
@@ -198,7 +198,7 @@ def _display_comparison_link(response_data: dict) -> str:
 
     # Display URL if available
     if comparison_url:
-        logger.info("View build comparison: %s", comparison_url)
+        logger.debug("View build comparison: %s", comparison_url)
 
     return comparison_url
 
@@ -494,8 +494,8 @@ def generate_report(
     if not os.path.exists(elf_path):
         raise ValueError(f"ELF file not found: {elf_path}")
 
-    logger.info("Started Memory Report generation")
-    logger.info("ELF file: %s", elf_path)
+    logger.debug("Started Memory Report generation")
+    logger.debug("ELF file: %s", elf_path)
 
     # Handle optional linker scripts
     memory_regions_data = _parse_linker_scripts_if_provided(
@@ -520,7 +520,7 @@ def generate_report(
         logger.error("Failed to generate memory report: %s", e)
         raise ValueError(f"Failed to generate memory report: {e}") from e
 
-    logger.info("Memory report generated successfully")
+    logger.debug("Memory report generated successfully")
     return report
 
 
@@ -541,7 +541,7 @@ def _parse_linker_scripts_if_provided(
         Parsed memory regions data, or None if no linker scripts provided
     """
     if not ld_scripts or not ld_scripts.strip():
-        logger.info("No linker scripts provided - using default Code/Data regions")
+        logger.debug("No linker scripts provided - using default Code/Data regions")
         return None
 
     # Split and validate linker scripts
@@ -550,7 +550,7 @@ def _parse_linker_scripts_if_provided(
         if not os.path.exists(ld_script):
             raise ValueError(f"Linker script not found: {ld_script}")
 
-    logger.info("Linker scripts: %s", ld_scripts)
+    logger.debug("Linker scripts: %s", ld_scripts)
 
     # Parse memory regions from linker scripts
     logger.debug("Parsing memory regions from linker scripts...")
@@ -640,7 +640,7 @@ def upload_report(  # pylint: disable=too-many-arguments
     # Set up log prefix
     log_prefix = _get_log_prefix(commit_info)
 
-    logger.info("%s: Target: %s", log_prefix, target_name)
+    logger.debug("%s: Target: %s", log_prefix, target_name)
 
     # Build and enrich report
     enriched_report = _build_enriched_report(
@@ -659,7 +659,7 @@ def upload_report(  # pylint: disable=too-many-arguments
     # Validate upload success
     _validate_upload_success(response_data, log_prefix)
 
-    logger.info("%s: Memory report uploaded successfully", log_prefix)
+    logger.debug("%s: Memory report uploaded successfully", log_prefix)
     return response_data, comparison_url
 
 
@@ -864,7 +864,7 @@ def run_report(args: argparse.Namespace) -> int:
 
     # Handle identical mode: create metadata-only report, skip ELF analysis
     if identical_mode:
-        logger.info("Identical mode: skipping ELF analysis, uploading metadata only")
+        logger.debug("Identical mode: skipping ELF analysis, uploading metadata only")
         report = _create_metadata_only_report()
     else:
         # Parse linker variable definitions
