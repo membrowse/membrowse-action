@@ -259,7 +259,20 @@ def post_summary_comment(
     context = build_summary_template_context(response)
     body = _render_comment_body(context, template_path)
 
-    post_pr_comment_from_body(body, pr_number)
+    # body already includes the header/marker from _render_comment_body,
+    # so post directly instead of going through post_pr_comment_from_body
+    # which would add the header a second time.
+    if not is_gh_cli_available():
+        logger.warning("GitHub CLI (gh) not available, skipping PR comment")
+        return
+
+    try:
+        create_or_update_comment(body, pr_number, COMMENT_MARKER)
+        logger.debug("Posted summary PR comment")
+    except subprocess.CalledProcessError as e:
+        handle_comment_error(e, "PR comment")
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        handle_comment_error(e, "PR comment")
 
 
 def main():
