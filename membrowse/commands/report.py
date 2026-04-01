@@ -366,8 +366,8 @@ examples:
         'Optional Git metadata (auto-detected by default, use --no-git to disable)'
     )
     git_group.add_argument('--commit-sha', help='Git commit SHA')
-    git_group.add_argument('--base-sha', help='Git base commit SHA (for comparison URLs)')
-    git_group.add_argument('--parent-sha', help='Git parent commit SHA (actual git parent)')
+    git_group.add_argument('--base-sha', '--parent-sha', dest='base_sha',
+                           help='Git base/parent commit SHA (for comparison)')
     git_group.add_argument('--branch-name', help='Git branch name')
     git_group.add_argument('--repo-name', help='Repository name')
     git_group.add_argument('--commit-message', help='Commit message')
@@ -856,10 +856,28 @@ def run_report(args: argparse.Namespace) -> int:
         logger.error("--identical requires --upload flag")
         return 1
 
+    # Validate upload arguments early (before expensive ELF analysis)
+    if upload_mode:
+        is_valid, error_message = _validate_upload_arguments(
+            getattr(args, 'api_key', None),
+            getattr(args, 'target_name', None),
+            is_github_mode=getattr(args, 'github', False)
+        )
+        if not is_valid:
+            logger.error("%s", error_message)
+            return 1
+
     # Validate: elf_path required unless --identical (ld_scripts is optional)
     if not identical_mode:
         if not args.elf_path:
             logger.error("elf_path is required (unless using --identical)")
+            return 1
+
+        # Validate file paths early (before expensive ELF analysis)
+        ld_script_paths = args.ld_scripts.split() if args.ld_scripts else []
+        is_valid, error_message = _validate_file_paths(args.elf_path, ld_script_paths)
+        if not is_valid:
+            logger.error("%s", error_message)
             return 1
 
     # Handle identical mode: create metadata-only report, skip ELF analysis
@@ -894,7 +912,6 @@ def run_report(args: argparse.Namespace) -> int:
     # Build commit_info dict in metadata['git'] format
     arg_to_metadata_map = {
         'commit_sha': 'commit_hash',
-        'parent_sha': 'parent_commit_hash',
         'base_sha': 'base_commit_hash',
         'branch_name': 'branch_name',
         'repo_name': 'repository',
