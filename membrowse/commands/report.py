@@ -367,7 +367,8 @@ examples:
     )
     git_group.add_argument('--commit-sha', help='Git commit SHA')
     git_group.add_argument('--base-sha', '--parent-sha', dest='base_sha',
-                           help='Git base/parent commit SHA (for comparison)')
+                           help='Git base/parent commit SHA (for comparison). '
+                                'Use "none" or "" to explicitly set no parent.')
     git_group.add_argument('--branch-name', help='Git branch name')
     git_group.add_argument('--repo-name', help='Repository name')
     git_group.add_argument('--commit-message', help='Commit message')
@@ -930,6 +931,13 @@ def run_report(args: argparse.Namespace) -> int:
         'pr_author_email': 'pr_author_email',
     }
 
+    # Handle --parent-sha "none" or "" as explicit null
+    explicit_no_parent = False
+    parent_sha_val = getattr(args, 'base_sha', None)
+    if parent_sha_val is not None and parent_sha_val.strip().lower() in ('none', ''):
+        args.base_sha = None
+        explicit_no_parent = True
+
     commit_info = {
         metadata_key: getattr(args, arg_key, None)
         for arg_key, metadata_key in arg_to_metadata_map.items()
@@ -946,6 +954,10 @@ def run_report(args: argparse.Namespace) -> int:
         detected_metadata = detect_git_metadata()
         # Update commit_info with detected metadata (only if not already set)
         commit_info = {k: commit_info.get(k) or v for k, v in detected_metadata.items()}
+
+    # Explicit --parent-sha none: set to JSON null so the API sees "no parent"
+    if explicit_no_parent:
+        commit_info['parent_commit_hash'] = None
 
     # Upload report and handle alerts
     return _handle_upload_and_alerts(report, args, commit_info)
