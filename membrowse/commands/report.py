@@ -834,6 +834,35 @@ def _handle_upload_and_alerts(
         return 1
 
 
+def _validate_args(args: argparse.Namespace) -> Optional[str]:
+    """Validate report arguments, returning an error message or None if valid."""
+    identical_mode = getattr(args, 'identical', False)
+    upload_mode = getattr(args, 'upload', False)
+
+    if identical_mode and not upload_mode:
+        return "--identical requires --upload flag"
+
+    if upload_mode:
+        is_valid, error_message = _validate_upload_arguments(
+            getattr(args, 'api_key', None),
+            getattr(args, 'target_name', None),
+            is_github_mode=getattr(args, 'github', False)
+        )
+        if not is_valid:
+            return error_message
+
+    if not identical_mode:
+        if not args.elf_path:
+            return "elf_path is required (unless using --identical)"
+
+        ld_script_paths = args.ld_scripts.split() if args.ld_scripts else []
+        is_valid, error_message = _validate_file_paths(args.elf_path, ld_script_paths)
+        if not is_valid:
+            return error_message
+
+    return None
+
+
 def run_report(args: argparse.Namespace) -> int:
     """
     Execute the report subcommand.
@@ -847,38 +876,13 @@ def run_report(args: argparse.Namespace) -> int:
     Returns:
         Exit code (0 for success, 1 for error)
     """
-    # Check if identical mode (metadata-only upload, no ELF analysis)
-    identical_mode = getattr(args, 'identical', False)
-    upload_mode = getattr(args, 'upload', False)
-
-    # Validate: --identical requires --upload
-    if identical_mode and not upload_mode:
-        logger.error("--identical requires --upload flag")
+    error = _validate_args(args)
+    if error:
+        logger.error("%s", error)
         return 1
 
-    # Validate upload arguments early (before expensive ELF analysis)
-    if upload_mode:
-        is_valid, error_message = _validate_upload_arguments(
-            getattr(args, 'api_key', None),
-            getattr(args, 'target_name', None),
-            is_github_mode=getattr(args, 'github', False)
-        )
-        if not is_valid:
-            logger.error("%s", error_message)
-            return 1
-
-    # Validate: elf_path required unless --identical (ld_scripts is optional)
-    if not identical_mode:
-        if not args.elf_path:
-            logger.error("elf_path is required (unless using --identical)")
-            return 1
-
-        # Validate file paths early (before expensive ELF analysis)
-        ld_script_paths = args.ld_scripts.split() if args.ld_scripts else []
-        is_valid, error_message = _validate_file_paths(args.elf_path, ld_script_paths)
-        if not is_valid:
-            logger.error("%s", error_message)
-            return 1
+    identical_mode = getattr(args, 'identical', False)
+    upload_mode = getattr(args, 'upload', False)
 
     # Handle identical mode: create metadata-only report, skip ELF analysis
     if identical_mode:
