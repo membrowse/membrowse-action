@@ -251,7 +251,7 @@ class TestFakedParentChain:
         mock_subprocess.run.return_value = MagicMock(returncode=0)
         mock_metadata.return_value = {
             'commit_sha': 'aaa111',
-            'base_sha': 'real_parent',
+            'parent_sha': 'real_parent',
             'commit_message': 'msg',
             'commit_timestamp': '2024-01-01T00:00:00Z',
             'author_name': 'Test',
@@ -282,12 +282,12 @@ class TestFakedParentChain:
         mock_subprocess.run.return_value = MagicMock(returncode=0)
         mock_metadata.side_effect = [
             {
-                'commit_sha': 'aaa111', 'base_sha': 'real_parent_a',
+                'commit_sha': 'aaa111', 'parent_sha': 'real_parent_a',
                 'commit_message': 'msg1', 'commit_timestamp': 'ts1',
                 'author_name': 'A', 'author_email': 'a@test.com',
             },
             {
-                'commit_sha': 'bbb222', 'base_sha': 'real_parent_b',
+                'commit_sha': 'bbb222', 'parent_sha': 'real_parent_b',
                 'commit_message': 'msg2', 'commit_timestamp': 'ts2',
                 'author_name': 'B', 'author_email': 'b@test.com',
             },
@@ -320,7 +320,7 @@ class TestFakedParentChain:
         mock_subprocess.run.return_value = MagicMock(returncode=0)
         mock_metadata.side_effect = [
             {
-                'commit_sha': sha, 'base_sha': f'real_parent_{sha}',
+                'commit_sha': sha, 'parent_sha': f'real_parent_{sha}',
                 'commit_message': f'msg{i}', 'commit_timestamp': f'ts{i}',
                 'author_name': 'X', 'author_email': 'x@test.com',
             }
@@ -354,12 +354,12 @@ class TestFakedParentChain:
         # Real git parent of bbb222 is 'zzz999', not aaa111
         mock_metadata.side_effect = [
             {
-                'commit_sha': 'aaa111', 'base_sha': 'xxx888',
+                'commit_sha': 'aaa111', 'parent_sha': 'xxx888',
                 'commit_message': 'm1', 'commit_timestamp': 'ts1',
                 'author_name': 'A', 'author_email': 'a@t.com',
             },
             {
-                'commit_sha': 'bbb222', 'base_sha': 'zzz999',
+                'commit_sha': 'bbb222', 'parent_sha': 'zzz999',
                 'commit_message': 'm2', 'commit_timestamp': 'ts2',
                 'author_name': 'B', 'author_email': 'b@t.com',
             },
@@ -414,12 +414,12 @@ class TestCommitsBuildLoop:
         mock_subprocess.run.return_value = MagicMock(returncode=0)
         mock_metadata.side_effect = [
             {
-                'commit_sha': 'aaa111', 'base_sha': None,
+                'commit_sha': 'aaa111', 'parent_sha': None,
                 'commit_message': 'm1', 'commit_timestamp': 'ts1',
                 'author_name': 'A', 'author_email': 'a@t.com',
             },
             {
-                'commit_sha': 'bbb222', 'base_sha': 'aaa111',
+                'commit_sha': 'bbb222', 'parent_sha': 'aaa111',
                 'commit_message': 'm2', 'commit_timestamp': 'ts2',
                 'author_name': 'B', 'author_email': 'b@t.com',
             },
@@ -456,7 +456,7 @@ class TestCommitsBuildLoop:
             MagicMock(returncode=0),  # restore HEAD
         ]
         mock_metadata.return_value = {
-            'commit_sha': 'aaa111', 'base_sha': None,
+            'commit_sha': 'aaa111', 'parent_sha': None,
             'commit_message': 'msg', 'commit_timestamp': 'ts',
             'author_name': 'A', 'author_email': 'a@t.com',
         }
@@ -521,13 +521,13 @@ class TestCommitsUploadPayload:
         mock_subprocess.run.return_value = MagicMock(returncode=0)
         mock_metadata.side_effect = [
             {
-                'commit_sha': 'aaa111', 'base_sha': 'real_parent_a',
+                'commit_sha': 'aaa111', 'parent_sha': 'real_parent_a',
                 'commit_message': 'First commit message',
                 'commit_timestamp': '2024-01-01T00:00:00Z',
                 'author_name': 'Alice', 'author_email': 'alice@test.com',
             },
             {
-                'commit_sha': 'bbb222', 'base_sha': 'real_parent_b',
+                'commit_sha': 'bbb222', 'parent_sha': 'real_parent_b',
                 'commit_message': 'Second commit message',
                 'commit_timestamp': '2024-06-15T12:00:00Z',
                 'author_name': 'Bob', 'author_email': 'bob@test.com',
@@ -574,7 +574,7 @@ class TestCommitsUploadPayload:
         mock_repo.return_value = ('main', 'original_head', 'my-repo')
         mock_subprocess.run.return_value = MagicMock(returncode=0)
         mock_metadata.return_value = {
-            'commit_sha': 'aaa111', 'base_sha': None,
+            'commit_sha': 'aaa111', 'parent_sha': None,
             'commit_message': 'msg', 'commit_timestamp': 'ts',
             'author_name': 'A', 'author_email': 'a@t.com',
         }
@@ -607,7 +607,7 @@ class TestCommitsUploadPayload:
         mock_repo.return_value = ('main', 'original_head', 'my-repo')
         mock_subprocess.run.return_value = MagicMock(returncode=0)
         mock_metadata.return_value = {
-            'commit_sha': 'aaa111', 'base_sha': None,
+            'commit_sha': 'aaa111', 'parent_sha': None,
             'commit_message': 'msg', 'commit_timestamp': 'ts',
             'author_name': 'A', 'author_email': 'a@t.com',
         }
@@ -736,7 +736,7 @@ class TestInitialParentResolution:
         mock_repo.return_value = ('main', 'original_head', 'my-repo')
         mock_subprocess.run.return_value = MagicMock(returncode=0)
         mock_metadata.return_value = {
-            'commit_sha': 'commit_bbb', 'base_sha': 'real_parent',
+            'commit_sha': 'commit_bbb', 'parent_sha': 'real_parent',
             'commit_message': 'msg', 'commit_timestamp': 'ts',
             'author_name': 'A', 'author_email': 'a@t.com',
         }
@@ -779,12 +779,12 @@ class TestInitialParentResolution:
         mock_subprocess.run.return_value = MagicMock(returncode=0)
         mock_metadata.side_effect = [
             {
-                'commit_sha': 'commit_bbb', 'base_sha': 'real_parent_b',
+                'commit_sha': 'commit_bbb', 'parent_sha': 'real_parent_b',
                 'commit_message': 'msg1', 'commit_timestamp': 'ts1',
                 'author_name': 'A', 'author_email': 'a@t.com',
             },
             {
-                'commit_sha': 'commit_ccc', 'base_sha': 'real_parent_c',
+                'commit_sha': 'commit_ccc', 'parent_sha': 'real_parent_c',
                 'commit_message': 'msg2', 'commit_timestamp': 'ts2',
                 'author_name': 'B', 'author_email': 'b@t.com',
             },
@@ -850,7 +850,7 @@ class TestInitialParentResolution:
         mock_repo.return_value = ('main', 'original_head', 'my-repo')
         mock_subprocess.run.return_value = MagicMock(returncode=0)
         mock_metadata.return_value = {
-            'commit_sha': 'aaa111', 'base_sha': None,
+            'commit_sha': 'aaa111', 'parent_sha': None,
             'commit_message': 'msg', 'commit_timestamp': 'ts',
             'author_name': 'A', 'author_email': 'a@t.com',
         }

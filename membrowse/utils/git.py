@@ -13,7 +13,6 @@ class GitContext:
     """Git context information for metadata building."""
     commit_sha: str
     parent_sha: Optional[str]
-    base_sha: str
     branch_name: str
     repo_name: str
 
@@ -185,8 +184,7 @@ def detect_git_metadata() -> Dict[str, Any]:
         Dict with metadata in metadata['git'] format:
         {
             'commit_hash': str,
-            'parent_commit_hash': str,  # Actual git parent (HEAD~1)
-            'base_commit_hash': str,    # Same as parent for local git
+            'base_commit_hash': str,    # Parent commit (HEAD~1)
             'branch_name': str,
             'repository': str,
             'commit_message': str,
@@ -205,9 +203,6 @@ def detect_git_metadata() -> Dict[str, Any]:
     # Get parent commit
     parent_sha = get_parent_commit()
 
-    # For local git, base_sha is the same as parent_sha
-    base_sha = parent_sha
-
     # Get branch name
     branch_name = _get_branch_name('')
 
@@ -222,8 +217,7 @@ def detect_git_metadata() -> Dict[str, Any]:
 
     return {
         'commit_hash': commit_sha or None,
-        'parent_commit_hash': parent_sha or None,
-        'base_commit_hash': base_sha or None,
+        'base_commit_hash': parent_sha or None,
         'branch_name': branch_name or None,
         'repository': repo_name or None,
         'commit_message': commit_message or None,
@@ -251,8 +245,7 @@ def _build_metadata_result(
 
     return {
         'commit_hash': git_context.commit_sha or None,
-        'parent_commit_hash': git_context.parent_sha or None,
-        'base_commit_hash': git_context.base_sha or None,
+        'base_commit_hash': git_context.parent_sha or None,
         'branch_name': git_context.branch_name or None,
         'repository': git_context.repo_name or None,
         'commit_message': commit_message or None,
@@ -278,8 +271,7 @@ def detect_github_metadata() -> Dict[str, Any]:
         Dict with metadata in metadata['git'] format:
         {
             'commit_hash': str,
-            'parent_commit_hash': str,  # Actual git parent (HEAD~1)
-            'base_commit_hash': str,    # For comparison (target branch in PRs, parent in pushes)
+            'base_commit_hash': str,    # Parent commit (HEAD~1)
             'branch_name': str,
             'repository': str,
             'commit_message': str,
@@ -324,12 +316,9 @@ def detect_github_metadata() -> Dict[str, Any]:
     if branch_name:
         metadata['branch_name'] = branch_name
 
-    # For PR events, base_sha is the target branch tip (use event data)
-    # For push events, use parent commit (HEAD~1) as comparison base
+    # For PR events, use base_sha (target branch tip) as base_commit_hash
     if event_name == 'pull_request' and base_sha:
         metadata['base_commit_hash'] = base_sha
-    elif event_name == 'push' and metadata.get('parent_commit_hash'):
-        metadata['base_commit_hash'] = metadata['parent_commit_hash']
 
     # Add PR-specific metadata
     if pr_number:
@@ -352,12 +341,11 @@ def get_commit_metadata(commit_sha: str) -> Dict[str, Any]:
         commit_sha: Git commit SHA
 
     Returns:
-        Dictionary with commit metadata (note: uses old key names for backwards compatibility)
-        Use commit_sha, base_sha keys (not commit_hash, base_commit_hash)
+        Dictionary with commit metadata.
     """
     metadata = {
         'commit_sha': commit_sha,
-        'base_sha': None,
+        'parent_sha': None,
         'commit_message': 'Unknown commit message',
         'commit_timestamp': datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
         'author_name': 'Unknown',
@@ -366,9 +354,9 @@ def get_commit_metadata(commit_sha: str) -> Dict[str, Any]:
     }
 
     # Get parent commit
-    base_sha = run_git_command(['rev-parse', f'{commit_sha}~1'])
-    if base_sha:
-        metadata['base_sha'] = base_sha
+    parent_sha = run_git_command(['rev-parse', f'{commit_sha}~1'])
+    if parent_sha:
+        metadata['parent_sha'] = parent_sha
 
     # Get commit message (full message body)
     msg = run_git_command(['log', '-1', '--pretty=format:%B', commit_sha])

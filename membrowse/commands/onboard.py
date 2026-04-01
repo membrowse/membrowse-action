@@ -514,7 +514,7 @@ def _build_and_generate_report(commit, args, linker_variables):
     return report, False
 
 
-def _build_commit_info(commit, current_branch, repo_name, base_sha_override=_NO_OVERRIDE):
+def _build_commit_info(commit, current_branch, repo_name, parent_sha_override=_NO_OVERRIDE):
     """
     Build commit_info dict for upload from a commit hash.
 
@@ -522,7 +522,7 @@ def _build_commit_info(commit, current_branch, repo_name, base_sha_override=_NO_
         commit: Commit hash
         current_branch: Branch name
         repo_name: Repository name
-        base_sha_override: If provided (including None), use this instead of the real git parent
+        parent_sha_override: If provided (including None), use this instead of the real git parent
 
     Returns:
         Dict with Git metadata for upload_report
@@ -530,9 +530,9 @@ def _build_commit_info(commit, current_branch, repo_name, base_sha_override=_NO_
     metadata = get_commit_metadata(commit)
     return {
         'commit_hash': metadata['commit_sha'],
-        'base_commit_hash': (base_sha_override
-                              if base_sha_override is not _NO_OVERRIDE
-                              else metadata.get('base_sha')),
+        'base_commit_hash': (parent_sha_override
+                              if parent_sha_override is not _NO_OVERRIDE
+                              else metadata.get('parent_sha')),
         'branch_name': current_branch,
         'repository': repo_name,
         'commit_message': metadata['commit_message'],
@@ -553,7 +553,7 @@ def _create_client(args, api_url=None):
 
 def _upload_commit(  # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals
     report, commit, args, current_branch, repo_name,
-    build_failed=False, identical=False, api_url=None, base_sha_override=_NO_OVERRIDE,
+    build_failed=False, identical=False, api_url=None, parent_sha_override=_NO_OVERRIDE,
     client=None
 ):
     """
@@ -570,13 +570,13 @@ def _upload_commit(  # pylint: disable=too-many-arguments,too-many-positional-ar
         build_failed: Whether the build failed
         identical: Whether to mark as identical
         api_url: Resolved API URL (overrides args.api_url if provided)
-        base_sha_override: If provided, use this as the parent commit hash
+        parent_sha_override: If provided, use this as the parent commit hash
 
     Returns:
         True if upload succeeded (or dry-run), False otherwise
     """
     commit_info = _build_commit_info(commit, current_branch, repo_name,
-                                     base_sha_override=base_sha_override)
+                                     parent_sha_override=parent_sha_override)
     log_prefix = f"({commit})"
     resolved_api_url = api_url if api_url is not None else args.api_url
 
@@ -1167,7 +1167,7 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
 
         if _upload_commit(report, commit, args, current_branch, repo_name,
                           build_failed=build_failed, api_url=api_url,
-                          base_sha_override=faked_parent, client=client):
+                          parent_sha_override=faked_parent, client=client):
             if build_failed:
                 logger.debug(
                     "%s: Empty report uploaded successfully for failed build (commit %d of %d)",

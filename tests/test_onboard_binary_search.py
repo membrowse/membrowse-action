@@ -74,7 +74,7 @@ def _make_commit_metadata(sha):
     """Create commit metadata for a given SHA."""
     return {
         'commit_sha': sha,
-        'base_sha': sha + '_parent',
+        'parent_sha': sha + '_parent',
         'commit_message': f'commit {sha[:8]}',
         'commit_timestamp': '2026-01-01T00:00:00Z',
         'author_name': 'Test',

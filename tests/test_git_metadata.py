@@ -125,8 +125,7 @@ class TestPullRequestMetadata:
                     # Verify the commit_hash is the PR head SHA, not the merge commit SHA
                     assert metadata['commit_hash'] == 'real-commit-sha-123'
                     assert metadata['commit_message'] == 'added very cool buffer'
-                    # For PR events: parent is HEAD~1, base is target branch tip
-                    assert metadata['parent_commit_hash'] == 'parent-commit-sha-999'
+                    # For PR events: base is target branch tip
                     assert metadata['base_commit_hash'] == 'base-commit-sha-456'
                     assert metadata['branch_name'] == 'feature-branch'
                     assert metadata['pr_number'] == '456'
@@ -184,8 +183,7 @@ class TestPullRequestMetadata:
                     # Verify push events use GITHUB_SHA
                     assert metadata['commit_hash'] == 'push-commit-sha'
                     assert metadata['commit_message'] == 'Push commit message'
-                    # For push events: both parent and base should be HEAD~1
-                    assert metadata['parent_commit_hash'] == 'actual-parent-sha-777'
+                    # For push events: base is HEAD~1
                     assert metadata['base_commit_hash'] == 'actual-parent-sha-777'
         finally:
             # Clean up temp file
