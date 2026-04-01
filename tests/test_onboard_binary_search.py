@@ -153,7 +153,7 @@ class TestBinarySearchRange:
             commits, 0, 1,
             (('FLASH', 100),), (('FLASH', 100),),
             {0, 1}, set(), {}, commit_results,
-            _make_args(), {}, lambda: flush_called.append(True))
+            _make_args(), {}, lambda: flush_called.append(True) or True)
         assert result is True
         assert not commit_results
         assert not flush_called
@@ -170,7 +170,7 @@ class TestBinarySearchRange:
             commits, 0, 4,
             fp, fp,
             {0, 4}, set(), {}, commit_results,
-            _make_args(), {}, lambda: flush_called.append(True))
+            _make_args(), {}, lambda: flush_called.append(True) or True)
 
         assert result is True
         # c1, c2, c3 should be in commit_results as identical
@@ -197,7 +197,7 @@ class TestBinarySearchRange:
             commits, 0, 4,
             fp_left, fp_right,
             {0, 4}, set(), {}, commit_results,
-            _make_args(), {}, lambda: None)
+            _make_args(), {}, lambda: True)
 
         # Midpoint (index 2) should have been built
         mock_build.assert_called()
@@ -225,7 +225,7 @@ class TestBinarySearchRange:
             commits, 0, 4,
             (('FLASH', 1000),), (('FLASH', 2000),),
             {0, 4}, failed_indices, {}, commit_results,
-            _make_args(), {}, lambda: None)
+            _make_args(), {}, lambda: True)
 
         assert result is True
         # All intermediate commits should have results (c1, c2, c3)

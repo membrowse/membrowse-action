@@ -689,8 +689,7 @@ def _binary_search_range(  # pylint: disable=too-many-arguments,too-many-positio
         _mark_identical_range(
             commits, left_idx, right_idx, left_fingerprint,
             built_indices, commit_results, args.elf_path)
-        flush_fn()
-        return True
+        return flush_fn()
 
     # Fingerprints differ - binary search for the change point
     mid_idx = (left_idx + right_idx) // 2
@@ -719,7 +718,8 @@ def _binary_search_range(  # pylint: disable=too-many-arguments,too-many-positio
         commit_results[mid_idx] = (mid_report, build_failed, False)
         built_indices.add(mid_idx)
         reports_cache[mid_idx] = mid_report
-        flush_fn()
+        if not flush_fn():
+            return False
 
         if build_failed:
             failed_indices.add(mid_idx)
@@ -740,6 +740,19 @@ def _binary_search_range(  # pylint: disable=too-many-arguments,too-many-positio
         mid_fingerprint, right_fingerprint,
         built_indices, failed_indices, reports_cache, commit_results,
         args, linker_variables, flush_fn)
+
+
+def _build_endpoint_safe(commit, args, linker_variables, label=""):
+    """Build and generate report for a single commit, logging errors.
+
+    Returns:
+        (report, build_failed) on success, or None on fatal error.
+    """
+    try:
+        return _build_and_generate_report(commit, args, linker_variables)
+    except (RuntimeError, ValueError) as e:
+        logger.error("Failed to %s commit %s: %s", label, commit[:8], e)
+        return None
 
 
 def _run_binary_search_onboard(  # pylint: disable=too-many-locals,too-many-statements
@@ -776,7 +789,11 @@ def _run_binary_search_onboard(  # pylint: disable=too-many-locals,too-many-stat
     flush_state = {'next_to_upload': 0, 'prev_fingerprint': None, 'prev_build_failed': False}
 
     def flush_fn():
-        """Upload consecutive ready commits starting from next_to_upload."""
+        """Upload consecutive ready commits starting from next_to_upload.
+
+        Returns:
+            True if all uploads succeeded, False if any upload failed.
+        """
         while flush_state['next_to_upload'] in commit_results:
             idx = flush_state['next_to_upload']
             report, build_failed, identical = commit_results.pop(idx)
@@ -800,6 +817,8 @@ def _run_binary_search_onboard(  # pylint: disable=too-many-locals,too-many-stat
                 counters['successful'] += 1
             else:
                 counters['failed'] += 1
+                flush_state['next_to_upload'] += 1
+                return False
 
             # Update fingerprint for next comparison.
             # Reset after failed builds to prevent stale dedup.
@@ -815,70 +834,110 @@ def _run_binary_search_onboard(  # pylint: disable=too-many-locals,too-many-stat
             flush_state['prev_build_failed'] = build_failed
 
             flush_state['next_to_upload'] += 1
+        return True
 
     logger.info("Binary search mode: %d commits to analyze", total)
 
+    state = {
+        'counters': counters,
+        'built_indices': built_indices,
+        'failed_indices': failed_indices,
+        'reports_cache': reports_cache,
+        'commit_results': commit_results,
+    }
+    _binary_search_build_and_flush(commits, args, linker_variables, state, flush_fn)
+
+    return counters['successful'], counters['failed']
+
+
+def _register_endpoint(state, index, report, build_failed):
+    """Register a built endpoint in the shared state caches."""
+    state['commit_results'][index] = (report, build_failed, False)
+    state['built_indices'].add(index)
+    if build_failed:
+        state['failed_indices'].add(index)
+    state['reports_cache'][index] = report
+
+
+def _binary_search_build_and_flush(commits, args, linker_variables, state, flush_fn):
+    """Build endpoints and run binary search, flushing results as they become ready."""
+    total = len(commits)
+    counters = state['counters']
+    commit_results = state['commit_results']
+
     # Edge case: single commit
     if total == 1:
-        commit = commits[0]
-        logger.debug("Single commit to process: %s", commit[:8])
-        try:
-            report, build_failed = _build_and_generate_report(
-                commit, args, linker_variables)
-        except (RuntimeError, ValueError) as e:
-            logger.error("Failed to process commit %s: %s", commit[:8], e)
+        logger.debug("Single commit to process: %s", commits[0][:8])
+        result = _build_endpoint_safe(commits[0], args, linker_variables, "process")
+        if result is None:
             counters['failed'] += 1
-            return counters['successful'], counters['failed']
-
-        commit_results[0] = (report, build_failed, False)
+            return
+        commit_results[0] = (result[0], result[1], False)
         flush_fn()
-        return counters['successful'], counters['failed']
+        return
 
     # Build oldest endpoint
     logger.debug("Building endpoint 1/%d: %s (oldest)", total, commits[0][:8])
-    try:
-        first_report, first_failed = _build_and_generate_report(
-            commits[0], args, linker_variables)
-    except (RuntimeError, ValueError) as e:
-        logger.error("Failed to build oldest commit %s: %s",
-                     commits[0][:8], e)
+    result = _build_endpoint_safe(commits[0], args, linker_variables, "build oldest")
+    if result is None:
         counters['failed'] += 1
-        return counters['successful'], counters['failed']
+        return
 
-    commit_results[0] = (first_report, first_failed, False)
-    built_indices.add(0)
-    if first_failed:
-        failed_indices.add(0)
-    reports_cache[0] = first_report
-    flush_fn()
+    first_report, first_failed = result
+    _register_endpoint(state, 0, first_report, first_failed)
+    if not flush_fn():
+        return
 
     # Build newest endpoint
     logger.debug("Building endpoint %d/%d: %s (newest)",
                   total, total, commits[-1][:8])
-    try:
-        last_report, last_failed = _build_and_generate_report(
-            commits[-1], args, linker_variables)
-    except (RuntimeError, ValueError) as e:
-        logger.error("Failed to build newest commit %s: %s",
-                     commits[-1][:8], e)
+    result = _build_endpoint_safe(commits[-1], args, linker_variables, "build newest")
+    if result is None:
         counters['failed'] += 1
-        return counters['successful'], counters['failed']
+        return
 
-    commit_results[total - 1] = (last_report, last_failed, False)
-    built_indices.add(total - 1)
-    if last_failed:
-        failed_indices.add(total - 1)
-    reports_cache[total - 1] = last_report
+    last_report, last_failed = result
+    _register_endpoint(state, total - 1, last_report, last_failed)
 
-    # Edge case: only two commits
+    # Edge case: only two commits — just flush
     if total == 2:
         flush_fn()
-        return counters['successful'], counters['failed']
+        return
 
     # Extract fingerprints (None for failed builds)
     first_fp = None if first_failed else _extract_fingerprint(first_report)
     last_fp = None if last_failed else _extract_fingerprint(last_report)
 
+    state['first_fp'] = first_fp
+    state['last_fp'] = last_fp
+
+    _run_binary_search_between_endpoints(
+        commits, args, linker_variables, state, flush_fn)
+
+
+def _run_binary_search_between_endpoints(commits, args, linker_variables, state, flush_fn):
+    """Run binary search between already-built endpoints and flush results."""
+    total = len(commits)
+    first_fp = state['first_fp']
+    last_fp = state['last_fp']
+
+    _log_fingerprint_comparison(first_fp, last_fp, total)
+
+    if not _binary_search_range(
+            commits, 0, total - 1,
+            first_fp, last_fp,
+            state['built_indices'], state['failed_indices'],
+            state['reports_cache'], state['commit_results'],
+            args, linker_variables, flush_fn):
+        logger.error("Binary search aborted due to upload failure")
+        return
+
+    # Final flush to ensure HEAD (newest) is uploaded last
+    flush_fn()
+
+
+def _log_fingerprint_comparison(first_fp, last_fp, total):
+    """Log the result of comparing endpoint fingerprints."""
     if first_fp == last_fp:
         if first_fp is None:
             logger.debug(
@@ -890,18 +949,6 @@ def _run_binary_search_onboard(  # pylint: disable=too-many-locals,too-many-stat
                 "intermediate commits as identical", total - 2)
     else:
         logger.debug("Endpoints differ - searching for changes via binary search")
-
-    if not _binary_search_range(
-            commits, 0, total - 1,
-            first_fp, last_fp,
-            built_indices, failed_indices, reports_cache, commit_results,
-            args, linker_variables, flush_fn):
-        logger.error("Binary search aborted due to upload failure")
-
-    # Final flush to ensure HEAD (newest) is uploaded last
-    flush_fn()
-
-    return counters['successful'], counters['failed']
 
 
 def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-locals,too-many-statements,too-many-branches,too-many-return-statements
