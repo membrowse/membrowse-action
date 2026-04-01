@@ -689,8 +689,7 @@ def _binary_search_range(  # pylint: disable=too-many-arguments,too-many-positio
         _mark_identical_range(
             commits, left_idx, right_idx, left_fingerprint,
             built_indices, commit_results, args.elf_path)
-        flush_fn()
-        return True
+        return flush_fn()
 
     # Fingerprints differ - binary search for the change point
     mid_idx = (left_idx + right_idx) // 2
@@ -719,7 +718,8 @@ def _binary_search_range(  # pylint: disable=too-many-arguments,too-many-positio
         commit_results[mid_idx] = (mid_report, build_failed, False)
         built_indices.add(mid_idx)
         reports_cache[mid_idx] = mid_report
-        flush_fn()
+        if not flush_fn():
+            return False
 
         if build_failed:
             failed_indices.add(mid_idx)
@@ -776,7 +776,11 @@ def _run_binary_search_onboard(  # pylint: disable=too-many-locals,too-many-stat
     flush_state = {'next_to_upload': 0, 'prev_fingerprint': None, 'prev_build_failed': False}
 
     def flush_fn():
-        """Upload consecutive ready commits starting from next_to_upload."""
+        """Upload consecutive ready commits starting from next_to_upload.
+
+        Returns:
+            True if all uploads succeeded, False if any upload failed.
+        """
         while flush_state['next_to_upload'] in commit_results:
             idx = flush_state['next_to_upload']
             report, build_failed, identical = commit_results.pop(idx)
@@ -800,6 +804,8 @@ def _run_binary_search_onboard(  # pylint: disable=too-many-locals,too-many-stat
                 counters['successful'] += 1
             else:
                 counters['failed'] += 1
+                flush_state['next_to_upload'] += 1
+                return False
 
             # Update fingerprint for next comparison.
             # Reset after failed builds to prevent stale dedup.
@@ -815,6 +821,7 @@ def _run_binary_search_onboard(  # pylint: disable=too-many-locals,too-many-stat
             flush_state['prev_build_failed'] = build_failed
 
             flush_state['next_to_upload'] += 1
+        return True
 
     logger.info("Binary search mode: %d commits to analyze", total)
 
@@ -850,7 +857,8 @@ def _run_binary_search_onboard(  # pylint: disable=too-many-locals,too-many-stat
     if first_failed:
         failed_indices.add(0)
     reports_cache[0] = first_report
-    flush_fn()
+    if not flush_fn():
+        return counters['successful'], counters['failed']
 
     # Build newest endpoint
     logger.debug("Building endpoint %d/%d: %s (newest)",
@@ -897,6 +905,7 @@ def _run_binary_search_onboard(  # pylint: disable=too-many-locals,too-many-stat
             built_indices, failed_indices, reports_cache, commit_results,
             args, linker_variables, flush_fn):
         logger.error("Binary search aborted due to upload failure")
+        return counters['successful'], counters['failed']
 
     # Final flush to ensure HEAD (newest) is uploaded last
     flush_fn()
