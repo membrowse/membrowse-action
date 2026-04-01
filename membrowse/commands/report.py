@@ -367,7 +367,7 @@ examples:
     )
     git_group.add_argument('--commit-sha', help='Git commit SHA')
     git_group.add_argument('--base-sha', '--parent-sha', dest='base_sha',
-                           help='Git base/parent commit SHA (for comparison)'
+                           help='Git base/parent commit SHA (for comparison). '
                                 'Use "none" or "" to explicitly set no parent.')
     git_group.add_argument('--branch-name', help='Git branch name')
     git_group.add_argument('--repo-name', help='Repository name')
@@ -933,9 +933,9 @@ def run_report(args: argparse.Namespace) -> int:
 
     # Handle --parent-sha "none" or "" as explicit null
     explicit_no_parent = False
-    parent_sha_val = getattr(args, 'parent_sha', None)
+    parent_sha_val = getattr(args, 'base_sha', None)
     if parent_sha_val is not None and parent_sha_val.strip().lower() in ('none', ''):
-        args.parent_sha = None
+        args.base_sha = None
         explicit_no_parent = True
 
     commit_info = {
