@@ -213,9 +213,9 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
 
         Note:
             In DWARF 4+, high_pc can be either:
-            - An absolute address (DWARF 2/3)
-            - An offset from low_pc (DWARF 4+) when value < low_pc
-            This is detected by checking if high_pc < low_pc.
+            - An absolute address (DW_FORM_addr)
+            - An offset from low_pc (DW_FORM_data*)
+            This is detected by checking the form attribute.
         """
         try:
             top_die = cu.get_top_DIE()
@@ -237,9 +237,9 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
             high_pc_val = high_pc_attr.value
 
             # Handle DWARF 4+ where high_pc can be an offset from low_pc
-            # This is indicated when high_pc value is less than low_pc
-            if isinstance(high_pc_val, int) and high_pc_val < low_pc:
-                high_pc = low_pc + high_pc_val
+            # DW_FORM_data* means it's a length, DW_FORM_addr means absolute
+            if hasattr(high_pc_attr, 'form') and high_pc_attr.form.startswith('DW_FORM_data'):
+                high_pc = low_pc + int(high_pc_val)
             else:
                 high_pc = int(high_pc_val)
 

@@ -957,7 +957,7 @@ def run_report(args: argparse.Namespace) -> int:
 
     # Explicit --parent-sha none: set to JSON null so the API sees "no parent"
     if explicit_no_parent:
-        commit_info['parent_commit_hash'] = None
+        commit_info['base_commit_hash'] = None
 
     # Upload report and handle alerts
     return _handle_upload_and_alerts(report, args, commit_info)
