@@ -463,9 +463,15 @@ def _build_and_generate_report(commit, args, linker_variables):
     if result.returncode != 0:
         raise RuntimeError(f"Failed to checkout commit {commit}")
 
+    # Update submodules to match the checked-out commit
+    subprocess.run(
+        ['git', 'submodule', 'update', '--init', '--recursive', '--quiet'],
+        capture_output=True, check=False
+    )
+
     # Clean previous build artifacts
     logger.debug("Cleaning previous build artifacts...")
-    subprocess.run(['git', 'clean', '-fd'],
+    subprocess.run(['git', 'clean', '-fdx'],
                    capture_output=True, check=False)
 
     # Build the firmware
@@ -1115,95 +1121,21 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
 
             continue  # Skip to next commit - no checkout/build needed
 
-        # Checkout the commit
-        logger.debug("%s: Checking out commit...", log_prefix)
-        result = subprocess.run(
-            ['git', 'checkout', commit, '--quiet'],
-            capture_output=True,
-            check=False
-        )
-        if result.returncode != 0:
+        try:
+            report, build_failed = _build_and_generate_report(
+                commit, args, linker_variables)
+        except RuntimeError:
             logger.error("%s: Failed to checkout commit — stopping onboard", log_prefix)
             failed_uploads += 1
             return finalize_and_return(1)
-
-        # Update submodules to match the checked-out commit
-        logger.debug("%s: Updating submodules...", log_prefix)
-        subprocess.run(
-            ['git', 'submodule', 'update', '--init', '--recursive', '--quiet'],
-            capture_output=True, check=False
-        )
-
-        # Clean previous build artifacts
-        logger.debug("Cleaning previous build artifacts...")
-        subprocess.run(['git', 'clean', '-fd'],
-                       capture_output=True, check=False)
-
-        # Build the firmware
-        logger.debug(
-            "%s: Building firmware with: %s",
-            log_prefix,
-            args.build_script)
-        result = subprocess.run(
-            args.build_script,
-            capture_output=True,
-            text=True,
-            check=False,
-            shell=True
-        )
-
-        # Handle build failures vs missing files after successful build
-        build_failed = False
-
-        # Case 1: Build failed (non-zero exit code)
-        if result.returncode != 0:
-            report = _handle_build_failure(
-                result, log_prefix, args.elf_path)
-            build_failed = True
-
-        # Case 2: Build returned success but ELF missing - treat as failed build
-        elif not os.path.exists(args.elf_path):
-            logger.warning(
-                "%s: Build script succeeded (exit 0) but ELF file not found at %s - "
-                "treating as failed build",
-                log_prefix, args.elf_path)
-
-            report = _handle_build_failure(
-                result, log_prefix, args.elf_path)
-            build_failed = True
-
-        # Case 3: Build succeeded and files exist - generate report
-        else:
-            logger.debug("%s: Generating memory report (commit %d of %d)...",
-                          log_prefix, commit_count, total_commits)
-            try:
-                report = generate_report(
-                    elf_path=args.elf_path,
-                    ld_scripts=args.ld_scripts,
-                    skip_line_program=False,
-                    linker_variables=linker_variables
-                )
-            except ValueError as e:
-                logger.error(
-                    "%s: Failed to generate memory report (commit %d of %d) - configuration error",
-                    log_prefix, commit_count, total_commits)
-                logger.error("%s: Error: %s", log_prefix, e)
-                logger.error("%s: Stopping onboard workflow...", log_prefix)
-                failed_uploads += 1
-                return finalize_and_return(1)
-
-            # Case 3b: Build succeeded but report has empty memory_layout
-            # (e.g. linker script parsing failed for this commit).
-            # Treat as a build failure so the API accepts it instead of
-            # rejecting with 400 "memory_layout is required and cannot be empty".
-            if not report.get('memory_layout'):
-                logger.error(
-                    "%s: Build succeeded but memory_layout is empty "
-                    "(linker script parsing may have failed) - "
-                    "treating as failed build",
-                    log_prefix)
-                report = _create_empty_report(args.elf_path)
-                build_failed = True
+        except ValueError as e:
+            logger.error(
+                "%s: Failed to generate memory report (commit %d of %d) - configuration error",
+                log_prefix, commit_count, total_commits)
+            logger.error("%s: Error: %s", log_prefix, e)
+            logger.error("%s: Stopping onboard workflow...", log_prefix)
+            failed_uploads += 1
+            return finalize_and_return(1)
 
         # Build commit_info in metadata['git'] format (map old keys to new)
         # When using --commits, fake the parent chain so commits appear connected
