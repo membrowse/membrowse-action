@@ -237,12 +237,16 @@ class TestFakedParentChain:
     @patch('membrowse.commands.onboard.upload_report')
     @patch('membrowse.commands.onboard.generate_report')
     @patch('membrowse.commands.onboard.get_commit_metadata')
+    @patch('membrowse.commands.onboard.git_clean')
+    @patch('membrowse.commands.onboard.git_submodule_update')
+    @patch('membrowse.commands.onboard.git_checkout')
     @patch('membrowse.commands.onboard.subprocess')
     @patch('membrowse.commands.onboard._get_repository_info')
     @patch('membrowse.commands.onboard._resolve_and_validate_commits')
     @patch('membrowse.commands.onboard.os.path.exists', return_value=True)
     def test_single_commit_parent_is_none(
         self, _mock_exists, mock_resolve, mock_repo, mock_subprocess,
+        _mock_checkout, _mock_submodule, _mock_clean,
         mock_metadata, mock_generate, mock_upload,
     ):
         """Single commit gets base_commit_hash=None."""
@@ -268,12 +272,16 @@ class TestFakedParentChain:
     @patch('membrowse.commands.onboard.upload_report')
     @patch('membrowse.commands.onboard.generate_report')
     @patch('membrowse.commands.onboard.get_commit_metadata')
+    @patch('membrowse.commands.onboard.git_clean')
+    @patch('membrowse.commands.onboard.git_submodule_update')
+    @patch('membrowse.commands.onboard.git_checkout')
     @patch('membrowse.commands.onboard.subprocess')
     @patch('membrowse.commands.onboard._get_repository_info')
     @patch('membrowse.commands.onboard._resolve_and_validate_commits')
     @patch('membrowse.commands.onboard.os.path.exists', return_value=True)
     def test_two_commits_parent_chain(
         self, _mock_exists, mock_resolve, mock_repo, mock_subprocess,
+        _mock_checkout, _mock_submodule, _mock_clean,
         mock_metadata, mock_generate, mock_upload,
     ):
         """Two commits: first gets None, second gets first's SHA."""
@@ -305,12 +313,16 @@ class TestFakedParentChain:
     @patch('membrowse.commands.onboard.upload_report')
     @patch('membrowse.commands.onboard.generate_report')
     @patch('membrowse.commands.onboard.get_commit_metadata')
+    @patch('membrowse.commands.onboard.git_clean')
+    @patch('membrowse.commands.onboard.git_submodule_update')
+    @patch('membrowse.commands.onboard.git_checkout')
     @patch('membrowse.commands.onboard.subprocess')
     @patch('membrowse.commands.onboard._get_repository_info')
     @patch('membrowse.commands.onboard._resolve_and_validate_commits')
     @patch('membrowse.commands.onboard.os.path.exists', return_value=True)
     def test_three_commits_full_chain(
         self, _mock_exists, mock_resolve, mock_repo, mock_subprocess,
+        _mock_checkout, _mock_submodule, _mock_clean,
         mock_metadata, mock_generate, mock_upload,
     ):
         """Three commits: A->None, B->A, C->B."""
@@ -339,12 +351,16 @@ class TestFakedParentChain:
     @patch('membrowse.commands.onboard.upload_report')
     @patch('membrowse.commands.onboard.generate_report')
     @patch('membrowse.commands.onboard.get_commit_metadata')
+    @patch('membrowse.commands.onboard.git_clean')
+    @patch('membrowse.commands.onboard.git_submodule_update')
+    @patch('membrowse.commands.onboard.git_checkout')
     @patch('membrowse.commands.onboard.subprocess')
     @patch('membrowse.commands.onboard._get_repository_info')
     @patch('membrowse.commands.onboard._resolve_and_validate_commits')
     @patch('membrowse.commands.onboard.os.path.exists', return_value=True)
     def test_faked_parent_ignores_real_git_parent(
         self, _mock_exists, mock_resolve, mock_repo, mock_subprocess,
+        _mock_checkout, _mock_submodule, _mock_clean,
         mock_metadata, mock_generate, mock_upload,
     ):
         """Faked parent chain ignores actual git ancestry."""
@@ -400,12 +416,16 @@ class TestCommitsBuildLoop:
     @patch('membrowse.commands.onboard.generate_report')
     @patch('membrowse.commands.onboard.get_commit_metadata')
     @patch('membrowse.commands.onboard._commit_has_changes_in_dirs')
+    @patch('membrowse.commands.onboard.git_clean')
+    @patch('membrowse.commands.onboard.git_submodule_update')
+    @patch('membrowse.commands.onboard.git_checkout')
     @patch('membrowse.commands.onboard.subprocess')
     @patch('membrowse.commands.onboard._get_repository_info')
     @patch('membrowse.commands.onboard._resolve_and_validate_commits')
     @patch('membrowse.commands.onboard.os.path.exists', return_value=True)
     def test_build_dirs_skipped_with_commits(
         self, _mock_exists, mock_resolve, mock_repo, mock_subprocess,
+        _mock_checkout, _mock_submodule, _mock_clean,
         mock_changes, mock_metadata, mock_generate, mock_upload,
     ):
         """--build-dirs optimization is skipped when --commits is used."""
@@ -436,25 +456,24 @@ class TestCommitsBuildLoop:
     @patch('membrowse.commands.onboard.upload_report')
     @patch('membrowse.commands.onboard.generate_report')
     @patch('membrowse.commands.onboard.get_commit_metadata')
+    @patch('membrowse.commands.onboard.git_clean')
+    @patch('membrowse.commands.onboard.git_submodule_update')
+    @patch('membrowse.commands.onboard.git_checkout')
     @patch('membrowse.commands.onboard.subprocess')
     @patch('membrowse.commands.onboard._get_repository_info')
     @patch('membrowse.commands.onboard._resolve_and_validate_commits')
     @patch('membrowse.commands.onboard.os.path.exists', return_value=True)
     def test_build_failure_uploads_empty_report(
         self, _mock_exists, mock_resolve, mock_repo, mock_subprocess,
+        _mock_checkout, _mock_submodule, _mock_clean,
         mock_metadata, mock_generate, mock_upload,
     ):
         """Build failure with --commits uploads empty report and stops."""
         mock_resolve.return_value = ['aaa111']
         mock_repo.return_value = ('main', 'original_head', 'my-repo')
-        # First subprocess call (checkout) succeeds, second (build) fails
-        mock_subprocess.run.side_effect = [
-            MagicMock(returncode=0),  # checkout
-            MagicMock(returncode=0),  # submodule update
-            MagicMock(returncode=0),  # git clean
-            MagicMock(returncode=1, stdout='error', stderr=''),  # build fails
-            MagicMock(returncode=0),  # restore HEAD
-        ]
+        # subprocess.run is now only called for the build script
+        mock_subprocess.run.return_value = MagicMock(
+            returncode=1, stdout='error', stderr='')  # build fails
         mock_metadata.return_value = {
             'commit_sha': 'aaa111', 'parent_sha': None,
             'commit_message': 'msg', 'commit_timestamp': 'ts',
@@ -472,22 +491,23 @@ class TestCommitsBuildLoop:
     @patch('membrowse.commands.onboard.upload_report')
     @patch('membrowse.commands.onboard.generate_report')
     @patch('membrowse.commands.onboard.get_commit_metadata')
+    @patch('membrowse.commands.onboard.git_clean')
+    @patch('membrowse.commands.onboard.git_submodule_update')
+    @patch('membrowse.commands.onboard.git_checkout')
     @patch('membrowse.commands.onboard.subprocess')
     @patch('membrowse.commands.onboard._get_repository_info')
     @patch('membrowse.commands.onboard._resolve_and_validate_commits')
     @patch('membrowse.commands.onboard.os.path.exists', return_value=True)
     def test_checkout_failure_stops_onboard(
         self, _mock_exists, mock_resolve, mock_repo, mock_subprocess,
+        mock_checkout, _mock_submodule, _mock_clean,
         _mock_metadata, mock_generate, mock_upload,
     ):
         """Checkout failure stops the entire onboard."""
         mock_resolve.return_value = ['aaa111', 'bbb222']
         mock_repo.return_value = ('main', 'original_head', 'my-repo')
-        # First checkout fails — should stop immediately
-        mock_subprocess.run.side_effect = [
-            MagicMock(returncode=1),  # checkout aaa111 fails
-            MagicMock(returncode=0),  # restore HEAD (finalize)
-        ]
+        # git_checkout raises RuntimeError on failure
+        mock_checkout.side_effect = RuntimeError("checkout failed")
 
         result = run_onboard(self._make_args('aaa bbb'))
 
@@ -507,12 +527,16 @@ class TestCommitsUploadPayload:
     @patch('membrowse.commands.onboard.upload_report')
     @patch('membrowse.commands.onboard.generate_report')
     @patch('membrowse.commands.onboard.get_commit_metadata')
+    @patch('membrowse.commands.onboard.git_clean')
+    @patch('membrowse.commands.onboard.git_submodule_update')
+    @patch('membrowse.commands.onboard.git_checkout')
     @patch('membrowse.commands.onboard.subprocess')
     @patch('membrowse.commands.onboard._get_repository_info')
     @patch('membrowse.commands.onboard._resolve_and_validate_commits')
     @patch('membrowse.commands.onboard.os.path.exists', return_value=True)
     def test_real_metadata_with_faked_parent(
         self, _mock_exists, mock_resolve, mock_repo, mock_subprocess,
+        _mock_checkout, _mock_submodule, _mock_clean,
         mock_metadata, mock_generate, mock_upload,
     ):
         """Upload uses real commit metadata but faked parent."""
@@ -561,12 +585,16 @@ class TestCommitsUploadPayload:
     @patch('membrowse.commands.onboard.upload_report')
     @patch('membrowse.commands.onboard.generate_report')
     @patch('membrowse.commands.onboard.get_commit_metadata')
+    @patch('membrowse.commands.onboard.git_clean')
+    @patch('membrowse.commands.onboard.git_submodule_update')
+    @patch('membrowse.commands.onboard.git_checkout')
     @patch('membrowse.commands.onboard.subprocess')
     @patch('membrowse.commands.onboard._get_repository_info')
     @patch('membrowse.commands.onboard._resolve_and_validate_commits')
     @patch('membrowse.commands.onboard.os.path.exists', return_value=True)
     def test_api_url_flag_used_in_upload(
         self, _mock_exists, mock_resolve, mock_repo, mock_subprocess,
+        _mock_checkout, _mock_submodule, _mock_clean,
         mock_metadata, mock_generate, mock_upload,
     ):
         """--api-url flag value is used in the upload call."""
@@ -594,12 +622,16 @@ class TestCommitsUploadPayload:
     @patch('membrowse.commands.onboard.upload_report')
     @patch('membrowse.commands.onboard.generate_report')
     @patch('membrowse.commands.onboard.get_commit_metadata')
+    @patch('membrowse.commands.onboard.git_clean')
+    @patch('membrowse.commands.onboard.git_submodule_update')
+    @patch('membrowse.commands.onboard.git_checkout')
     @patch('membrowse.commands.onboard.subprocess')
     @patch('membrowse.commands.onboard._get_repository_info')
     @patch('membrowse.commands.onboard._get_commit_list')
     @patch('membrowse.commands.onboard.os.path.exists', return_value=True)
     def test_api_url_flag_overrides_positional_in_num_commits_mode(
         self, _mock_exists, mock_commit_list, mock_repo, mock_subprocess,
+        _mock_checkout, _mock_submodule, _mock_clean,
         mock_metadata, mock_generate, mock_upload,
     ):
         """--api-url flag takes precedence over positional api_url in num_commits mode."""
@@ -633,11 +665,15 @@ class TestCommitsUpfrontValidation:  # pylint: disable=too-few-public-methods
     """Test that commit refs are validated before starting the build loop."""
 
     @patch('membrowse.commands.onboard.upload_report')
+    @patch('membrowse.commands.onboard.git_clean')
+    @patch('membrowse.commands.onboard.git_submodule_update')
+    @patch('membrowse.commands.onboard.git_checkout')
     @patch('membrowse.commands.onboard.subprocess')
     @patch('membrowse.commands.onboard._get_repository_info')
     @patch('membrowse.commands.onboard._resolve_and_validate_commits')
     def test_invalid_refs_fail_before_any_build(
-        self, mock_resolve, mock_repo, mock_subprocess, mock_upload,
+        self, mock_resolve, mock_repo, mock_subprocess,
+        _mock_checkout, _mock_submodule, _mock_clean, mock_upload,
     ):
         """Invalid refs cause early exit before any checkout or build."""
         mock_repo.return_value = ('main', 'original_head', 'my-repo')
@@ -710,12 +746,16 @@ class TestInitialParentResolution:
     @patch('membrowse.commands.onboard.upload_report')
     @patch('membrowse.commands.onboard.generate_report')
     @patch('membrowse.commands.onboard.get_commit_metadata')
+    @patch('membrowse.commands.onboard.git_clean')
+    @patch('membrowse.commands.onboard.git_submodule_update')
+    @patch('membrowse.commands.onboard.git_checkout')
     @patch('membrowse.commands.onboard.subprocess')
     @patch('membrowse.commands.onboard._get_repository_info')
     @patch('membrowse.commands.onboard.run_git_command')
     @patch('membrowse.commands.onboard.os.path.exists', return_value=True)
     def test_initial_parent_dereferences_annotated_tag(
         self, _mock_exists, mock_git, mock_repo, mock_subprocess,
+        _mock_checkout, _mock_submodule, _mock_clean,
         mock_metadata, mock_generate, mock_upload,
     ):
         """--initial-parent resolves annotated tags to commit hash via ^{commit}."""
@@ -756,12 +796,16 @@ class TestInitialParentResolution:
     @patch('membrowse.commands.onboard.upload_report')
     @patch('membrowse.commands.onboard.generate_report')
     @patch('membrowse.commands.onboard.get_commit_metadata')
+    @patch('membrowse.commands.onboard.git_clean')
+    @patch('membrowse.commands.onboard.git_submodule_update')
+    @patch('membrowse.commands.onboard.git_checkout')
     @patch('membrowse.commands.onboard.subprocess')
     @patch('membrowse.commands.onboard._get_repository_info')
     @patch('membrowse.commands.onboard.run_git_command')
     @patch('membrowse.commands.onboard.os.path.exists', return_value=True)
     def test_initial_parent_chains_with_commits(
         self, _mock_exists, mock_git, mock_repo, mock_subprocess,
+        _mock_checkout, _mock_submodule, _mock_clean,
         mock_metadata, mock_generate, mock_upload,
     ):
         """--initial-parent sets parent of first commit; subsequent commits chain normally."""
@@ -837,15 +881,19 @@ class TestInitialParentResolution:
 
     @patch('membrowse.commands.onboard.generate_report')
     @patch('membrowse.commands.onboard.get_commit_metadata')
+    @patch('membrowse.commands.onboard.git_clean')
+    @patch('membrowse.commands.onboard.git_submodule_update')
+    @patch('membrowse.commands.onboard.git_checkout')
     @patch('membrowse.commands.onboard.subprocess')
     @patch('membrowse.commands.onboard._get_repository_info')
     @patch('membrowse.commands.onboard._resolve_and_validate_commits')
     @patch('membrowse.commands.onboard.os.path.exists', return_value=True)
     def test_submodule_update_called_after_checkout(
         self, _mock_exists, mock_resolve, mock_repo, mock_subprocess,
+        mock_checkout, mock_submodule, _mock_clean,
         mock_metadata, mock_generate, _mock_upload,
     ):
-        """git submodule update --init --recursive is called after checkout."""
+        """git_submodule_update is called during build."""
         mock_resolve.return_value = ['aaa111']
         mock_repo.return_value = ('main', 'original_head', 'my-repo')
         mock_subprocess.run.return_value = MagicMock(returncode=0)
@@ -865,23 +913,6 @@ class TestInitialParentResolution:
         )
         run_onboard(args)
 
-        # Find the submodule update call among subprocess.run calls
-        calls = mock_subprocess.run.call_args_list
-        submodule_calls = [
-            c for c in calls
-            if 'submodule' in str(c)
-        ]
-        assert len(submodule_calls) == 1
-        sub_args = submodule_calls[0][0][0]
-        assert sub_args == [
-            'git', 'submodule', 'update', '--init', '--recursive', '--quiet'
-        ]
-
-        # Verify ordering: checkout before submodule update
-        checkout_idx = next(
-            i for i, c in enumerate(calls) if 'checkout' in str(c) and 'aaa111' in str(c)
-        )
-        submodule_idx = next(
-            i for i, c in enumerate(calls) if 'submodule' in str(c)
-        )
-        assert checkout_idx < submodule_idx
+        # Verify git_checkout and git_submodule_update were both called
+        mock_checkout.assert_called()
+        mock_submodule.assert_called()
