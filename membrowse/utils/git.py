@@ -33,6 +33,33 @@ def run_git_command(command: list) -> Optional[str]:
         return None
 
 
+def git_checkout(ref: str) -> None:
+    """Checkout a git ref. Raises RuntimeError on failure."""
+    result = subprocess.run(
+        ['git', 'checkout', ref, '--quiet'],
+        capture_output=True,
+        check=False
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"Failed to checkout {ref}")
+
+
+def git_submodule_update() -> None:
+    """Update submodules to match the current checkout."""
+    subprocess.run(
+        ['git', 'submodule', 'update', '--init', '--recursive', '--quiet'],
+        capture_output=True, check=False
+    )
+
+
+def git_clean() -> None:
+    """Remove all untracked and gitignored files (full clean build)."""
+    subprocess.run(
+        ['git', 'clean', '-fdx'],
+        capture_output=True, check=False
+    )
+
+
 def get_parent_commit() -> Optional[str]:
     """
     Get the parent commit SHA of the current HEAD.

@@ -7,7 +7,10 @@ import argparse
 import logging
 from datetime import datetime
 
-from ..utils.git import run_git_command, get_commit_metadata
+from ..utils.git import (
+    run_git_command, get_commit_metadata,
+    git_checkout, git_submodule_update, git_clean,
+)
 from ..api.client import MemBrowseClient
 from ..auth.strategy import determine_auth_strategy
 from .report import generate_report, upload_report, DEFAULT_API_URL, _parse_linker_definitions
@@ -455,24 +458,14 @@ def _build_and_generate_report(commit, args, linker_variables):
 
     # Checkout the commit
     logger.debug("%s: Checking out commit...", log_prefix)
-    result = subprocess.run(
-        ['git', 'checkout', commit, '--quiet'],
-        capture_output=True,
-        check=False
-    )
-    if result.returncode != 0:
-        raise RuntimeError(f"Failed to checkout commit {commit}")
+    git_checkout(commit)
 
     # Update submodules to match the checked-out commit
-    subprocess.run(
-        ['git', 'submodule', 'update', '--init', '--recursive', '--quiet'],
-        capture_output=True, check=False
-    )
+    git_submodule_update()
 
     # Clean previous build artifacts
     logger.debug("Cleaning previous build artifacts...")
-    subprocess.run(['git', 'clean', '-fdx'],
-                   capture_output=True, check=False)
+    git_clean()
 
     # Build the firmware
     logger.debug("%s: Building firmware with: %s", log_prefix, args.build_script)
@@ -1066,7 +1059,10 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
         # Restore original HEAD
         logger.debug("")
         logger.debug("Restoring original HEAD...")
-        subprocess.run(['git', 'checkout', original_head, '--quiet'], check=False)
+        try:
+            git_checkout(original_head)
+        except RuntimeError:
+            logger.warning("Failed to restore original HEAD")
 
         # Print summary
         elapsed = datetime.now() - start_time
