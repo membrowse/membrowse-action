@@ -205,6 +205,14 @@ examples:
         help='Run the full onboard workflow (checkout, build, analyze) but skip '
              'uploading reports. Logs what would be uploaded for each commit.'
     )
+    parser.add_argument(
+        '--map-file',
+        dest='map_file',
+        default=None,
+        metavar='PATH',
+        help='Path to linker map file for archive/object file attribution '
+             '(supports GNU LD and IAR formats; GNU LD generated with -Wl,-Map=output.map)'
+    )
 
     return parser
 
@@ -495,7 +503,8 @@ def _build_and_generate_report(commit, args, linker_variables):
         elf_path=args.elf_path,
         ld_scripts=args.ld_scripts,
         skip_line_program=False,
-        linker_variables=linker_variables
+        linker_variables=linker_variables,
+        map_file=getattr(args, 'map_file', None)
     )
 
     # Case 3b: Build succeeded but report has empty memory_layout
