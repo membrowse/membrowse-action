@@ -86,9 +86,9 @@ For each target you identify, gather:
 
 | Field | Description |
 |-------|-------------|
-| `name` | Unique identifier (e.g., `stm32-pybv10`, `esp32-devkit`, `linux-x64`) |
+| `target_name` | Unique identifier (e.g., `stm32-pybv10`, `esp32-devkit`, `linux-x64`) |
 | `setup_cmd` | Commands to install build dependencies |
-| `build_script` | Commands to compile the project |
+| `build_cmd` | Commands to compile the project |
 | `elf` | Path to output ELF file after build |
 | `ld` | Space-separated linker script paths (can be empty) |
 | `linker_vars` | Optional: variable definitions for linker parsing (e.g., `"__flash_size__=4096K"`) |
@@ -222,48 +222,44 @@ Only proceed to create the configuration file after the user approves the `membr
 
 ## Step 6: Create membrowse-targets.json
 
-Create `.github/membrowse-targets.json` with the verified targets.
+Create `.github/membrowse-targets.json` with the verified targets. The file is a flat JSON array — each element is one target.
 
 **Embedded example:**
 ```json
-{
-  "targets": [
-    {
-      "name": "stm32-pybv10",
-      "setup_cmd": "sudo apt-get update && sudo apt-get install -y gcc-arm-none-eabi",
-      "build_script": "make -C ports/stm32 BOARD=PYBV10",
-      "elf": "ports/stm32/build-PYBV10/firmware.elf",
-      "ld": "ports/stm32/boards/stm32f405.ld",
-      "linker_vars": ""
-    }
-  ]
-}
+[
+  {
+    "target_name": "stm32-pybv10",
+    "setup_cmd": "sudo apt-get update && sudo apt-get install -y gcc-arm-none-eabi",
+    "build_cmd": "make -C ports/stm32 BOARD=PYBV10",
+    "elf": "ports/stm32/build-PYBV10/firmware.elf",
+    "ld": "ports/stm32/boards/stm32f405.ld",
+    "linker_vars": ""
+  }
+]
 ```
 
 **Non-embedded example:**
 ```json
-{
-  "targets": [
-    {
-      "name": "linux-x64",
-      "setup_cmd": "sudo apt-get update && sudo apt-get install -y build-essential",
-      "build_script": "cmake -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo && cmake --build build",
-      "elf": "build/myapp",
-      "ld": "",
-      "linker_vars": ""
-    }
-  ]
-}
+[
+  {
+    "target_name": "linux-x64",
+    "setup_cmd": "sudo apt-get update && sudo apt-get install -y build-essential",
+    "build_cmd": "cmake -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo && cmake --build build",
+    "elf": "build/myapp",
+    "ld": "",
+    "linker_vars": ""
+  }
+]
 ```
 
 ### Field Notes
 
-- `name`: Must be unique across targets, used as the target identifier in MemBrowse
+- `target_name`: Must be unique across targets, used as the target identifier in MemBrowse
 - `elf`: Path to any ELF binary — embedded firmware (`.elf`) or non-embedded executables/shared libraries (no extension or `.so`)
 - `ld`: Space-separated linker script paths for embedded projects; empty string `""` for non-embedded (analysis will use default Code/Data regions based on ELF sections like `.text`, `.data`, `.bss`)
 - `linker_vars`: Only needed if linker scripts use undefined variables (e.g., `"__flash_size__=4096K"`); leave empty for non-embedded
 - `setup_cmd`: Commands to install build dependencies before building (skill-specific; the workflow runs this before the build step)
-- `build_script`: Use `-g` or `-DCMAKE_BUILD_TYPE=RelWithDebInfo` to include debug symbols — this lets MemBrowse attribute memory to source files and symbols
+- `build_cmd`: Use `-g` or `-DCMAKE_BUILD_TYPE=RelWithDebInfo` to include debug symbols — this lets MemBrowse attribute memory to source files and symbols
 
 ## Step 7: Create GitHub Workflows
 
@@ -297,7 +293,7 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   analyze:
@@ -316,7 +312,7 @@ jobs:
 
       - name: Build
         run: |
-          # TARGET_BUILD_SCRIPT goes here
+          # TARGET_BUILD_CMD goes here
           # For non-embedded: e.g., cmake -B build && cmake --build build
           # For embedded: e.g., make -C ports/stm32 BOARD=PYBV10
 
@@ -329,6 +325,8 @@ jobs:
           # Only include linker_vars if the target has linker_vars values
           # linker_vars: TARGET_LINKER_VARS
           api_key: ${{ secrets.MEMBROWSE_API_KEY }}
+          api_url: ${{ vars.MEMBROWSE_API_URL }}
+          verbose: INFO
           # Uncomment to allow CI to pass even when memory budgets are exceeded
           # dont_fail_on_alerts: true
 
@@ -342,7 +340,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
 
-**Template substitutions:** Replace `TARGET_NAME`, `TARGET_SETUP_CMD`, `TARGET_BUILD_SCRIPT`, `TARGET_ELF`, `TARGET_LD`, and `TARGET_LINKER_VARS` with values from the single target in `membrowse-targets.json`. Since there's only one target, values are inlined directly.
+**Template substitutions:** Replace `TARGET_NAME`, `TARGET_SETUP_CMD`, `TARGET_BUILD_CMD`, `TARGET_ELF`, `TARGET_LD`, and `TARGET_LINKER_VARS` with values from the single target in `membrowse-targets.json`. Since there's only one target, values are inlined directly.
 
 ---
 
@@ -367,28 +365,28 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  setup:
+  load-targets:
     runs-on: ubuntu-latest
     outputs:
-      targets: ${{ steps.set-matrix.outputs.targets }}
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
 
       - name: Load target matrix
         id: set-matrix
-        run: echo "targets=$(jq -c '.targets' .github/membrowse-targets.json)" >> $GITHUB_OUTPUT
+        run: echo "matrix=$(jq -c '.' .github/membrowse-targets.json)" >> $GITHUB_OUTPUT
 
   analyze:
-    needs: setup
+    needs: load-targets
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        target: ${{ fromJson(needs.setup.outputs.targets) }}
+        include: ${{ fromJson(needs.load-targets.outputs.matrix) }}
 
     steps:
       - name: Checkout repository
@@ -399,19 +397,21 @@ jobs:
           # submodules: recursive
 
       - name: Install packages
-        run: ${{ matrix.target.setup_cmd }}
+        run: ${{ matrix.setup_cmd }}
 
       - name: Build
-        run: ${{ matrix.target.build_script }}
+        run: ${{ matrix.build_cmd }}
 
       - name: Run MemBrowse analysis
         uses: membrowse/membrowse-action@v1
         with:
-          target_name: ${{ matrix.target.name }}
-          elf: ${{ matrix.target.elf }}
-          ld: ${{ matrix.target.ld }}
-          linker_vars: ${{ matrix.target.linker_vars }}
+          target_name: ${{ matrix.target_name }}
+          elf: ${{ matrix.elf }}
+          ld: ${{ matrix.ld }}
+          linker_vars: ${{ matrix.linker_vars }}
           api_key: ${{ secrets.MEMBROWSE_API_KEY }}
+          api_url: ${{ vars.MEMBROWSE_API_URL }}
+          verbose: INFO
           # Uncomment to allow CI to pass even when memory budgets are exceeded
           # dont_fail_on_alerts: true
 
@@ -421,11 +421,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Post combined PR comment
+        if: ${{ env.MEMBROWSE_API_KEY != '' }}
         uses: membrowse/membrowse-action/comment-action@v1
         with:
           api_key: ${{ secrets.MEMBROWSE_API_KEY }}
           commit: ${{ github.event.pull_request.head.sha }}
         env:
+          MEMBROWSE_API_KEY: ${{ secrets.MEMBROWSE_API_KEY }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
 
@@ -448,33 +450,30 @@ on:
     branches:
       - main  # Change to match the project's default branch
 
-permissions:
-  contents: read
-
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  setup:
+  load-targets:
     runs-on: ubuntu-latest
     outputs:
-      targets: ${{ steps.set-matrix.outputs.targets }}
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
 
       - name: Load target matrix
         id: set-matrix
-        run: echo "targets=$(jq -c '.targets' .github/membrowse-targets.json)" >> $GITHUB_OUTPUT
+        run: echo "matrix=$(jq -c '.' .github/membrowse-targets.json)" >> $GITHUB_OUTPUT
 
   analyze:
-    needs: setup
+    needs: load-targets
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        target: ${{ fromJson(needs.setup.outputs.targets) }}
+        include: ${{ fromJson(needs.load-targets.outputs.matrix) }}
 
     steps:
       - name: Checkout repository
@@ -485,19 +484,21 @@ jobs:
           # submodules: recursive
 
       - name: Install packages
-        run: ${{ matrix.target.setup_cmd }}
+        run: ${{ matrix.setup_cmd }}
 
       - name: Build
-        run: ${{ matrix.target.build_script }}
+        run: ${{ matrix.build_cmd }}
 
       - name: Run MemBrowse analysis
         uses: membrowse/membrowse-action@v1
         with:
-          target_name: ${{ matrix.target.name }}
-          elf: ${{ matrix.target.elf }}
-          ld: ${{ matrix.target.ld }}
-          linker_vars: ${{ matrix.target.linker_vars }}
+          target_name: ${{ matrix.target_name }}
+          elf: ${{ matrix.elf }}
+          ld: ${{ matrix.ld }}
+          linker_vars: ${{ matrix.linker_vars }}
           api_key: ${{ secrets.MEMBROWSE_API_KEY }}
+          api_url: ${{ vars.MEMBROWSE_API_URL }}
+          verbose: INFO
           # Uncomment to allow CI to pass even when memory budgets are exceeded
           # dont_fail_on_alerts: true
 ```
@@ -511,24 +512,32 @@ name: MemBrowse PR Comment
 
 on:
   workflow_run:
-    workflows: ["MemBrowse Memory Report"]
-    types: [completed]
-
-permissions:
-  contents: read
-  pull-requests: write
+    workflows: [MemBrowse Memory Report]
+    types:
+      - completed
 
 jobs:
   comment:
     runs-on: ubuntu-latest
-    if: github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion == 'success'
+    # Run even if some builds failed — only skip if the run was cancelled
+    if: >
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion != 'cancelled'
+    permissions:
+      contents: read
+      pull-requests: write
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
       - name: Post combined PR comment
+        if: ${{ env.MEMBROWSE_API_KEY != '' }}
         uses: membrowse/membrowse-action/comment-action@v1
         with:
           api_key: ${{ secrets.MEMBROWSE_API_KEY }}
           commit: ${{ github.event.workflow_run.head_sha }}
         env:
+          MEMBROWSE_API_KEY: ${{ secrets.MEMBROWSE_API_KEY }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
 
@@ -547,29 +556,29 @@ on:
       num_commits:
         description: 'Number of commits to process'
         required: true
-        default: '10'
+        default: '100'
         type: string
 
 jobs:
-  setup:
+  load-targets:
     runs-on: ubuntu-latest
     outputs:
-      targets: ${{ steps.set-matrix.outputs.targets }}
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
 
       - name: Load target matrix
         id: set-matrix
-        run: echo "targets=$(jq -c '.targets' .github/membrowse-targets.json)" >> $GITHUB_OUTPUT
+        run: echo "matrix=$(jq -c '.' .github/membrowse-targets.json)" >> $GITHUB_OUTPUT
 
   onboard:
-    needs: setup
+    needs: load-targets
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        target: ${{ fromJson(needs.setup.outputs.targets) }}
+        include: ${{ fromJson(needs.load-targets.outputs.matrix) }}
 
     steps:
       - name: Checkout repository
@@ -580,27 +589,33 @@ jobs:
           # submodules: recursive
 
       - name: Install packages
-        run: ${{ matrix.target.setup_cmd }}
+        run: ${{ matrix.setup_cmd }}
 
       - name: Run MemBrowse Onboard Action
         uses: membrowse/membrowse-action/onboard-action@v1
         with:
-          target_name: ${{ matrix.target.name }}
+          target_name: ${{ matrix.target_name }}
           num_commits: ${{ github.event.inputs.num_commits }}
-          build_script: ${{ matrix.target.build_script }}
-          elf: ${{ matrix.target.elf }}
-          ld: ${{ matrix.target.ld }}
-          linker_vars: ${{ matrix.target.linker_vars }}
+          build_script: ${{ matrix.build_cmd }}
+          elf: ${{ matrix.elf }}
+          ld: ${{ matrix.ld }}
+          linker_vars: ${{ matrix.linker_vars }}
+          binary_search: 'true'
           api_key: ${{ secrets.MEMBROWSE_API_KEY }}
+          api_url: ${{ vars.MEMBROWSE_API_URL }}
 ```
 
-## Step 8: Inform User About Secrets
+## Step 8: Inform User About Secrets and Variables
 
 After creating the files, tell the user they need to configure:
 
 1. **Repository Secret**: `MEMBROWSE_API_KEY` — API key from the MemBrowse dashboard
 
    Location: Repository Settings → Secrets and variables → Actions → New repository secret
+
+2. **Repository Variable** (optional): `MEMBROWSE_API_URL` — custom API URL if not using the default (`https://api.membrowse.com`)
+
+   Location: Repository Settings → Secrets and variables → Actions → Variables → New repository variable
 
 ## Step 9: Provide Testing Instructions
 
