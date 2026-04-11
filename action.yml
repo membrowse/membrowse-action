@@ -83,7 +83,15 @@ runs:
     - name: Install membrowse package
       shell: bash
       run: |
-        ${{ steps.detect-python.outputs.python }} -m pip install --force-reinstall --no-cache-dir ${{ github.action_path }}
+        INSTALL_PATH="${{ github.action_path }}"
+        # In container jobs, github.action_path uses the host path which doesn't
+        # exist inside the container. Derive the container prefix from GITHUB_WORKSPACE.
+        if [ ! -d "$INSTALL_PATH" ]; then
+          HOST_PREFIX="${INSTALL_PATH%%/_actions/*}"
+          CONTAINER_PREFIX="${GITHUB_WORKSPACE%/*/*}"
+          INSTALL_PATH="${INSTALL_PATH/$HOST_PREFIX/$CONTAINER_PREFIX}"
+        fi
+        ${{ steps.detect-python.outputs.python }} -m pip install --force-reinstall --no-cache-dir "$INSTALL_PATH"
 
     - name: Run memory analysis
       id: analysis
