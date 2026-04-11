@@ -57,14 +57,15 @@ runs:
   using: 'composite'
   steps:
     - name: Set up Python
-      uses: actions/setup-python@v4
+      if: ${{ job.container.id == '' }}
+      uses: actions/setup-python@v5
       with:
         python-version: '3.11'
 
     - name: Install membrowse package
       shell: bash
       run: |
-        pip install ${{ github.action_path }}
+        python3 -m pip install ${{ github.action_path }}
 
     - name: Run memory analysis
       id: analysis

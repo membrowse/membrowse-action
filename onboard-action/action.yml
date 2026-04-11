@@ -64,15 +64,16 @@ runs:
   using: 'composite'
   steps:
     - name: Set up Python
-      uses: actions/setup-python@v4
+      if: ${{ job.container.id == '' }}
+      uses: actions/setup-python@v5
       with:
         python-version: '3.11'
-    
+
     - name: Install membrowse package
       shell: bash
       run: |
-        pip install --force-reinstall --no-cache-dir ${{ github.action_path }}/..
-    
+        python3 -m pip install --force-reinstall --no-cache-dir ${{ github.action_path }}/..
+
     - name: Fetch full git history
       shell: bash
       run: |
