@@ -35,6 +35,10 @@ class MemoryRegionMappingError(ELFAnalysisError):
     """Exception raised when memory region mapping fails"""
 
 
+class MapFileParseError(ELFAnalysisError):
+    """Exception raised when a map file (GNU LD or IAR) cannot be parsed"""
+
+
 class AuthenticationError(Exception):
     """Base exception for authentication errors"""
 

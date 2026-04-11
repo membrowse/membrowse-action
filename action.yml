@@ -43,6 +43,10 @@ inputs:
     description: 'Mark this commit as having identical memory footprint to previous (metadata-only upload)'
     required: false
     default: 'false'
+  map_file:
+    description: 'Path to linker map file for archive/object file attribution (supports GNU LD and IAR formats)'
+    required: false
+    default: ''
 
 outputs:
   report_path:
@@ -119,6 +123,11 @@ runs:
         fi
         if [ -n "${{ inputs.pr_author_email }}" ]; then
           ARGS+=(--pr-author-email "${{ inputs.pr_author_email }}")
+        fi
+
+        # Add map file if provided
+        if [ -n "${{ inputs.map_file }}" ]; then
+          ARGS+=(--map-file "${{ inputs.map_file }}")
         fi
 
         # Run report command and save output to file

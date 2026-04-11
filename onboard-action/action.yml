@@ -51,6 +51,10 @@ inputs:
     description: 'Use binary search to minimize builds. Builds endpoints, compares memory fingerprints, and only builds midpoints where changes are detected.'
     required: false
     default: 'false'
+  map_file:
+    description: 'Path to linker map file for archive/object file attribution (supports GNU LD and IAR formats)'
+    required: false
+    default: ''
   verbose:
     description: 'Set logging level: DEBUG, INFO, or WARNING (default: WARNING)'
     required: false
@@ -135,6 +139,11 @@ runs:
         # Add initial parent (for chaining --commits runs)
         if [ -n "${{ inputs.initial_parent }}" ]; then
           ONBOARD_ARGS+=(--initial-parent "${{ inputs.initial_parent }}")
+        fi
+
+        # Add map file if provided
+        if [ -n "${{ inputs.map_file }}" ]; then
+          ONBOARD_ARGS+=(--map-file "${{ inputs.map_file }}")
         fi
 
         # Add binary search mode
