@@ -7,6 +7,7 @@ Unit tests for C++ and Rust symbol demangling functionality
 import unittest
 from unittest.mock import Mock
 from membrowse.analysis.symbols import SymbolExtractor
+from membrowse.analysis.sources import SourceFileResolver
 
 
 class TestSymbolDemangling(unittest.TestCase):
@@ -181,6 +182,77 @@ class TestSymbolDemangling(unittest.TestCase):
         c_symbol = "my_c_function.cold"
         result = self.extractor._demangle_symbol_name(c_symbol)
         self.assertEqual(result, c_symbol)
+
+
+class TestCompilerSuffixSourceResolution(unittest.TestCase):
+    """Test that suffixed demangled symbols still resolve source files via DWARF."""
+
+    def _make_resolver(self, symbol_to_file, address_to_file=None,
+                       address_to_cu_file=None, static_symbol_mappings=None):
+        dwarf_data = {
+            'symbol_to_file': symbol_to_file,
+            'address_to_file': address_to_file or {},
+            'address_to_cu_file': address_to_cu_file or {},
+        }
+        if static_symbol_mappings is not None:
+            dwarf_data['static_symbol_mappings'] = static_symbol_mappings
+        return SourceFileResolver(dwarf_data, system_header_cache={})
+
+    def test_suffixed_symbol_resolves_via_stripped_name(self):
+        """A demangled name with .part.0 should hit a DWARF entry keyed by the unsuffixed name."""
+        resolver = self._make_resolver({
+            ('foo()', 0x1000): '/src/foo.c',
+        })
+        # Exact match works
+        self.assertEqual(resolver.extract_source_file('foo()', 'FUNC', 0x1000), 'foo.c')
+        # Suffixed variant also resolves to the same file
+        self.assertEqual(resolver.extract_source_file('foo().part.0', 'FUNC', 0x1000), 'foo.c')
+
+    def test_suffixed_symbol_resolves_constprop(self):
+        """A .constprop.N suffix should also fall back to the unsuffixed DWARF key."""
+        resolver = self._make_resolver({
+            ('add(int, int)', 0x2000): '/src/math.c',
+        })
+        self.assertEqual(
+            resolver.extract_source_file('add(int, int).constprop.0', 'FUNC', 0x2000), 'math.c')
+
+    def test_suffixed_symbol_fallback_with_address_zero(self):
+        """Suffix stripping should also work in the address=0 fallback path."""
+        resolver = self._make_resolver({
+            ('my_global', 0): '/src/globals.c',
+        })
+        # No address match, falls through to (name, 0) fallback
+        self.assertEqual(
+            resolver.extract_source_file('my_global.part.0', 'OBJECT', 0x9999), 'globals.c')
+
+    def test_exact_match_preferred_over_stripped(self):
+        """If DWARF has an entry for the exact suffixed name, use it (no stripping needed)."""
+        resolver = self._make_resolver({
+            ('foo().part.0', 0x1000): '/src/foo_split.c',
+            ('foo()', 0x1000): '/src/foo.c',
+        })
+        self.assertEqual(
+            resolver.extract_source_file('foo().part.0', 'FUNC', 0x1000), 'foo_split.c')
+
+    def test_unsuffixed_symbol_unaffected(self):
+        """Normal symbols without compiler suffixes still resolve normally."""
+        resolver = self._make_resolver({
+            ('bar()', 0x3000): '/src/bar.c',
+        })
+        self.assertEqual(resolver.extract_source_file('bar()', 'FUNC', 0x3000), 'bar.c')
+
+    def test_suffixed_static_object_resolves(self):
+        """Static OBJECT symbols with compiler suffixes should resolve via stripped name."""
+        resolver = self._make_resolver(
+            symbol_to_file={},
+            static_symbol_mappings=[
+                # (symbol_name, cu_source_file, best_source_file)
+                ('my_static_var', '/src/module.c', '/src/module.c'),
+            ],
+            address_to_cu_file={0x4000: '/src/module.c'},
+        )
+        self.assertEqual(
+            resolver.extract_source_file('my_static_var.part.0', 'OBJECT', 0x4000), 'module.c')
 
 
 if __name__ == '__main__':

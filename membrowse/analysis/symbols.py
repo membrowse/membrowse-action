@@ -25,6 +25,15 @@ _COMPILER_SUFFIX_RE = re.compile(
 )
 
 
+def strip_compiler_suffix(name: str) -> str:
+    """Strip GCC/LLVM compiler-generated suffixes from a symbol name.
+
+    Returns the name without the suffix. If no suffix is present, returns
+    the original name unchanged.
+    """
+    return _COMPILER_SUFFIX_RE.sub('', name)
+
+
 class SymbolExtractor:  # pylint: disable=too-few-public-methods
     """Handles symbol extraction and analysis from ELF files"""
 
