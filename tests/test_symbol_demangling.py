@@ -136,6 +136,52 @@ class TestSymbolDemangling(unittest.TestCase):
         rust_demangled = self.extractor._demangle_symbol_name(rust_mangled)
         self.assertEqual(rust_demangled, "foo::bar")
 
+    # Compiler suffix stripping tests
+
+    def test_demangle_cpp_with_part_suffix(self):
+        """Test demangling C++ symbol with GCC .part.N suffix"""
+        mangled = "_ZN6matrix6MatrixIfLj3ELj1EEaSERKS1_.part.0"
+        demangled = self.extractor._demangle_symbol_name(mangled)
+        self.assertIn("matrix::Matrix", demangled)
+        self.assertIn("operator=", demangled)
+        self.assertTrue(demangled.endswith(".part.0"))
+
+    def test_demangle_cpp_with_constprop_suffix(self):
+        """Test demangling C++ symbol with GCC .constprop.N suffix"""
+        mangled = "_Z3foov.constprop.0"
+        demangled = self.extractor._demangle_symbol_name(mangled)
+        self.assertEqual(demangled, "foo().constprop.0")
+
+    def test_demangle_cpp_with_isra_suffix(self):
+        """Test demangling C++ symbol with GCC .isra.N suffix"""
+        mangled = "_Z3addii.isra.0"
+        demangled = self.extractor._demangle_symbol_name(mangled)
+        self.assertEqual(demangled, "add(int, int).isra.0")
+
+    def test_demangle_cpp_with_cold_suffix(self):
+        """Test demangling C++ symbol with .cold suffix (no number)"""
+        mangled = "_Z3foov.cold"
+        demangled = self.extractor._demangle_symbol_name(mangled)
+        self.assertEqual(demangled, "foo().cold")
+
+    def test_demangle_cpp_with_lto_priv_suffix(self):
+        """Test demangling C++ symbol with .lto_priv.N suffix"""
+        mangled = "_Z3foov.lto_priv.0"
+        demangled = self.extractor._demangle_symbol_name(mangled)
+        self.assertEqual(demangled, "foo().lto_priv.0")
+
+    def test_demangle_rust_with_compiler_suffix(self):
+        """Test demangling Rust symbol with compiler suffix"""
+        mangled = "_ZN3foo3barE.part.0"
+        demangled = self.extractor._demangle_symbol_name(mangled)
+        self.assertEqual(demangled, "foo::bar.part.0")
+
+    def test_c_symbol_with_dot_unchanged(self):
+        """Test that C symbols with dots are not mangled and stay unchanged"""
+        c_symbol = "my_c_function.cold"
+        result = self.extractor._demangle_symbol_name(c_symbol)
+        self.assertEqual(result, c_symbol)
+
 
 if __name__ == '__main__':
     unittest.main()
