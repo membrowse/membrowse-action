@@ -7,12 +7,31 @@ This module handles the extraction and analysis of symbols from ELF files,
 including symbol filtering, type mapping, and source file resolution.
 """
 
+import re
 from typing import Dict, List
 from itanium_demangler import parse as cpp_demangle
 from rust_demangler import demangle as rust_demangle
 from elftools.common.exceptions import ELFError
 from ..core.models import Symbol
 from ..core.exceptions import SymbolExtractionError
+
+
+# GCC/LLVM compiler-generated suffixes appended to mangled symbol names.
+# These are added by optimizations like partial inlining (.part), constant
+# propagation (.constprop), interprocedural SRA (.isra), cold path splitting
+# (.cold), and LTO (.lto_priv). They must be stripped before demangling.
+_COMPILER_SUFFIX_RE = re.compile(
+    r'(\.(part|constprop|isra|cold|lto_priv|llvm)\.\d+|\.(cold))$'
+)
+
+
+def strip_compiler_suffix(name: str) -> str:
+    """Strip GCC/LLVM compiler-generated suffixes from a symbol name.
+
+    Returns the name without the suffix. If no suffix is present, returns
+    the original name unchanged.
+    """
+    return _COMPILER_SUFFIX_RE.sub('', name)
 
 
 class SymbolExtractor:  # pylint: disable=too-few-public-methods
@@ -43,22 +62,32 @@ class SymbolExtractor:  # pylint: disable=too-few-public-methods
         if not name:
             return name
 
+        # Strip compiler-generated suffixes (e.g. .part.0, .constprop.1)
+        # before demangling, then re-append to the result
+        suffix_match = _COMPILER_SUFFIX_RE.search(name)
+        if suffix_match:
+            base_name = name[:suffix_match.start()]
+            suffix = suffix_match.group()
+        else:
+            base_name = name
+            suffix = ''
+
         # Rust v0 mangling (starts with _R)
-        if name.startswith('_R'):
-            return self._demangle_rust(name)
+        if base_name.startswith('_R'):
+            return self._demangle_rust(base_name) + suffix
 
         # Could be C++ or legacy Rust (both use _ZN prefix)
-        if name.startswith('_ZN'):
+        if base_name.startswith('_ZN'):
             # Try Rust first (legacy Rust uses _ZN prefix)
-            rust_result = self._demangle_rust(name)
-            if rust_result != name:
-                return rust_result
+            rust_result = self._demangle_rust(base_name)
+            if rust_result != base_name:
+                return rust_result + suffix
             # Fall back to C++
-            return self._demangle_cpp(name)
+            return self._demangle_cpp(base_name) + suffix
 
         # Standard C++ mangling (_Z but not _ZN)
-        if name.startswith('_Z'):
-            return self._demangle_cpp(name)
+        if base_name.startswith('_Z'):
+            return self._demangle_cpp(base_name) + suffix
 
         return name
 

@@ -11,6 +11,8 @@ import re
 import bisect
 from typing import Any, Dict, Optional
 
+from .symbols import strip_compiler_suffix
+
 # Rust Codegen Unit hash filenames (e.g. "defmt_rtt.2465299265768a95-cgu.0")
 # These are compiler internals, not real source files.
 _CGU_HASH_PATTERN = re.compile(r'^.+\.[0-9a-f]+-cgu\.\d+$')
@@ -83,7 +85,14 @@ class SourceFileResolver:  # pylint: disable=too-few-public-methods
 
         # Priority 1: Direct symbol lookup from DWARF dictionaries (DIE-based,
         # most reliable)
+        # DWARF DIE names don't include compiler suffixes (.part.0, etc.),
+        # so try the stripped name if the original key misses.
         symbol_key = (symbol_name, symbol_address or 0)
+        if symbol_key not in self.dwarf_data['symbol_to_file']:
+            stripped = strip_compiler_suffix(symbol_name)
+            if stripped != symbol_name:
+                symbol_key = (stripped, symbol_address or 0)
+
         if symbol_key in self.dwarf_data['symbol_to_file']:
             source_file = self.dwarf_data['symbol_to_file'][symbol_key]
             source_file_basename = self._get_basename(source_file)
@@ -105,8 +114,13 @@ class SourceFileResolver:  # pylint: disable=too-few-public-methods
 
         # Priority 1c: For static variables, use CU-based matching from DWARF
         # processing
-        if symbol_type == 'OBJECT' and symbol_name in self._static_symbol_lookup:
-            result = self._resolve_static_symbol(symbol_name, symbol_address)
+        static_lookup_name = symbol_name
+        if static_lookup_name not in self._static_symbol_lookup:
+            stripped = strip_compiler_suffix(symbol_name)
+            if stripped != symbol_name:
+                static_lookup_name = stripped
+        if symbol_type == 'OBJECT' and static_lookup_name in self._static_symbol_lookup:
+            result = self._resolve_static_symbol(static_lookup_name, symbol_address)
             if result:
                 return result
 
@@ -201,6 +215,10 @@ class SourceFileResolver:  # pylint: disable=too-few-public-methods
 
         # Try symbol with address=0 fallback
         fallback_key = (symbol_name, 0)
+        if fallback_key not in self.dwarf_data['symbol_to_file']:
+            stripped = strip_compiler_suffix(symbol_name)
+            if stripped != symbol_name:
+                fallback_key = (stripped, 0)
         if fallback_key in self.dwarf_data['symbol_to_file']:
             source_file = self.dwarf_data['symbol_to_file'][fallback_key]
             return self._get_basename(source_file)
