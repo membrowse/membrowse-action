@@ -87,8 +87,13 @@ class MapFileResolver:
             logger.info("Detected GNU LD map file format: %s", map_path)
 
         address_map = parser.parse(content)
-        logger.info("Map file parsed: %d address entries from %s",
-                     len(address_map), map_path)
+        if not address_map and content.strip():
+            logger.warning(
+                "Map file %s produced no address entries - "
+                "check that the format is correct", map_path)
+        else:
+            logger.info("Map file parsed: %d address entries from %s",
+                         len(address_map), map_path)
         return cls(address_map)
 
     @classmethod
