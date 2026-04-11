@@ -81,10 +81,10 @@ class MapFileResolver:
         fmt = _detect_map_format(content)
         if fmt == 'iar':
             parser = IARMapFileParser()
-            logger.info("Detected IAR map file format: %s", map_path)
+            logger.debug("Detected IAR map file format: %s", map_path)
         else:
             parser = MapFileParser()
-            logger.info("Detected GNU LD map file format: %s", map_path)
+            logger.debug("Detected GNU LD map file format: %s", map_path)
 
         address_map = parser.parse(content)
         if not address_map and content.strip():
@@ -92,7 +92,7 @@ class MapFileResolver:
                 "Map file %s produced no address entries - "
                 "check that the format is correct", map_path)
         else:
-            logger.info("Map file parsed: %d address entries from %s",
+            logger.debug("Map file parsed: %d address entries from %s",
                          len(address_map), map_path)
         return cls(address_map)
 
