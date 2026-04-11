@@ -94,9 +94,18 @@ runs:
         # In container jobs, github.action_path uses the host path which doesn't
         # exist inside the container. Derive the container prefix from GITHUB_WORKSPACE.
         if [ ! -d "$INSTALL_PATH" ]; then
-          HOST_PREFIX="${INSTALL_PATH%%/_actions/*}"
-          CONTAINER_PREFIX="${GITHUB_WORKSPACE%/*/*}"
-          INSTALL_PATH="${INSTALL_PATH/$HOST_PREFIX/$CONTAINER_PREFIX}"
+          if [[ "$INSTALL_PATH" == */_actions/* ]] && [ -n "${GITHUB_WORKSPACE:-}" ]; then
+            HOST_PREFIX="${INSTALL_PATH%%/_actions/*}"
+            CONTAINER_PREFIX="${GITHUB_WORKSPACE%/*/*}"
+            if [ -n "$CONTAINER_PREFIX" ]; then
+              INSTALL_PATH="${INSTALL_PATH/$HOST_PREFIX/$CONTAINER_PREFIX}"
+              echo "Resolved container install path: $INSTALL_PATH"
+            fi
+          fi
+          if [ ! -d "$INSTALL_PATH" ]; then
+            echo "::error::Could not resolve membrowse package path. Tried: ${{ github.action_path }}/.. and $INSTALL_PATH"
+            exit 1
+          fi
         fi
         ${{ steps.detect-python.outputs.python }} -m pip install --force-reinstall --no-cache-dir "$INSTALL_PATH"
 
