@@ -64,15 +64,34 @@ runs:
   using: 'composite'
   steps:
     - name: Set up Python
-      uses: actions/setup-python@v4
+      if: ${{ job.container.id == '' }}
+      uses: actions/setup-python@v5
       with:
         python-version: '3.11'
-    
+
+    - name: Detect Python interpreter
+      id: detect-python
+      shell: bash
+      run: |
+        if command -v python3 &>/dev/null; then
+          PYTHON=python3
+        elif command -v python &>/dev/null; then
+          PYTHON=python
+        else
+          echo "::error::Python not found. Python + pip must be present in the job container image, or run this action outside a container."
+          exit 1
+        fi
+        if ! "$PYTHON" -m pip --version &>/dev/null; then
+          echo "::error::pip not found for $PYTHON. Python + pip must be present in the job container image, or run this action outside a container."
+          exit 1
+        fi
+        echo "python=$PYTHON" >> "$GITHUB_OUTPUT"
+
     - name: Install membrowse package
       shell: bash
       run: |
-        pip install --force-reinstall --no-cache-dir ${{ github.action_path }}/..
-    
+        ${{ steps.detect-python.outputs.python }} -m pip install --force-reinstall --no-cache-dir ${{ github.action_path }}/..
+
     - name: Fetch full git history
       shell: bash
       run: |
