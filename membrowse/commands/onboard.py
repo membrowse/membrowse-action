@@ -282,7 +282,7 @@ def _get_repository_info():
     remote_url = run_git_command(['config', '--get', 'remote.origin.url'])
     repo_name = 'unknown'
     if remote_url:
-        parts = remote_url.rstrip('.git').split('/')
+        parts = remote_url.removesuffix('.git').split('/')
         if parts:
             repo_name = parts[-1]
 
