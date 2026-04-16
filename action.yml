@@ -166,10 +166,18 @@ runs:
           ARGS+=(--map-file "${{ inputs.map_file }}")
         fi
 
-        # Run report command and save output to file
+        # Run report command and save output to file. Capture exit status so
+        # we can still surface the report path for budget-alert failures (exit 1
+        # with a valid raw response written) while propagating the failure.
         REPORT_PATH="${RUNNER_TEMP}/membrowse_${{ inputs.target_name }}.json"
-        membrowse "${GLOBAL_ARGS[@]}" report "${ARGS[@]}" --output-raw-response > "$REPORT_PATH"
-        echo "report_path=$REPORT_PATH" >> "$GITHUB_OUTPUT"
+        status=0
+        membrowse "${GLOBAL_ARGS[@]}" report "${ARGS[@]}" --output-raw-response > "$REPORT_PATH" || status=$?
+
+        if [ -s "$REPORT_PATH" ]; then
+          echo "report_path=$REPORT_PATH" >> "$GITHUB_OUTPUT"
+        fi
+
+        exit "$status"
 
 branding:
   icon: 'bar-chart-2'
