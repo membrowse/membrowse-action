@@ -105,71 +105,88 @@ runs:
     - name: Run memory analysis
       id: analysis
       shell: bash
+      env:
+        INPUT_VERBOSE: ${{ inputs.verbose }}
+        INPUT_ELF: ${{ inputs.elf }}
+        INPUT_LD: ${{ inputs.ld }}
+        INPUT_TARGET_NAME: ${{ inputs.target_name }}
+        INPUT_API_KEY: ${{ inputs.api_key }}
+        INPUT_API_URL: ${{ inputs.api_url }}
+        INPUT_DONT_FAIL_ON_ALERTS: ${{ inputs.dont_fail_on_alerts }}
+        INPUT_IDENTICAL: ${{ inputs.identical }}
+        INPUT_LINKER_VARS: ${{ inputs.linker_vars }}
+        INPUT_PR_AUTHOR_NAME: ${{ inputs.pr_author_name }}
+        INPUT_PR_AUTHOR_EMAIL: ${{ inputs.pr_author_email }}
+        INPUT_MAP_FILE: ${{ inputs.map_file }}
       run: |
         set -o pipefail
 
         # Global args (before subcommand)
         GLOBAL_ARGS=()
-        if [ "${{ inputs.verbose }}" != "WARNING" ]; then
-          GLOBAL_ARGS+=(--verbose "${{ inputs.verbose }}")
+        if [ "$INPUT_VERBOSE" != "WARNING" ]; then
+          GLOBAL_ARGS+=(--verbose "$INPUT_VERBOSE")
         fi
 
         # Subcommand args - start with positional args if provided
         ARGS=()
 
         # Add elf and ld only if provided (not required when identical=true)
-        if [ -n "${{ inputs.elf }}" ]; then
-          ARGS+=("${{ inputs.elf }}")
+        if [ -n "$INPUT_ELF" ]; then
+          ARGS+=("$INPUT_ELF")
         fi
-        if [ -n "${{ inputs.ld }}" ]; then
-          ARGS+=("${{ inputs.ld }}")
+        if [ -n "$INPUT_LD" ]; then
+          ARGS+=("$INPUT_LD")
         fi
 
         # Add required flags
         ARGS+=(
           --upload
           --github
-          --target-name "${{ inputs.target_name }}"
-          --api-key "${{ inputs.api_key }}"
+          --target-name "$INPUT_TARGET_NAME"
+          --api-key "$INPUT_API_KEY"
         )
 
         # Only pass api-url if explicitly provided and non-empty
-        if [ -n "${{ inputs.api_url }}" ]; then
-          ARGS+=(--api-url "${{ inputs.api_url }}")
+        if [ -n "$INPUT_API_URL" ]; then
+          ARGS+=(--api-url "$INPUT_API_URL")
         fi
 
-        if [ "${{ inputs.dont_fail_on_alerts }}" = "true" ]; then
+        if [ "$INPUT_DONT_FAIL_ON_ALERTS" = "true" ]; then
           ARGS+=(--dont-fail-on-alerts)
         fi
 
-        if [ "${{ inputs.identical }}" = "true" ]; then
+        if [ "$INPUT_IDENTICAL" = "true" ]; then
           ARGS+=(--identical)
         fi
 
         # Add linker variable definitions
-        if [ -n "${{ inputs.linker_vars }}" ]; then
-          for var in ${{ inputs.linker_vars }}; do
+        if [ -n "$INPUT_LINKER_VARS" ]; then
+          # Disable pathname expansion so values like RAM=* aren't glob-expanded
+          # against workspace files; we only want word splitting here.
+          set -f
+          for var in $INPUT_LINKER_VARS; do
             ARGS+=(--def "$var")
           done
+          set +f
         fi
 
         # Add PR author info if provided
-        if [ -n "${{ inputs.pr_author_name }}" ]; then
-          ARGS+=(--pr-author-name "${{ inputs.pr_author_name }}")
+        if [ -n "$INPUT_PR_AUTHOR_NAME" ]; then
+          ARGS+=(--pr-author-name "$INPUT_PR_AUTHOR_NAME")
         fi
-        if [ -n "${{ inputs.pr_author_email }}" ]; then
-          ARGS+=(--pr-author-email "${{ inputs.pr_author_email }}")
+        if [ -n "$INPUT_PR_AUTHOR_EMAIL" ]; then
+          ARGS+=(--pr-author-email "$INPUT_PR_AUTHOR_EMAIL")
         fi
 
         # Add map file if provided
-        if [ -n "${{ inputs.map_file }}" ]; then
-          ARGS+=(--map-file "${{ inputs.map_file }}")
+        if [ -n "$INPUT_MAP_FILE" ]; then
+          ARGS+=(--map-file "$INPUT_MAP_FILE")
         fi
 
         # Run report command and save output to file. Capture exit status so
         # we can still surface the report path for budget-alert failures (exit 1
         # with a valid raw response written) while propagating the failure.
-        REPORT_PATH="${RUNNER_TEMP}/membrowse_${{ inputs.target_name }}.json"
+        REPORT_PATH="${RUNNER_TEMP}/membrowse_${INPUT_TARGET_NAME}.json"
         status=0
         membrowse "${GLOBAL_ARGS[@]}" report "${ARGS[@]}" --output-raw-response > "$REPORT_PATH" || status=$?
 

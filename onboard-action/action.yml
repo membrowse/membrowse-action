@@ -117,21 +117,37 @@ runs:
     
     - name: Run historical analysis
       shell: bash
+      env:
+        INPUT_VERBOSE: ${{ inputs.verbose }}
+        INPUT_COMMITS: ${{ inputs.commits }}
+        INPUT_NUM_COMMITS: ${{ inputs.num_commits }}
+        INPUT_BUILD_SCRIPT: ${{ inputs.build_script }}
+        INPUT_ELF: ${{ inputs.elf }}
+        INPUT_TARGET_NAME: ${{ inputs.target_name }}
+        INPUT_API_KEY: ${{ inputs.api_key }}
+        INPUT_API_URL: ${{ inputs.api_url }}
+        INPUT_LD: ${{ inputs.ld }}
+        INPUT_LINKER_VARS: ${{ inputs.linker_vars }}
+        INPUT_BUILD_DIRS: ${{ inputs.build_dirs }}
+        INPUT_INITIAL_COMMIT: ${{ inputs.initial_commit }}
+        INPUT_INITIAL_PARENT: ${{ inputs.initial_parent }}
+        INPUT_MAP_FILE: ${{ inputs.map_file }}
+        INPUT_BINARY_SEARCH: ${{ inputs.binary_search }}
       run: |
         # Global args (before subcommand)
         GLOBAL_ARGS=()
-        if [ "${{ inputs.verbose }}" != "WARNING" ]; then
-          GLOBAL_ARGS+=(--verbose "${{ inputs.verbose }}")
+        if [ "$INPUT_VERBOSE" != "WARNING" ]; then
+          GLOBAL_ARGS+=(--verbose "$INPUT_VERBOSE")
         fi
 
         # Subcommand args
         ONBOARD_ARGS=()
 
         # Commit selection: either --commits or num_commits (positional)
-        if [ -n "${{ inputs.commits }}" ]; then
-          ONBOARD_ARGS+=(--commits "${{ inputs.commits }}")
-        elif [ -n "${{ inputs.num_commits }}" ]; then
-          ONBOARD_ARGS+=("${{ inputs.num_commits }}")
+        if [ -n "$INPUT_COMMITS" ]; then
+          ONBOARD_ARGS+=(--commits "$INPUT_COMMITS")
+        elif [ -n "$INPUT_NUM_COMMITS" ]; then
+          ONBOARD_ARGS+=("$INPUT_NUM_COMMITS")
         else
           echo "Error: either num_commits or commits must be provided"
           exit 1
@@ -139,51 +155,55 @@ runs:
 
         # Remaining positional args
         ONBOARD_ARGS+=(
-          "${{ inputs.build_script }}"
-          "${{ inputs.elf }}"
-          "${{ inputs.target_name }}"
-          "${{ inputs.api_key }}"
+          "$INPUT_BUILD_SCRIPT"
+          "$INPUT_ELF"
+          "$INPUT_TARGET_NAME"
+          "$INPUT_API_KEY"
         )
 
         # Pass api_url via --api-url flag (works with both --commits and num_commits modes)
-        if [ -n "${{ inputs.api_url }}" ]; then
-          ONBOARD_ARGS+=(--api-url "${{ inputs.api_url }}")
+        if [ -n "$INPUT_API_URL" ]; then
+          ONBOARD_ARGS+=(--api-url "$INPUT_API_URL")
         fi
 
         # Add ld scripts if provided (optional - uses default Code/Data regions if omitted)
-        if [ -n "${{ inputs.ld }}" ]; then
-          ONBOARD_ARGS+=(--ld-scripts "${{ inputs.ld }}")
+        if [ -n "$INPUT_LD" ]; then
+          ONBOARD_ARGS+=(--ld-scripts "$INPUT_LD")
         fi
 
         # Add linker variable definitions
-        if [ -n "${{ inputs.linker_vars }}" ]; then
-          for var in ${{ inputs.linker_vars }}; do
+        if [ -n "$INPUT_LINKER_VARS" ]; then
+          # Disable pathname expansion so values like RAM=* aren't glob-expanded
+          # against workspace files; we only want word splitting here.
+          set -f
+          for var in $INPUT_LINKER_VARS; do
             ONBOARD_ARGS+=(--def "$var")
           done
+          set +f
         fi
 
         # Add build directories filter
-        if [ -n "${{ inputs.build_dirs }}" ]; then
-          ONBOARD_ARGS+=(--build-dirs ${{ inputs.build_dirs }})
+        if [ -n "$INPUT_BUILD_DIRS" ]; then
+          ONBOARD_ARGS+=(--build-dirs $INPUT_BUILD_DIRS)
         fi
 
         # Add initial commit
-        if [ -n "${{ inputs.initial_commit }}" ]; then
-          ONBOARD_ARGS+=(--initial-commit "${{ inputs.initial_commit }}")
+        if [ -n "$INPUT_INITIAL_COMMIT" ]; then
+          ONBOARD_ARGS+=(--initial-commit "$INPUT_INITIAL_COMMIT")
         fi
 
         # Add initial parent (for chaining --commits runs)
-        if [ -n "${{ inputs.initial_parent }}" ]; then
-          ONBOARD_ARGS+=(--initial-parent "${{ inputs.initial_parent }}")
+        if [ -n "$INPUT_INITIAL_PARENT" ]; then
+          ONBOARD_ARGS+=(--initial-parent "$INPUT_INITIAL_PARENT")
         fi
 
         # Add map file if provided
-        if [ -n "${{ inputs.map_file }}" ]; then
-          ONBOARD_ARGS+=(--map-file "${{ inputs.map_file }}")
+        if [ -n "$INPUT_MAP_FILE" ]; then
+          ONBOARD_ARGS+=(--map-file "$INPUT_MAP_FILE")
         fi
 
         # Add binary search mode
-        if [ "${{ inputs.binary_search }}" = "true" ]; then
+        if [ "$INPUT_BINARY_SEARCH" = "true" ]; then
           ONBOARD_ARGS+=(--binary-search)
         fi
 
