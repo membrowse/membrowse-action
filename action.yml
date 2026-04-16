@@ -161,9 +161,13 @@ runs:
 
         # Add linker variable definitions
         if [ -n "$INPUT_LINKER_VARS" ]; then
+          # Disable pathname expansion so values like RAM=* aren't glob-expanded
+          # against workspace files; we only want word splitting here.
+          set -f
           for var in $INPUT_LINKER_VARS; do
             ARGS+=(--def "$var")
           done
+          set +f
         fi
 
         # Add PR author info if provided
