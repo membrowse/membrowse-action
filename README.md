@@ -40,7 +40,6 @@ jobs:
         run: make all # your build commands
 
       - name: Analyze memory
-        id: analyze
         uses: membrowse/membrowse-action@v1
         with:
           elf: build/firmware.elf # your elf
@@ -52,7 +51,8 @@ jobs:
         if: github.event_name == 'pull_request'
         uses: membrowse/membrowse-action/comment-action@v1
         with:
-          json_files: ${{ steps.analyze.outputs.report_path }}
+          api_key: ${{ secrets.MEMBROWSE_API_KEY }}
+          commit: ${{ github.event.pull_request.head.sha }}
           # Optional: use a custom Jinja2 template for the comment
           # comment_template: .github/membrowse-comment.j2
 ```
