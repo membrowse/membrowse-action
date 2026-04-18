@@ -8,7 +8,7 @@ including symbol filtering, type mapping, and source file resolution.
 """
 
 import re
-from typing import Dict, List
+from typing import Dict, List, Tuple
 from itanium_demangler import parse as cpp_demangle
 from rust_demangler import demangle as rust_demangle
 from elftools.common.exceptions import ELFError
@@ -24,6 +24,39 @@ _COMPILER_SUFFIX_RE = re.compile(
     r'(\.(part|constprop|isra|cold|lto_priv|llvm)\.\d+|\.(cold))$'
 )
 
+# Trailing v0 disambiguator like "[7d1f2a]" appended to Rust path segments
+# when rust-demangler runs in verbose mode. The hash is meaningless for
+# attribution.
+_V0_DISAMBIG_RE = re.compile(r'\[[0-9a-f]+\]$')
+
+# rustc's legacy mangling always appends a 16-hex-digit hash as the final
+# path component, encoded as "17h<16 hex>E" in the mangled form. This is
+# the disambiguator between otherwise identical C++ and legacy-Rust _ZN
+# encodings: rust-demangler's legacy mode otherwise accepts any _ZN...E
+# prefix and ignores trailing C++ arg bytes, which would misclassify a
+# C++ symbol like _ZN3foo3barEv as Rust with crate "foo".
+_RUST_LEGACY_HASH_RE = re.compile(r'17h[0-9a-f]{16}E')
+
+# rustc emits each Rust crate as ``lib<name>-<hash>.rlib``; the 16-hex hash
+# is deterministic but uninteresting for attribution. Accept both POSIX and
+# Windows path separators — the LLD parser passes archive paths through
+# as-is, so Windows toolchains produce backslashed paths.
+_RLIB_NAME_RE = re.compile(
+    r'(?:^|[\\/])lib([A-Za-z_][A-Za-z0-9_]*)-[0-9a-f]+\.rlib$')
+
+
+def _crate_from_rlib_path(path: str) -> str:
+    """Return the crate name encoded in a ``lib<crate>-<hash>.rlib`` archive.
+
+    Non-Rust symbols (C/asm) linked from an .rlib lose the mangled-name
+    attribution path, so we recover the owning crate from the archive
+    filename. Returns '' for anything that isn't an .rlib.
+    """
+    if not path or not path.endswith('.rlib'):
+        return ''
+    match = _RLIB_NAME_RE.search(path)
+    return match.group(1) if match else ''
+
 
 def strip_compiler_suffix(name: str) -> str:
     """Strip GCC/LLVM compiler-generated suffixes from a symbol name.
@@ -34,6 +67,86 @@ def strip_compiler_suffix(name: str) -> str:
     return _COMPILER_SUFFIX_RE.sub('', name)
 
 
+def _extract_rust_crate(demangled: str) -> str:  # pylint: disable=too-many-return-statements,too-many-branches
+    """Return the first path segment (owning crate) of a demangled Rust symbol.
+
+    Rust monomorphizes generic code into the *consuming* crate's object file,
+    so file-path attribution lumps dependency code into the root crate's
+    ``<root>-<hash>.<cguN>.rcgu.o``. The true owner is the first path segment
+    of the demangled name.
+
+    Handles:
+      - plain paths:       ``moka::common::deques::Deques::push`` → ``moka``
+      - impl block:        ``<alloc::vec::Vec<T>>::push`` → ``alloc``
+      - as-trait impl:     ``<alloc::vec::Vec<T> as core::ops::Drop>::drop``
+                           → ``alloc``
+      - generic as-trait:  ``<Func as minijinja::...::Function<Rv,(A,)>>::invoke``
+                           → ``minijinja`` (type side is a bare generic, fall
+                           through to the trait side)
+      - v0 disambiguator:  ``alloc[7d1f2a]::raw_vec::...`` → ``alloc``
+
+    Returns '' for anything that does not look like a fully-qualified Rust
+    path. A bare identifier (``Func``) or a reference (``&T``) is rejected
+    because it's not a crate — only paths containing ``::`` qualify.
+    """
+    if not demangled:
+        return ''
+
+    s = demangled.strip()
+
+    # Impl block: <Inner>::method or <Inner as Trait>::method.
+    if s.startswith('<'):
+        depth = 0
+        end = -1
+        for i, ch in enumerate(s):
+            if ch == '<':
+                depth += 1
+            elif ch == '>':
+                depth -= 1
+                if depth == 0:
+                    end = i
+                    break
+        if end < 0:
+            return ''
+        inner = s[1:end]
+
+        # Locate " as " at depth 0 within inner — nested impls contain their
+        # own ` as ` inside <...> which must be ignored.
+        depth = 0
+        as_pos = -1
+        for i, ch in enumerate(inner):
+            if ch == '<':
+                depth += 1
+            elif ch == '>':
+                depth -= 1
+            elif depth == 0 and inner[i:i + 4] == ' as ':
+                as_pos = i
+                break
+
+        if as_pos >= 0:
+            # Prefer the type side (left of " as ") when it resolves to a
+            # real crate — this picks `alloc` from `<alloc::vec::Vec<T> as
+            # core::ops::Drop>`. Fall back to the trait side for impls
+            # whose type is a bare generic or reference (`Func`, `&T`) —
+            # in that case the trait's crate is the meaningful attribution.
+            type_crate = _extract_rust_crate(inner[:as_pos])
+            if type_crate:
+                return type_crate
+            return _extract_rust_crate(inner[as_pos + 4:])
+        return _extract_rust_crate(inner)
+
+    # Plain path: require at least one "::" — a bare identifier or reference
+    # is a generic/primitive, not a crate.
+    sep = s.find('::')
+    if sep < 0:
+        return ''
+    head = _V0_DISAMBIG_RE.sub('', s[:sep])
+
+    if not head or any(c in head for c in ' \t\n<>()&*,'):
+        return ''
+    return head
+
+
 class SymbolExtractor:  # pylint: disable=too-few-public-methods
     """Handles symbol extraction and analysis from ELF files"""
 
@@ -42,28 +155,40 @@ class SymbolExtractor:  # pylint: disable=too-few-public-methods
         self.elffile = elffile
 
     def _demangle_symbol_name(self, name: str) -> str:
+        """Demangle a C++ or Rust symbol name. See :meth:`_demangle_with_kind`.
+
+        Returns only the demangled string — the ``kind`` is discarded. Callers
+        that need to know which demangler succeeded (e.g. to extract a Rust
+        crate) should use :meth:`_demangle_with_kind` directly.
         """
-        Demangle C++ and Rust symbol names.
+        demangled, _ = self._demangle_with_kind(name)
+        return demangled
+
+    def _demangle_with_kind(  # pylint: disable=too-many-return-statements
+            self, name: str) -> Tuple[str, str]:
+        """Demangle and also report which demangler handled the name.
 
         Supports:
-        - C++ symbols (Itanium ABI, _Z prefix) via itanium_demangler
-        - Rust v0 symbols (_R prefix) via rust_demangler
-        - Rust legacy symbols (_ZN prefix) via rust_demangler
-
-        Returns the demangled name, or the original name for C symbols
-        or if demangling fails.
+        - C++ symbols (Itanium ABI, ``_Z`` prefix) via ``itanium_demangler``
+        - Rust v0 symbols (``_R`` prefix) via ``rust_demangler``
+        - Rust legacy symbols (``_ZN`` prefix) via ``rust_demangler``
 
         Args:
-            name: Symbol name (potentially mangled)
+            name: Symbol name (potentially mangled).
 
         Returns:
-            Demangled symbol name, or original name if not mangled or on error
+            ``(demangled, kind)`` where ``kind`` is ``"rust"``, ``"cpp"``, or
+            ``"none"``. For unmangled names, the original string is returned
+            with kind ``"none"``. The kind is needed downstream to decide
+            whether to run Rust-specific crate extraction — a C++ namespace
+            like ``std::vector<int>::push_back`` would otherwise be
+            mis-extracted as crate "std".
         """
         if not name:
-            return name
+            return name, 'none'
 
         # Strip compiler-generated suffixes (e.g. .part.0, .constprop.1)
-        # before demangling, then re-append to the result
+        # before demangling, then re-append to the result.
         suffix_match = _COMPILER_SUFFIX_RE.search(name)
         if suffix_match:
             base_name = name[:suffix_match.start()]
@@ -72,24 +197,36 @@ class SymbolExtractor:  # pylint: disable=too-few-public-methods
             base_name = name
             suffix = ''
 
-        # Rust v0 mangling (starts with _R)
+        # Rust v0 mangling (starts with _R).
         if base_name.startswith('_R'):
-            return self._demangle_rust(base_name) + suffix
-
-        # Could be C++ or legacy Rust (both use _ZN prefix)
-        if base_name.startswith('_ZN'):
-            # Try Rust first (legacy Rust uses _ZN prefix)
             rust_result = self._demangle_rust(base_name)
             if rust_result != base_name:
-                return rust_result + suffix
-            # Fall back to C++
-            return self._demangle_cpp(base_name) + suffix
+                return rust_result + suffix, 'rust'
+            return name, 'none'
 
-        # Standard C++ mangling (_Z but not _ZN)
+        # Could be C++ or legacy Rust (both use _ZN prefix). Only prefer
+        # Rust when the mangled name carries the 17h<hash>E signature —
+        # without that, a C++ symbol with trailing arg bytes like
+        # _ZN3foo3barEv would demangle as legacy-Rust "foo::bar" and be
+        # mis-attributed to a crate "foo".
+        if base_name.startswith('_ZN'):
+            if _RUST_LEGACY_HASH_RE.search(base_name):
+                rust_result = self._demangle_rust(base_name)
+                if rust_result != base_name:
+                    return rust_result + suffix, 'rust'
+            cpp_result = self._demangle_cpp(base_name)
+            if cpp_result != base_name:
+                return cpp_result + suffix, 'cpp'
+            return name, 'none'
+
+        # Standard C++ mangling (_Z but not _ZN).
         if base_name.startswith('_Z'):
-            return self._demangle_cpp(base_name) + suffix
+            cpp_result = self._demangle_cpp(base_name)
+            if cpp_result != base_name:
+                return cpp_result + suffix, 'cpp'
+            return name, 'none'
 
-        return name
+        return name, 'none'
 
     def _demangle_rust(self, name: str) -> str:
         """Demangle Rust symbol names using rust_demangler."""
@@ -107,7 +244,7 @@ class SymbolExtractor:  # pylint: disable=too-few-public-methods
         except Exception:  # pylint: disable=broad-exception-caught
             return name
 
-    def extract_symbols(  # pylint: disable=too-many-locals
+    def extract_symbols(  # pylint: disable=too-many-locals,too-many-branches
         self, source_resolver, map_resolver=None
     ) -> List[Symbol]:
         """Extract symbol information from ELF file with source file mapping."""
@@ -125,7 +262,8 @@ class SymbolExtractor:  # pylint: disable=too-few-public-methods
                 if not self._is_valid_symbol(symbol):
                     continue
 
-                symbol_name = self._demangle_symbol_name(symbol.name)
+                symbol_name, demangle_kind = self._demangle_with_kind(
+                    symbol.name)
                 symbol_type = self._get_symbol_type(symbol['st_info']['type'])
                 symbol_binding = self._get_symbol_binding(
                     symbol['st_info']['bind'])
@@ -159,6 +297,20 @@ class SymbolExtractor:  # pylint: disable=too-few-public-methods
                 else:
                     archive, object_file = '', ''
 
+                # Attribute by crate for Rust projects. The demangled name is
+                # the best source for Rust-mangled symbols (covers monomorph-
+                # ized generics placed in the root crate's .rcgu.o); for C/asm
+                # symbols linked from an .rlib we fall back to the crate name
+                # encoded in the .rlib filename. Either way, object_file is
+                # kept intact so raw provenance isn't lost.
+                if demangle_kind == 'rust':
+                    crate = _extract_rust_crate(symbol_name)
+                    if crate:
+                        archive = crate
+                elif archive.endswith('.rlib'):
+                    rlib_crate = _crate_from_rlib_path(archive)
+                    if rlib_crate:
+                        archive = rlib_crate
 
                 symbols.append(Symbol(
                     name=symbol_name,
