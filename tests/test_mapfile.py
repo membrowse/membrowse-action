@@ -6,7 +6,8 @@ import tempfile
 from pathlib import Path
 
 from membrowse.analysis.mapfile import (
-    MapFileParser, IARMapFileParser, MapFileResolver, _detect_map_format
+    MapFileParser, IARMapFileParser, LLDMapFileParser,
+    MapFileResolver, _detect_map_format
 )
 from membrowse.core.exceptions import MapFileParseError
 
@@ -622,6 +623,153 @@ class TestDetectMapFormat(unittest.TestCase):
         self.assertEqual(
             resolver.resolve(0x12e0),
             ('dl7M_tlf.a', 'sprintf.o')
+        )
+
+
+# ============================================================
+# LLD map file test fixtures and tests
+# ============================================================
+
+LLD_MAP_BASIC = """\
+             VMA              LMA     Size Align Out     In      Symbol
+             2e0              2e0       1c     1 .interp
+             2e0              2e0       1c     1         <internal>:(.interp)
+             2fc              2fc       20     4 .note.ABI-tag
+             2fc              2fc       20     4         /usr/lib/gcc/Scrt1.o:(.note.ABI-tag)
+             2fc              2fc       20     1                 __abi_tag
+           31000            31000     882a5  4096 .rodata
+           314fc            314fc       10     4         CMakeFiles/app.dir/main.c.o:(.rodata.foo)
+          1180ec           1180ec       18     1         /home/user/.rustup/lib/libcompiler_builtins.rlib(compiler_builtins.rcgu.o):(.eh_frame+0x18)
+           32a64            32a64      298     4         <internal>:(.rodata.cst4)
+          200000           200000       40     4         build/libhal.a(gpio.o):(.text.gpio_init)
+          300000           300000       20     4         build/util.o:(.text.helper+0x4)
+"""
+
+LLD_MAP_FIRST_WINS = """\
+             VMA              LMA     Size Align Out     In      Symbol
+            1000             1000       10     4 .text
+            1000             1000       10     4         first.o:(.text)
+            1000             1000       10     4         second.o:(.text)
+"""
+
+LLD_MAP_ZERO_ADDRESS = """\
+             VMA              LMA     Size Align Out     In      Symbol
+               0                0        0     1 .foo
+               0                0        0     1         synthetic.o:(.foo)
+            1000             1000       10     4 .text
+            1000             1000       10     4         real.o:(.text)
+"""
+
+LLD_MAP_EMPTY = """\
+             VMA              LMA     Size Align Out     In      Symbol
+"""
+
+
+class TestLLDMapFileParser(unittest.TestCase):
+    """Unit tests for LLDMapFileParser."""
+
+    def setUp(self):
+        self.parser = LLDMapFileParser()
+
+    def test_bare_object_parsed(self):
+        """Bare .o input section is parsed with empty archive."""
+        result = self.parser.parse(LLD_MAP_BASIC)
+        self.assertIn(0x2fc, result)
+        archive, obj = result[0x2fc]
+        self.assertEqual(archive, '')
+        self.assertEqual(obj, '/usr/lib/gcc/Scrt1.o')
+
+    def test_rlib_archive_parsed(self):
+        """Rust .rlib archive is recognized and path is kept in full."""
+        result = self.parser.parse(LLD_MAP_BASIC)
+        self.assertIn(0x1180ec, result)
+        archive, obj = result[0x1180ec]
+        self.assertEqual(
+            archive, '/home/user/.rustup/lib/libcompiler_builtins.rlib')
+        self.assertEqual(obj, 'compiler_builtins.rcgu.o')
+
+    def test_dot_a_archive_parsed(self):
+        """Traditional .a archive is parsed correctly."""
+        result = self.parser.parse(LLD_MAP_BASIC)
+        self.assertIn(0x200000, result)
+        archive, obj = result[0x200000]
+        self.assertEqual(archive, 'build/libhal.a')
+        self.assertEqual(obj, 'gpio.o')
+
+    def test_internal_entries_skipped(self):
+        """<internal>:(...) synthetic rows produce no entries."""
+        result = self.parser.parse(LLD_MAP_BASIC)
+        self.assertNotIn(0x2e0, result)
+        self.assertNotIn(0x32a64, result)
+
+    def test_output_section_rows_ignored(self):
+        """Output section rows (1-space separator) produce no entries."""
+        result = self.parser.parse(LLD_MAP_BASIC)
+        # 0x31000 is the ".rodata" output section; no input entry sits here
+        self.assertNotIn(0x31000, result)
+
+    def test_symbol_rows_ignored(self):
+        """Symbol rows (17-space separator) produce no entries on their own.
+
+        At 0x2fc the input-section entry wins (bare Scrt1.o); the following
+        symbol row "__abi_tag" must not overwrite or add anything.
+        """
+        result = self.parser.parse(LLD_MAP_BASIC)
+        archive, obj = result[0x2fc]
+        self.assertEqual(obj, '/usr/lib/gcc/Scrt1.o')
+
+    def test_zero_address_skipped(self):
+        """Entries at address 0 are excluded."""
+        result = self.parser.parse(LLD_MAP_ZERO_ADDRESS)
+        self.assertNotIn(0x0, result)
+        self.assertIn(0x1000, result)
+
+    def test_first_occurrence_wins(self):
+        """Duplicate addresses keep the first-seen input section entry."""
+        result = self.parser.parse(LLD_MAP_FIRST_WINS)
+        _, obj = result[0x1000]
+        self.assertEqual(obj, 'first.o')
+
+    def test_empty_returns_empty_dict(self):
+        """Header-only map file returns empty dict."""
+        result = self.parser.parse(LLD_MAP_EMPTY)
+        self.assertEqual(result, {})
+
+    def test_section_offset_suffix_tolerated(self):
+        """Sections with '+0xNN' offset suffixes are parsed correctly."""
+        result = self.parser.parse(LLD_MAP_BASIC)
+        # 0x300000 has ":(.text.helper+0x4)" suffix; bare .o, not archive
+        self.assertIn(0x300000, result)
+        archive, obj = result[0x300000]
+        self.assertEqual(archive, '')
+        self.assertEqual(obj, 'build/util.o')
+
+
+class TestLLDDetectMapFormat(unittest.TestCase):
+    """Unit tests for LLD auto-detection."""
+
+    def test_detect_lld(self):
+        """LLD format detected by unique column header."""
+        self.assertEqual(_detect_map_format(LLD_MAP_BASIC), 'lld')
+
+    def test_gnu_ld_not_false_positive(self):
+        """GNU LD content must not be misdetected as LLD."""
+        self.assertEqual(_detect_map_format(MAP_WITH_ARCHIVES), 'gnu_ld')
+
+    def test_iar_not_false_positive(self):
+        """IAR detection takes precedence over LLD fallthrough."""
+        self.assertEqual(_detect_map_format(IAR_MAP_BASIC), 'iar')
+
+    def test_from_file_auto_detects_lld(self):
+        """Auto-detect LLD format when loading from file."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            map_path = Path(tmpdir) / 'test.map'
+            map_path.write_text(LLD_MAP_BASIC, encoding='utf-8')
+            resolver = MapFileResolver.from_file(str(map_path))
+        self.assertEqual(
+            resolver.resolve(0x1180ec),
+            ('/home/user/.rustup/lib/libcompiler_builtins.rlib',
+             'compiler_builtins.rcgu.o')
         )
 
 
