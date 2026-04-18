@@ -664,6 +664,15 @@ LLD_MAP_EMPTY = """\
              VMA              LMA     Size Align Out     In      Symbol
 """
 
+# Input-section rows with non-standard separator widths between the align
+# column and the file reference.  Classification must be by ':(' delimiter,
+# not by counting spaces.
+LLD_MAP_NONSTANDARD_SPACING = """\
+             VMA              LMA     Size Align Out     In      Symbol
+            1000             1000       10     4   odd_spacing.o:(.text)
+            2000             2000       20     4                    wider_spacing.o:(.data)
+"""
+
 
 class TestLLDMapFileParser(unittest.TestCase):
     """Unit tests for LLDMapFileParser."""
@@ -715,7 +724,7 @@ class TestLLDMapFileParser(unittest.TestCase):
         symbol row "__abi_tag" must not overwrite or add anything.
         """
         result = self.parser.parse(LLD_MAP_BASIC)
-        archive, obj = result[0x2fc]
+        _, obj = result[0x2fc]
         self.assertEqual(obj, '/usr/lib/gcc/Scrt1.o')
 
     def test_zero_address_skipped(self):
@@ -743,6 +752,12 @@ class TestLLDMapFileParser(unittest.TestCase):
         archive, obj = result[0x300000]
         self.assertEqual(archive, '')
         self.assertEqual(obj, 'build/util.o')
+
+    def test_nonstandard_separator_spacing(self):
+        """Input rows are classified by ':(' delimiter, not separator width."""
+        result = self.parser.parse(LLD_MAP_NONSTANDARD_SPACING)
+        self.assertEqual(result[0x1000], ('', 'odd_spacing.o'))
+        self.assertEqual(result[0x2000], ('', 'wider_spacing.o'))
 
 
 class TestLLDDetectMapFormat(unittest.TestCase):

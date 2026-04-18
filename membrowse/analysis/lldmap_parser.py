@@ -12,23 +12,24 @@ from typing import Dict, Tuple
 
 # LLD map file row:
 #
-#     <VMA-hex> <LMA-hex> <size-hex> <align-dec><separator><content>
+#     <VMA-hex> <LMA-hex> <size-hex> <align-dec> <content>
 #
 # Addresses are lowercase hex with no "0x" prefix and are right-aligned
-# within a fixed-width column.  The content's classification is encoded
-# purely by the separator width between the align field and the first
-# non-space character:
+# within a fixed-width column.  Content is one of:
 #
-#     1 space  -> output section name      (e.g., ".text")
-#     9 spaces -> input section entry      (".../file.o:(.section)")
-#     17 spaces -> symbol row              (ELF symtab provides names; skip)
+#     ".text"                    output section name
+#     "file.o:(.section)"        input section entry (what we want)
+#     "__abi_tag"                symbol row
+#
+# Input-section entries are identified semantically by the ":(" delimiter,
+# which is unique to the "file:(.section)" syntax.  This is more robust
+# than counting separator spaces — LLD's column widths vary by target.
 _LLD_ROW_RE = re.compile(
     r'^\s*([0-9a-f]+)\s+'       # group 1: VMA
     r'[0-9a-f]+\s+'             # LMA (unused)
     r'[0-9a-f]+\s+'             # size (unused - ELF symtab has sizes)
-    r'\d+'                      # align
-    r'( +)'                     # group 2: separator; width classifies row
-    r'(\S.*)$'                  # group 3: content
+    r'\d+ +'                    # align + separator
+    r'(\S.*)$'                  # group 2: content
 )
 
 # Like GNU LD's _ARCHIVE_RE but also accepts .rlib (Rust crate archives,
@@ -60,22 +61,20 @@ class LLDMapFileParser:  # pylint: disable=too-few-public-methods
             if not match:
                 continue
 
-            # Separator width: 1 = output section, 9 = input, 17 = symbol.
-            if len(match.group(2)) != 9:
+            content_field = match.group(2)
+            # Strip trailing ":(.section)" or ":(.section+0xNN)" suffix.
+            # Its presence also signals this is an input-section row —
+            # output sections and symbol rows lack the ":(" delimiter.
+            # rfind handles Windows-style paths ("C:\...") correctly.
+            colon_paren = content_field.rfind(':(')
+            if colon_paren < 0:
                 continue
 
             address = int(match.group(1), 16)
             if address == 0:
                 continue
 
-            content_field = match.group(3)
-            # Strip trailing ":(.section)" or ":(.section+0xNN)" suffix.
-            # rfind handles Windows-style paths ("C:\...") correctly.
-            colon_paren = content_field.rfind(':(')
-            if colon_paren < 0:
-                continue
             file_ref = content_field[:colon_paren]
-
             archive, obj = self._parse_file_field(file_ref)
             if obj and address not in mappings:
                 mappings[address] = (archive, obj)
