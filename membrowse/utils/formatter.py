@@ -299,7 +299,7 @@ def _format_memory_regions(report: Dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def _format_top_symbols(  # pylint: disable=too-many-locals
+def _format_top_symbols(  # pylint: disable=too-many-locals,too-many-branches
     report: Dict[str, Any], top_n: int = 20, show_all: bool = False
 ) -> str:
     """Format top N largest symbols or all symbols.
@@ -331,6 +331,7 @@ def _format_top_symbols(  # pylint: disable=too-many-locals
         return "\n".join(lines)
 
     # Check if any symbol has map file data
+    has_archive_info = any(s.get('archive', '') for s in symbols)
     has_object_info = any(s.get('object_file', '') for s in symbols)
 
     # Sort by size descending
@@ -349,6 +350,8 @@ def _format_top_symbols(  # pylint: disable=too-many-locals
         f"{'Name':<40} {'Address':<12} {'Size':>18}  {'Type':<10} "
         f"{'Section':<20} {'Source':<30}"
     )
+    if has_archive_info:
+        header += f"  {'Archive':<30}"
     if has_object_info:
         header += f"  {'Object':<30}"
     lines.append(header)
@@ -375,6 +378,11 @@ def _format_top_symbols(  # pylint: disable=too-many-locals
             f"{name:<40} {_format_address(address):<12} {size:>12,} bytes  "
             f"{sym_type:<10} {section:<20} {source_file:<30}"
         )
+        if has_archive_info:
+            archive = symbol.get('archive', '')
+            if len(archive) > 28:
+                archive = archive[:25] + "..."
+            row += f"  {archive:<30}"
         if has_object_info:
             object_file = symbol.get('object_file', '')
             if len(object_file) > 28:
