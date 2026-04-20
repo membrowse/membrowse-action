@@ -20,6 +20,7 @@ from ..analysis.sources import SourceFileResolver
 from ..analysis.symbols import SymbolExtractor
 from ..analysis.sections import SectionAnalyzer
 from ..analysis.mapfile import MapFileResolver
+from ..linker.elf_info import ELFParser, Architecture
 
 
 class ELFAnalyzer:  # pylint: disable=too-many-instance-attributes
@@ -173,22 +174,30 @@ class ELFAnalyzer:  # pylint: disable=too-many-instance-attributes
         Returns:
             ELFMetadata dataclass with fields:
 
-            - ``architecture``: "ELF32" or "ELF64"
+            - ``architecture``: ISA string (e.g. "ARM", "Xtensa", "RISC-V"),
+              or None if the ELF machine type is unrecognized.
             - ``file_type``: e.g., "ET_EXEC", "ET_DYN", "ET_REL"
             - ``machine``: e.g., "EM_ARM", "EM_XTENSA", "EM_RISCV"
             - ``entry_point``: Entry point address (int)
             - ``bit_width``: 32 or 64
             - ``endianness``: "little" or "big"
+            - ``toolchain``: Compiler and version (e.g. "gcc-12.2.0",
+              "clang-15.0.0"), or None if not detectable.
         """
         header = self.elffile.header
 
+        arch = ELFParser.MACHINE_TYPES.get(
+            header['e_machine'], Architecture.UNKNOWN)
+        isa = arch.value if arch is not Architecture.UNKNOWN else None
+
         return ELFMetadata(
-            architecture=f"ELF{self.elffile.elfclass}",
+            architecture=isa,
             file_type=header['e_type'],
             machine=header['e_machine'],
             entry_point=header['e_entry'],
             bit_width=self.elffile.elfclass,
-            endianness='little' if self.elffile.little_endian else 'big'
+            endianness='little' if self.elffile.little_endian else 'big',
+            toolchain=self._section_analyzer.detect_toolchain(),
         )
 
     def get_sections(self) -> List[MemorySection]:

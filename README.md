@@ -164,8 +164,8 @@ By default, this generates a **human-readable report** with memory regions, sect
 **Example output:**
 
 ```
-ELF Metadata: build/firmware.elf  |  Arch: ELF32  |  Machine: EM_ARM  |  Entry: 0x0802015d  |  Type: ET_EXEC
-=======================================================================================================================================
+ELF Metadata: build/firmware.elf  |  Arch: ARM  |  Machine: EM_ARM  |  Toolchain: gcc-10.3.1  |  Entry: 0x0802015d  |  Type: ET_EXEC
+==========================================================================================================================================================
 
 Region               Address Range                                Size                Used                Free  Utilization
 --------------------------------------------------------------------------------------------------------------------------------------------

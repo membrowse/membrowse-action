@@ -34,7 +34,8 @@ def _create_empty_report(elf_path: str) -> dict:
     """
     return {
         'file_path': elf_path,
-        'architecture': 'unknown',
+        'architecture': None,
+        'toolchain': None,
         'entry_point': 0,
         'file_type': 'unknown',
         'machine': 'unknown',
@@ -383,6 +384,7 @@ def _create_metadata_only_report(elf_path: str) -> dict:
     return {
         'file_path': elf_path,
         'architecture': None,
+        'toolchain': None,
         'entry_point': None,
         'file_type': None,
         'machine': None,

@@ -97,12 +97,19 @@ class Symbol:  # pylint: disable=too-many-instance-attributes
 @dataclass
 class ELFMetadata:
     """Represents ELF file metadata"""
-    architecture: str
+    # Target ISA string (e.g. "ARM", "Xtensa", "RISC-V"). None when the
+    # ELF machine type is unrecognized. (Bitness/ELF class lives in
+    # ``bit_width``; ``architecture`` carries the ISA name, which is what
+    # downstream consumers actually want.)
+    architecture: Optional[str]
     file_type: str
     machine: str
     entry_point: int
     bit_width: int
     endianness: str
+    # Toolchain string (e.g. "gcc-10.3.1", "clang-15.0.0", "iar-9.40.1").
+    # None when .comment is missing or has no recognized compiler entry.
+    toolchain: Optional[str] = None
 
 
 # TypedDict definitions for structured return types
@@ -170,7 +177,8 @@ class MemoryReport(TypedDict):
             print(sym['name'], sym['size'])
     """
     file_path: str
-    architecture: str
+    architecture: Optional[str]
+    toolchain: Optional[str]
     entry_point: int
     file_type: str
     machine: str

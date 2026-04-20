@@ -587,6 +587,7 @@ def _create_metadata_only_report() -> dict:
     return {
         'file_path': None,
         'architecture': None,
+        'toolchain': None,
         'entry_point': None,
         'file_type': None,
         'machine': None,
@@ -693,7 +694,11 @@ def _build_enriched_report(
         'git': commit_info,
         'repository': commit_info.get('repository'),
         'target_name': target_name,
-        'analysis_version': version('membrowse')
+        'analysis_version': version('membrowse'),
+        # Core reads these at metadata.architecture / metadata.toolchain
+        # (membrowse-core/core/src/routes/memory.py).
+        'architecture': report.get('architecture'),
+        'toolchain': report.get('toolchain'),
     }
 
     # Add build_failed directly to metadata if provided
