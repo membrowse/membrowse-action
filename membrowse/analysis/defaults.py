@@ -123,6 +123,8 @@ def map_sections_to_default_regions(
         # Map by section type
         if section.type in (SECTION_TYPE_CODE, SECTION_TYPE_RODATA) \
                 and DEFAULT_CODE_REGION in memory_regions:
-            memory_regions[DEFAULT_CODE_REGION].sections.append(section.__dict__)
+            memory_regions[DEFAULT_CODE_REGION].sections.append(
+                section.to_region_entry())
         elif section.type == SECTION_TYPE_DATA and DEFAULT_DATA_REGION in memory_regions:
-            memory_regions[DEFAULT_DATA_REGION].sections.append(section.__dict__)
+            memory_regions[DEFAULT_DATA_REGION].sections.append(
+                section.to_region_entry())

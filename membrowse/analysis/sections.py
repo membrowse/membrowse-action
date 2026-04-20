@@ -8,7 +8,7 @@ categorization, and memory allocation tracking.
 
 import re
 import logging
-from typing import List, Optional
+from typing import List, Optional, Tuple
 from elftools.common.exceptions import ELFError
 import elftools.elf.constants
 from ..core.models import MemorySection
@@ -19,6 +19,8 @@ logger = logging.getLogger(__name__)
 SHF_ALLOC = elftools.elf.constants.SH_FLAGS.SHF_ALLOC
 SHF_WRITE = elftools.elf.constants.SH_FLAGS.SHF_WRITE
 SHF_EXECINSTR = elftools.elf.constants.SH_FLAGS.SHF_EXECINSTR
+
+SHT_NOBITS = 'SHT_NOBITS'
 
 # Section type constants
 SECTION_TYPE_CODE = 'code'
@@ -37,6 +39,42 @@ class SectionAnalyzer:  # pylint: disable=too-few-public-methods
         """Initialize with ELF file handle."""
         self.elffile = elffile
         self._toolchain: Optional[str] = None
+        self._load_segments: Optional[List[Tuple[int, int, int]]] = None
+
+    def _get_load_segments(self) -> List[Tuple[int, int, int]]:
+        """Return cached list of (p_vaddr_start, p_vaddr_end, p_paddr) tuples
+        for PT_LOAD segments, used to compute per-section LMA.
+        """
+        if self._load_segments is not None:
+            return self._load_segments
+        segs: List[Tuple[int, int, int]] = []
+        try:
+            for seg in self.elffile.iter_segments():
+                if seg['p_type'] != 'PT_LOAD':
+                    continue
+                v_start = seg['p_vaddr']
+                v_end = v_start + seg['p_memsz']
+                segs.append((v_start, v_end, seg['p_paddr']))
+        except (IOError, OSError, ELFError):
+            segs = []
+        self._load_segments = segs
+        return segs
+
+    def _compute_lma(self, section) -> Optional[int]:
+        """Compute LMA for a section, or None if not applicable.
+
+        Returns None when the section has no file image (SHT_NOBITS like
+        .bss), when no containing PT_LOAD segment is found, or when the
+        computed LMA equals the VMA (no meaningful split to track).
+        """
+        if section['sh_type'] == SHT_NOBITS:
+            return None
+        sh_addr = section['sh_addr']
+        for v_start, v_end, p_paddr in self._get_load_segments():
+            if v_start <= sh_addr < v_end:
+                lma = p_paddr + (sh_addr - v_start)
+                return lma if lma != sh_addr else None
+        return None
 
     def _detect_toolchain(self) -> Optional[str]:
         """Detect the toolchain from the ELF .comment section."""
@@ -87,6 +125,7 @@ class SectionAnalyzer:  # pylint: disable=too-few-public-methods
                     address=section['sh_addr'],
                     size=size,
                     type=section_type,
+                    lma=self._compute_lma(section),
                 ))
 
         except (IOError, OSError) as e:

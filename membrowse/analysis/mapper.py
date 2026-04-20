@@ -32,6 +32,11 @@ class MemoryMapper:
                                 ) -> List[MemorySection]:
         """Map sections to appropriate memory regions based on addresses.
 
+        Sections with distinct LMA (e.g. .data placed via linker AT() — init
+        image in flash, runtime copy in RAM) are attributed to both the VMA
+        region and the LMA region, each with its respective address. The
+        section dict schema is unchanged; duplicates disambiguate by address.
+
         Args:
             sections: List of ELF sections to map
             memory_regions: Dictionary of memory regions to map to
@@ -45,13 +50,13 @@ class MemoryMapper:
         for section in sections:
             region = mapper.find_region_by_address(section)
             if region:
-                region.sections.append(section.__dict__)
+                region.sections.append(section.to_region_entry())
             else:
                 # If no address-based match, fall back to type-based mapping
                 region = MemoryMapper._find_region_by_type(
                     section, memory_regions)
                 if region:
-                    region.sections.append(section.__dict__)
+                    region.sections.append(section.to_region_entry())
                 else:
                     logger.debug(
                         "Section '%s' at 0x%x (size 0x%x) could not be "
@@ -59,7 +64,31 @@ class MemoryMapper:
                         section.name, section.address, section.size)
                     unmapped.append(section)
 
+            # Dual attribution: if the section has a distinct LMA, also
+            # credit its bytes to the region that holds the load image.
+            # Clear section.lma on success so a re-run (e.g. after region
+            # inference in the caller) doesn't double-credit.
+            if section.lma is not None:
+                lma_region = mapper._find_region_containing(section.lma)
+                if lma_region is not None:
+                    lma_region.sections.append(
+                        section.to_region_entry(address=section.lma))
+                    section.lma = None
+                else:
+                    logger.debug(
+                        "Section '%s' LMA 0x%x (size 0x%x) falls outside "
+                        "declared regions; flash init image not counted",
+                        section.name, section.lma, section.size)
+
         return unmapped
+
+    def _find_region_containing(self, address: int) -> Optional[MemoryRegion]:
+        """Return the smallest declared region containing the given address."""
+        matches = [region for start, end, region in self._sorted_regions
+                   if start <= address < end]
+        if not matches:
+            return None
+        return min(matches, key=lambda r: r.limit_size)
 
     def find_region_by_address(
             self,
@@ -77,17 +106,7 @@ class MemoryMapper:
             MemoryRegion that contains the section address (smallest if multiple),
             or None if not found
         """
-        # Find all regions that contain this address
-        matching_regions = []
-        for start_addr, end_addr, region in self._sorted_regions:
-            if start_addr <= section.address < end_addr:
-                matching_regions.append(region)
-
-        if not matching_regions:
-            return None
-
-        # Return the most specific (smallest) region
-        return min(matching_regions, key=lambda r: r.limit_size)
+        return self._find_region_containing(section.address)
 
     @staticmethod
     def _find_region_by_type(section: MemorySection,
