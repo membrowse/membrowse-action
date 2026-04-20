@@ -7,7 +7,7 @@ including TypedDict definitions for structured return types.
 """
 
 from dataclasses import dataclass
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 try:
     from typing import TypedDict
 except ImportError:
@@ -53,9 +53,30 @@ class MemorySection:
     size: int
     type: str
     end_address: int = 0
+    # Load Memory Address when distinct from VMA (address field).
+    # Set for PROGBITS sections placed via linker AT() — e.g. .data whose
+    # init image sits in flash (LMA) but runs in RAM (VMA). None when
+    # LMA == VMA or the section has no file image (SHT_NOBITS).
+    lma: Optional[int] = None
 
     def __post_init__(self):
         self.end_address = self.address + self.size
+
+    def to_region_entry(self, address: Optional[int] = None) -> Dict[str, Any]:
+        """Return the public dict form appended to a region's sections list.
+
+        Uses the section's VMA unless ``address`` is supplied (for LMA
+        attribution). Internal fields such as ``lma`` are omitted so the
+        report schema is stable regardless of placement.
+        """
+        addr = self.address if address is None else address
+        return {
+            'name': self.name,
+            'address': addr,
+            'size': self.size,
+            'type': self.type,
+            'end_address': addr + self.size,
+        }
 
 
 @dataclass
