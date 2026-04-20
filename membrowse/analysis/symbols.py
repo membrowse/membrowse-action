@@ -14,6 +14,7 @@ from rust_demangler import demangle as rust_demangle
 from elftools.common.exceptions import ELFError
 from ..core.models import Symbol
 from ..core.exceptions import SymbolExtractionError
+from . import _cpp_demangle  # pylint: disable=unused-import  # import installs the missing-production patch for itanium_demangler
 
 
 # GCC/LLVM compiler-generated suffixes appended to mangled symbol names.
