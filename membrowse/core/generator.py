@@ -83,7 +83,10 @@ class ReportGenerator:  # pylint: disable=too-few-public-methods
             MemoryReport TypedDict containing the complete memory analysis report with keys:
 
             - ``file_path`` (str): Path to the analyzed ELF file.
-            - ``architecture`` (str): ELF architecture, e.g., "ELF32" or "ELF64".
+            - ``architecture`` (str): Target ISA, e.g., "ARM", "Xtensa",
+              "RISC-V", or None if unrecognized.
+            - ``toolchain`` (str): Compiler+version, e.g., "gcc-12.2.0",
+              "clang-15.0.7", or None if undetectable.
             - ``machine`` (str): Target machine, e.g., "EM_ARM", "EM_XTENSA".
             - ``entry_point`` (int): Entry point address.
             - ``file_type`` (str): ELF file type, e.g., "ET_EXEC".
@@ -170,6 +173,7 @@ class ReportGenerator:  # pylint: disable=too-few-public-methods
                 'file_path': str(
                     self.elf_path),
                 'architecture': metadata.architecture,
+                'toolchain': metadata.toolchain,
                 'entry_point': metadata.entry_point,
                 'file_type': metadata.file_type,
                 'machine': metadata.machine,

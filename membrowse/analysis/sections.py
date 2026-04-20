@@ -31,6 +31,16 @@ SECTION_TYPE_UNKNOWN = 'unknown'
 
 _IAR_FILL_RE = re.compile(r'^Fill\d+$')
 
+# Toolchain detection patterns, ordered by specificity.
+# More specific compilers are checked first so that e.g. clang wins over
+# a libc GCC entry that may also be present in the same .comment section.
+_TOOLCHAIN_PATTERNS = (
+    ('clang', re.compile(rb'clang version (\d+\.\d+(?:\.\d+)?)')),
+    ('rustc', re.compile(rb'rustc (?:version )?(\d+\.\d+(?:\.\d+)?)')),
+    ('iar', re.compile(rb'IAR.*?V(\d+\.\d+(?:\.\d+)?)')),
+    ('gcc', re.compile(rb'GCC:.*\)\s+(\d+\.\d+(?:\.\d+)?)')),
+)
+
 
 class SectionAnalyzer:  # pylint: disable=too-few-public-methods
     """Handles ELF section analysis and categorization"""
@@ -39,6 +49,7 @@ class SectionAnalyzer:  # pylint: disable=too-few-public-methods
         """Initialize with ELF file handle."""
         self.elffile = elffile
         self._toolchain: Optional[str] = None
+        self._toolchain_resolved: bool = False
         self._load_segments: Optional[List[Tuple[int, int, int]]] = None
 
     def _get_load_segments(self) -> List[Tuple[int, int, int]]:
@@ -76,18 +87,32 @@ class SectionAnalyzer:  # pylint: disable=too-few-public-methods
                 return lma if lma != sh_addr else None
         return None
 
-    def _detect_toolchain(self) -> Optional[str]:
-        """Detect the toolchain from the ELF .comment section."""
-        if self._toolchain is not None:
+    def detect_toolchain(self) -> Optional[str]:
+        """Detect the toolchain from the ELF .comment section.
+
+        Returns a string like ``'gcc-10.3.1'``, ``'clang-15.0.0'``,
+        ``'iar-9.40.1'``, or ``'rustc-1.75.0'``. Returns ``None`` if the
+        ELF has no ``.comment`` section or no recognized compiler entry
+        (e.g. a stripped binary).
+
+        The result is cached on first call.
+        """
+        if self._toolchain_resolved:
             return self._toolchain
+        self._toolchain_resolved = True
         try:
             comment = self.elffile.get_section_by_name('.comment')
-            if comment and b'IAR' in comment.data():
-                self._toolchain = 'iar'
-                return self._toolchain
-        except (IOError, OSError):
-            pass
-        self._toolchain = ''
+            data = comment.data() if comment else b''
+        except (IOError, OSError, ELFError):
+            data = b''
+        entries = [e for e in data.split(b'\x00') if e]
+        for name, pattern in _TOOLCHAIN_PATTERNS:
+            for entry in entries:
+                match = pattern.search(entry)
+                if match:
+                    version = match.group(1).decode('ascii', errors='replace')
+                    self._toolchain = f'{name}-{version}'
+                    return self._toolchain
         return None
 
     def analyze_sections(self) -> List[MemorySection]:
@@ -110,7 +135,8 @@ class SectionAnalyzer:  # pylint: disable=too-few-public-methods
                 # Skip IAR linker fill sections (Fill1, Fill2, etc.)
                 # These are padding inserted by ielftool --fill, not real
                 # code/data
-                if (self._detect_toolchain() == 'iar'
+                toolchain = self.detect_toolchain() or ''
+                if (toolchain.startswith('iar')
                         and _IAR_FILL_RE.match(section.name)):
                     logger.debug(
                         "Skipping IAR fill section '%s' (%d bytes)",

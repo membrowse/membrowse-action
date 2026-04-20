@@ -39,7 +39,8 @@ def _create_utilization_bar(percent: float, width: int = 20) -> str:
 def _format_elf_metadata(report: Dict[str, Any]) -> str:
     """Format ELF metadata section."""
     file_path = report.get('file_path', 'N/A')
-    architecture = report.get('architecture', 'N/A')
+    architecture = report.get('architecture') or 'N/A'
+    toolchain = report.get('toolchain') or 'N/A'
     machine = report.get('machine', 'N/A')
     entry_point = _format_address(report.get('entry_point', 0))
     file_type = report.get('file_type', 'N/A')
@@ -47,6 +48,7 @@ def _format_elf_metadata(report: Dict[str, Any]) -> str:
     metadata_line = (
         f"ELF Metadata: {file_path}  |  "
         f"Arch: {architecture}  |  Machine: {machine}  |  "
+        f"Toolchain: {toolchain}  |  "
         f"Entry: {entry_point}  |  Type: {file_type}"
     )
 

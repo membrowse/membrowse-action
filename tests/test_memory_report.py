@@ -117,10 +117,10 @@ def verify_memory_report(report):  # pylint: disable=too-many-branches
     for field in required_fields:
         if field not in report:
             errors.append(f"Missing required field: {field}")
-    # Check architecture info
-    if 'architecture' in report:
-        if not report['architecture'].startswith('ELF'):
-            errors.append(f"Invalid architecture: {report['architecture']}")
+    # Check architecture info (ISA string like "ARM"/"Xtensa" or None).
+    if report.get('architecture') is not None:
+        if not isinstance(report['architecture'], str) or not report['architecture']:
+            errors.append(f"Invalid architecture: {report['architecture']!r}")
     # Check symbols
     if 'symbols' in report:
         symbols = report['symbols']

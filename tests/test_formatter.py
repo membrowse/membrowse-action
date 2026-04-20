@@ -79,7 +79,7 @@ class TestFormatElfMetadata:
         """Test formatting ELF metadata section."""
         report = {
             'file_path': 'firmware.elf',
-            'architecture': 'ELF32',
+            'architecture': 'ARM',
             'machine': 'EM_ARM',
             'entry_point': 0x08000000,
             'file_type': 'ET_EXEC'
@@ -88,7 +88,7 @@ class TestFormatElfMetadata:
 
         assert 'ELF Metadata' in output
         assert 'firmware.elf' in output
-        assert 'ELF32' in output
+        assert 'ARM' in output
         assert 'EM_ARM' in output
         assert '0x08000000' in output
         assert 'ET_EXEC' in output
@@ -321,7 +321,7 @@ class TestFormatReportHumanReadable:  # pylint: disable=too-few-public-methods
         """Test formatting a complete report."""
         report = {
             'file_path': 'firmware.elf',
-            'architecture': 'ELF32',
+            'architecture': 'ARM',
             'machine': 'EM_ARM',
             'entry_point': 0x08000000,
             'file_type': 'ET_EXEC',
