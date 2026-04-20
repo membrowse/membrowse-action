@@ -27,6 +27,45 @@ class TestSymbolDemangling(unittest.TestCase):  # pylint: disable=too-many-publi
         demangled = self.extractor._demangle_symbol_name(mangled)
         self.assertEqual(demangled, "foo()")
 
+    def test_demangle_cpp_lambda_inside_function(self):
+        # ``_ZZN3foo3barEvEUliE_`` is ``foo::bar()::{lambda(int)#1}``. The
+        # upstream itanium_demangler raises NotImplementedError on local
+        # names; our _cpp_demangle patch handles them.
+        mangled = "_ZZN3foo3barEvEUliE_"
+        demangled = self.extractor._demangle_symbol_name(mangled)
+        self.assertEqual(demangled, "foo::bar()::{lambda(int)#1}")
+
+    def test_demangle_cpp_named_entity_in_local_scope(self):
+        mangled = "_ZZN3foo3barEvEN3baz3quxE"
+        demangled = self.extractor._demangle_symbol_name(mangled)
+        self.assertEqual(demangled, "foo::bar()::baz::qux")
+
+    def test_demangle_cpp_closure_as_template_arg(self):
+        # A closure type used directly as a template argument, without the
+        # enclosing Z...E local-name wrapper.
+        mangled = "_ZNSt3foo3barIUlvE_EEvT_"
+        demangled = self.extractor._demangle_symbol_name(mangled)
+        self.assertIn("{lambda(void)#1}", demangled)
+
+    def test_demangle_cpp_nvs_find_if_with_lambda(self):
+        # Real ESP-IDF NVS symbol with a lambda passed to std::find_if. The
+        # demangled name should contain the enclosing function and the
+        # rendered lambda signature so attribution and display work.
+        mangled = (
+            "_ZSt7find_ifIN14intrusive_listIN3nvs7Storage14NamespaceEntryEE"
+            "8iteratorEZNS2_21createOrOpenNamespaceEPKcbRhEUlRKS3_E_ET_SC_SC_T0_"
+        )
+        demangled = self.extractor._demangle_symbol_name(mangled)
+        self.assertIn("std::find_if", demangled)
+        self.assertIn(
+            "nvs::Storage::createOrOpenNamespace"
+            "(char const*, bool, unsigned char&)",
+            demangled,
+        )
+        self.assertIn("{lambda(nvs::Storage::NamespaceEntry const&)#1}",
+                      demangled)
+        self.assertNotEqual(demangled, mangled)
+
     def test_demangle_cpp_function_with_args(self):
         """Test demangling of C++ function with arguments"""
         mangled = "_Z3addii"
