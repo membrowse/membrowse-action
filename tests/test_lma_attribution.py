@@ -17,23 +17,32 @@ from membrowse.analysis.mapper import MemoryMapper
 from membrowse.core.models import MemoryRegion, MemorySection
 
 
-FIXTURE = os.path.join(os.path.dirname(__file__), 'test-sleep.elf')
+# STM32 MicroPython firmware: .data is placed with AT() so VMA is in SRAM
+# (0x20000000) and LMA is in flash (0x08075914, size 0x34). .text has
+# VMA == LMA, and .bss is SHT_NOBITS with no file image.
+FIXTURE = os.path.join(
+    os.path.dirname(__file__),
+    'fixtures', 'micropython', 'stm32', 'firmware.elf')
+
+DATA_VMA = 0x20000000
+DATA_LMA = 0x08075914
+DATA_SIZE = 0x34
 
 
 class TestLmaComputation(unittest.TestCase):
     """SectionAnalyzer should compute LMA for AT()-placed sections."""
 
     def test_data_section_has_distinct_lma(self):
+        """`.data` placed with AT() should carry its flash LMA."""
         with open(FIXTURE, 'rb') as f:
             elffile = ELFFile(f)
             sections = SectionAnalyzer(elffile).analyze_sections()
 
         by_name = {s.name: s for s in sections}
 
-        # .data uses AT(): runtime in SRAM (0x20000000), init image in flash.
         data = by_name['.data']
-        self.assertEqual(data.address, 0x20000000)
-        self.assertEqual(data.lma, 0x08004340)
+        self.assertEqual(data.address, DATA_VMA)
+        self.assertEqual(data.lma, DATA_LMA)
 
         # .text is flash-resident with VMA == LMA — no split to track.
         self.assertIsNone(by_name['.text'].lma)
@@ -46,6 +55,7 @@ class TestDualAttribution(unittest.TestCase):
     """MemoryMapper should credit AT()-placed sections to both regions."""
 
     def _run(self):
+        """Analyze the fixture and map its sections to FLASH/RAM regions."""
         with open(FIXTURE, 'rb') as f:
             elffile = ELFFile(f)
             sections = SectionAnalyzer(elffile).analyze_sections()
@@ -61,6 +71,7 @@ class TestDualAttribution(unittest.TestCase):
         return regions
 
     def test_data_appears_in_both_regions(self):
+        """`.data` must appear once in FLASH (at LMA) and once in RAM (at VMA)."""
         regions = self._run()
         flash_data = [s for s in regions['FLASH'].sections
                       if s['name'] == '.data']
@@ -71,15 +82,15 @@ class TestDualAttribution(unittest.TestCase):
         self.assertEqual(len(ram_data), 1)
 
         # Addresses disambiguate the two entries.
-        self.assertEqual(flash_data[0]['address'], 0x08004340)
-        self.assertEqual(ram_data[0]['address'], 0x20000000)
-        self.assertEqual(flash_data[0]['size'], 0x6c)
-        self.assertEqual(ram_data[0]['size'], 0x6c)
+        self.assertEqual(flash_data[0]['address'], DATA_LMA)
+        self.assertEqual(ram_data[0]['address'], DATA_VMA)
+        self.assertEqual(flash_data[0]['size'], DATA_SIZE)
+        self.assertEqual(ram_data[0]['size'], DATA_SIZE)
 
     def test_used_size_includes_data_in_both_regions(self):
+        """Both FLASH and RAM totals must include .data's bytes."""
         regions = self._run()
 
-        # Both regions must include .data's 0x6c bytes in their totals.
         flash_names = {s['name'] for s in regions['FLASH'].sections}
         ram_names = {s['name'] for s in regions['RAM'].sections}
         self.assertIn('.data', flash_names)
@@ -99,8 +110,8 @@ class TestDualAttribution(unittest.TestCase):
         self.assertIn('.bss', ram_names)
 
     def test_section_entries_have_no_lma_key(self):
-        """Schema preservation: the section dicts must not leak the
-        internal `lma` field added to MemorySection."""
+        """Schema preservation: section dicts must not leak the internal
+        `lma` field added to MemorySection."""
         regions = self._run()
         for region in regions.values():
             for entry in region.sections:
@@ -113,6 +124,8 @@ class TestIdempotentLmaAttribution(unittest.TestCase):
     runs on unmapped sections) must not double-credit the LMA image."""
 
     def test_second_pass_does_not_double_credit(self):
+        """Calling the mapper twice on the same section list must still
+        produce a single LMA entry in the flash region."""
         section = MemorySection(
             name='.data', address=0x20000000, size=0x100, type='data',
             lma=0x08004000)
@@ -136,6 +149,7 @@ class TestNoLmaWhenEqual(unittest.TestCase):
     """When VMA == LMA, no dual attribution should happen."""
 
     def test_no_duplicate_for_flash_only_section(self):
+        """A section without a distinct LMA must appear in exactly one region."""
         sections = [
             MemorySection(
                 name='.text', address=0x08000000, size=0x1000, type='code'),
