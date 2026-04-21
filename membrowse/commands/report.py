@@ -523,13 +523,10 @@ def generate_report(
         )
         report = generator.generate_report()
 
-        # If no linker scripts were provided, create default regions from sections.
-        # Also fall back to defaults when linker scripts were provided but parsing
-        # yielded no regions (e.g., the script only defines SECTIONS with no
-        # MEMORY block, as in x86_64 kernel-mode scripts). Without this fallback
-        # the upload is rejected with "memory_layout is required and cannot be
-        # empty".
-        if memory_regions_data is None or not memory_regions_data:
+        # Fall back to default regions when no linker scripts were provided
+        # OR when parsing yielded none (e.g. SECTIONS-only script with no
+        # MEMORY block). Otherwise upload fails: "memory_layout is required".
+        if not memory_regions_data:
             if memory_regions_data is not None:
                 logger.warning(
                     "Linker scripts parsed but yielded no memory regions; "
@@ -565,12 +562,9 @@ def _parse_linker_scripts_if_provided(
         logger.debug("No linker scripts provided - using default Code/Data regions")
         return None
 
-    # Split and validate linker scripts. Prefer a preprocessed ".tmp" sibling
-    # when it exists: build systems that use the C preprocessor on linker
-    # scripts (e.g. NuttX's `$(CPP) $(CPPFLAGS) foo.ld -o foo.ld.tmp`) emit a
-    # fully-resolved version next to the source. The .tmp has #ifdef, #include,
-    # and macros already expanded, so it parses cleanly — the raw .ld often
-    # does not.
+    # Prefer a preprocessed "<script>.tmp" sibling when present. Build
+    # systems that run the C preprocessor on linker scripts (e.g. NuttX)
+    # emit the fully-expanded form there; the raw .ld often does not parse.
     ld_array = []
     for ld_script in ld_scripts.split():
         preprocessed = ld_script + ".tmp"
