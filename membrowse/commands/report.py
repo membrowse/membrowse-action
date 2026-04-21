@@ -523,8 +523,15 @@ def generate_report(
         )
         report = generator.generate_report()
 
-        # If no linker scripts were provided, create default regions from sections
-        if memory_regions_data is None:
+        # Fall back to default regions when no linker scripts were provided
+        # OR when parsing yielded none (e.g. SECTIONS-only script with no
+        # MEMORY block). Otherwise upload fails: "memory_layout is required".
+        if not memory_regions_data:
+            if memory_regions_data is not None:
+                logger.warning(
+                    "Linker scripts parsed but yielded no memory regions; "
+                    "falling back to default Code/Data regions from ELF sections"
+                )
             _apply_default_regions(generator, report)
 
     except Exception as e:  # pylint: disable=broad-exception-caught
@@ -555,13 +562,23 @@ def _parse_linker_scripts_if_provided(
         logger.debug("No linker scripts provided - using default Code/Data regions")
         return None
 
-    # Split and validate linker scripts
-    ld_array = ld_scripts.split()
+    # Prefer a preprocessed "<script>.tmp" sibling when present. Build
+    # systems that run the C preprocessor on linker scripts (e.g. NuttX)
+    # emit the fully-expanded form there; the raw .ld often does not parse.
+    ld_array = []
+    for ld_script in ld_scripts.split():
+        preprocessed = ld_script + ".tmp"
+        if os.path.exists(preprocessed):
+            logger.debug("Using preprocessed linker script: %s", preprocessed)
+            ld_array.append(preprocessed)
+        else:
+            ld_array.append(ld_script)
+
     for ld_script in ld_array:
         if not os.path.exists(ld_script):
             raise ValueError(f"Linker script not found: {ld_script}")
 
-    logger.debug("Linker scripts: %s", ld_scripts)
+    logger.debug("Linker scripts: %s", " ".join(ld_array))
 
     # Parse memory regions from linker scripts
     logger.debug("Parsing memory regions from linker scripts...")
