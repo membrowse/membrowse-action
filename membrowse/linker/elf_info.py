@@ -27,21 +27,43 @@ class Architecture(Enum):
     X86_64 = "x86-64"
     AARCH64 = "AArch64"
     MIPS = "MIPS"
+    RX = "RX"
+    SPARC = "SPARC"
+    AVR = "AVR"
+    MSP430 = "MSP430"
+    STM8 = "STM8"
+    RL78 = "RL78"
+    POWERPC = "PowerPC"
+    ARC = "ARC"
+    MICROBLAZE = "MicroBlaze"
+    NIOS2 = "Nios II"
+    SUPERH = "SuperH"
     UNKNOWN = "Unknown"
 
 
 class Platform(Enum):
     """Platform/vendor classifications"""
-    STM32 = "STM32"         # ARM Cortex-M (STM32)
-    ESP32 = "ESP32"         # Xtensa (ESP32)
-    ESP8266 = "ESP8266"     # Xtensa (ESP8266)
-    NRF = "Nordic"          # ARM Cortex-M (Nordic nRF)
-    SAMD = "SAMD"           # ARM Cortex-M (Microchip SAMD)
-    MIMXRT = "MIMXRT"       # ARM Cortex-M (NXP i.MX RT)
-    QEMU = "QEMU"           # RISC-V or other emulated
-    RENESAS = "Renesas"     # ARM Cortex-M (Renesas RA)
-    RP2 = "RP2040"          # ARM Cortex-M (Raspberry Pi Pico)
-    UNIX = "Unix"           # Generic Unix/Linux
+    STM32 = "STM32"             # ARM Cortex-M (STM32)
+    ESP32 = "ESP32"             # Xtensa (ESP32)
+    ESP8266 = "ESP8266"         # Xtensa (ESP8266)
+    NRF = "Nordic"              # ARM Cortex-M (Nordic nRF)
+    SAMD = "SAMD"               # ARM Cortex-M (Microchip SAMD)
+    MIMXRT = "MIMXRT"           # ARM Cortex-M (NXP i.MX RT)
+    QEMU = "QEMU"               # RISC-V or other emulated
+    RENESAS = "Renesas"         # ARM Cortex-M (Renesas RA)
+    RENESAS_RX = "Renesas RX"   # Renesas RX family (e.g. RX65N)
+    GAISLER = "Gaisler"         # SPARC V8 LEON-based (e.g. S698PM)
+    RP2 = "RP2040"              # ARM Cortex-M (Raspberry Pi Pico)
+    AVR = "AVR"                 # Atmel/Microchip AVR
+    MSP430 = "MSP430"           # TI MSP430
+    STM8 = "STM8"               # STMicro 8-bit
+    RL78 = "RL78"               # Renesas RL78 16-bit
+    POWERPC = "PowerPC"         # PowerPC (NXP automotive MPC5xxx, IBM embedded)
+    ARC = "ARC"                 # Synopsys ARC
+    MICROBLAZE = "MicroBlaze"   # Xilinx FPGA soft core
+    NIOS2 = "Nios II"           # Intel/Altera FPGA soft core
+    SUPERH = "SuperH"           # Renesas SuperH (SH)
+    UNIX = "Unix"               # Generic Unix/Linux
     UNKNOWN = "Unknown"
 
 
@@ -65,18 +87,47 @@ class ELFParser:  # pylint: disable=too-few-public-methods
     # ELF machine type constants mapped to pyelftools constants
     MACHINE_TYPES = {
         'EM_NONE': Architecture.UNKNOWN,
-        'EM_SPARC': Architecture.UNKNOWN,
+        'EM_SPARC': Architecture.SPARC,
+        'EM_SPARC32PLUS': Architecture.SPARC,
         'EM_386': Architecture.X86,
         'EM_MIPS': Architecture.MIPS,
-        'EM_PPC': Architecture.UNKNOWN,
+        'EM_PPC': Architecture.POWERPC,
+        'EM_PPC64': Architecture.POWERPC,
         'EM_S390': Architecture.UNKNOWN,
         'EM_ARM': Architecture.ARM,
-        'EM_SH': Architecture.UNKNOWN,
+        'EM_SH': Architecture.SUPERH,
         'EM_IA_64': Architecture.UNKNOWN,
         'EM_X86_64': Architecture.X86_64,
         'EM_XTENSA': Architecture.XTENSA,
         'EM_AARCH64': Architecture.AARCH64,
         'EM_RISCV': Architecture.RISC_V,
+        'EM_RX': Architecture.RX,
+        'EM_AVR': Architecture.AVR,
+        'EM_MSP430': Architecture.MSP430,
+        'EM_STM8': Architecture.STM8,
+        'EM_RL78': Architecture.RL78,
+        'EM_ARC': Architecture.ARC,
+        'EM_ARC_COMPACT': Architecture.ARC,
+        'EM_ARC_COMPACT2': Architecture.ARC,
+        'EM_MICROBLAZE': Architecture.MICROBLAZE,
+        'EM_ALTERA_NIOS2': Architecture.NIOS2,
+    }
+
+    # Architectures with a single, unambiguous platform — no path-based
+    # hinting needed. Multi-platform architectures (ARM, Xtensa, RISC-V)
+    # go through dedicated _detect_* helpers below.
+    _SINGLE_PLATFORM_ARCH = {
+        Architecture.RX: Platform.RENESAS_RX,
+        Architecture.SPARC: Platform.GAISLER,
+        Architecture.AVR: Platform.AVR,
+        Architecture.MSP430: Platform.MSP430,
+        Architecture.STM8: Platform.STM8,
+        Architecture.RL78: Platform.RL78,
+        Architecture.POWERPC: Platform.POWERPC,
+        Architecture.ARC: Platform.ARC,
+        Architecture.MICROBLAZE: Platform.MICROBLAZE,
+        Architecture.NIOS2: Platform.NIOS2,
+        Architecture.SUPERH: Platform.SUPERH,
     }
 
     @classmethod
@@ -128,7 +179,9 @@ class ELFParser:  # pylint: disable=too-few-public-methods
         """Detect specific platform based on architecture and path hints"""
         path_lower = elf_path.lower()
 
-        # Platform detection mapping
+        # Platform detection mapping — only for architectures where the
+        # same ISA spans multiple distinct vendor platforms we need to
+        # disambiguate via path hints.
         platform_map = {
             Architecture.XTENSA: cls._detect_xtensa_platform,
             Architecture.ARM: cls._detect_arm_platform,
@@ -137,6 +190,9 @@ class ELFParser:  # pylint: disable=too-few-public-methods
 
         if architecture in platform_map:
             return platform_map[architecture](path_lower)
+
+        if architecture in cls._SINGLE_PLATFORM_ARCH:
+            return cls._SINGLE_PLATFORM_ARCH[architecture]
 
         if architecture in (Architecture.X86, Architecture.X86_64):
             return Platform.UNIX
@@ -187,7 +243,11 @@ class ELFParser:  # pylint: disable=too-few-public-methods
         embedded_platforms = {
             Platform.STM32, Platform.ESP32, Platform.ESP8266,
             Platform.NRF, Platform.SAMD, Platform.MIMXRT,
-            Platform.RENESAS, Platform.RP2, Platform.QEMU
+            Platform.RENESAS, Platform.RENESAS_RX, Platform.GAISLER,
+            Platform.RP2, Platform.QEMU,
+            Platform.AVR, Platform.MSP430, Platform.STM8, Platform.RL78,
+            Platform.POWERPC, Platform.ARC, Platform.MICROBLAZE,
+            Platform.NIOS2, Platform.SUPERH,
         }
         return platform in embedded_platforms
 
