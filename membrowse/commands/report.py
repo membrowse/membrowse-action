@@ -523,8 +523,18 @@ def generate_report(
         )
         report = generator.generate_report()
 
-        # If no linker scripts were provided, create default regions from sections
-        if memory_regions_data is None:
+        # If no linker scripts were provided, create default regions from sections.
+        # Also fall back to defaults when linker scripts were provided but parsing
+        # yielded no regions (e.g., the script only defines SECTIONS with no
+        # MEMORY block, as in x86_64 kernel-mode scripts). Without this fallback
+        # the upload is rejected with "memory_layout is required and cannot be
+        # empty".
+        if memory_regions_data is None or not memory_regions_data:
+            if memory_regions_data is not None:
+                logger.warning(
+                    "Linker scripts parsed but yielded no memory regions; "
+                    "falling back to default Code/Data regions from ELF sections"
+                )
             _apply_default_regions(generator, report)
 
     except Exception as e:  # pylint: disable=broad-exception-caught
@@ -555,13 +565,26 @@ def _parse_linker_scripts_if_provided(
         logger.debug("No linker scripts provided - using default Code/Data regions")
         return None
 
-    # Split and validate linker scripts
-    ld_array = ld_scripts.split()
+    # Split and validate linker scripts. Prefer a preprocessed ".tmp" sibling
+    # when it exists: build systems that use the C preprocessor on linker
+    # scripts (e.g. NuttX's `$(CPP) $(CPPFLAGS) foo.ld -o foo.ld.tmp`) emit a
+    # fully-resolved version next to the source. The .tmp has #ifdef, #include,
+    # and macros already expanded, so it parses cleanly — the raw .ld often
+    # does not.
+    ld_array = []
+    for ld_script in ld_scripts.split():
+        preprocessed = ld_script + ".tmp"
+        if os.path.exists(preprocessed):
+            logger.debug("Using preprocessed linker script: %s", preprocessed)
+            ld_array.append(preprocessed)
+        else:
+            ld_array.append(ld_script)
+
     for ld_script in ld_array:
         if not os.path.exists(ld_script):
             raise ValueError(f"Linker script not found: {ld_script}")
 
-    logger.debug("Linker scripts: %s", ld_scripts)
+    logger.debug("Linker scripts: %s", " ".join(ld_array))
 
     # Parse memory regions from linker scripts
     logger.debug("Parsing memory regions from linker scripts...")
