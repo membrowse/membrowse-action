@@ -562,23 +562,13 @@ def _parse_linker_scripts_if_provided(
         logger.debug("No linker scripts provided - using default Code/Data regions")
         return None
 
-    # Prefer a preprocessed "<script>.tmp" sibling when present. Build
-    # systems that run the C preprocessor on linker scripts (e.g. NuttX)
-    # emit the fully-expanded form there; the raw .ld often does not parse.
-    ld_array = []
-    for ld_script in ld_scripts.split():
-        preprocessed = ld_script + ".tmp"
-        if os.path.exists(preprocessed):
-            logger.debug("Using preprocessed linker script: %s", preprocessed)
-            ld_array.append(preprocessed)
-        else:
-            ld_array.append(ld_script)
-
+    # Split and validate linker scripts
+    ld_array = ld_scripts.split()
     for ld_script in ld_array:
         if not os.path.exists(ld_script):
             raise ValueError(f"Linker script not found: {ld_script}")
 
-    logger.debug("Linker scripts: %s", " ".join(ld_array))
+    logger.debug("Linker scripts: %s", ld_scripts)
 
     # Parse memory regions from linker scripts
     logger.debug("Parsing memory regions from linker scripts...")
