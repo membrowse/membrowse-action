@@ -35,6 +35,8 @@
 {% if targets_without_changes %}
 *No memory changes detected for:*
 {% for target in targets_without_changes %}
-- {% if target.comparison_url %}[{{ target.name }}]({{ target.comparison_url }}){% else %}{{ target.name }}{% endif %}
+{% if target.comparison_url %}- [{{ target.name }}]({{ target.comparison_url }})
+{% else %}- {{ target.name }}
+{% endif %}
 {% endfor %}
 {% endif %}
