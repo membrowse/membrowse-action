@@ -406,6 +406,17 @@ examples:
         help='Path to linker map file for archive/object file attribution '
              '(supports GNU LD and IAR formats; GNU LD generated with -Wl,-Map=output.map)'
     )
+    perf_group.add_argument(
+        '--limits',
+        default=None,
+        metavar='PATH',
+        help='Linker script supplying the real LENGTH for each MEMORY region. '
+             'Section attribution still uses the primary ld_scripts (which may '
+             'be inflated to swallow overflow sections); utilization is computed '
+             "against this script's LENGTH values. Useful when the build links "
+             'against an oversized region and you want to report overflow '
+             'against the real target size.'
+    )
 
     # Alert handling
     alert_group = parser.add_argument_group('alert options')
@@ -481,7 +492,8 @@ def generate_report(
     ld_scripts: Optional[str] = None,
     skip_line_program: bool = False,
     linker_variables: Optional[Dict[str, Any]] = None,
-    map_file: Optional[str] = None
+    map_file: Optional[str] = None,
+    limits_ld: Optional[str] = None
 ) -> dict:
     """
     Generate a memory footprint report from ELF and optionally linker scripts.
@@ -493,6 +505,10 @@ def generate_report(
         skip_line_program: Skip DWARF line program processing for faster analysis
         linker_variables: Optional dict of user-defined linker script variables
         map_file: Optional path to GNU LD map file for archive/object file attribution
+        limits_ld: Optional path to a separate linker script whose LENGTH
+            values are the real per-region capacities. The primary linker
+            scripts remain the source of truth for section-to-region
+            attribution; this script only overrides the utilization denominator.
 
     Returns:
         dict: Memory analysis report (JSON-serializable)
@@ -512,6 +528,10 @@ def generate_report(
         ld_scripts, elf_path, linker_variables
     )
 
+    real_limits = _resolve_real_limits(
+        limits_ld, memory_regions_data, elf_path, linker_variables
+    )
+
     # Generate JSON report
     logger.debug("Generating memory report...")
     try:
@@ -519,7 +539,8 @@ def generate_report(
             elf_path,
             memory_regions_data,
             skip_line_program=skip_line_program,
-            map_file_path=map_file
+            map_file_path=map_file,
+            real_limits=real_limits
         )
         report = generator.generate_report()
 
@@ -540,6 +561,76 @@ def generate_report(
 
     logger.debug("Memory report generated successfully")
     return report
+
+
+def _resolve_real_limits(
+    limits_ld: Optional[str],
+    attribution_regions: Optional[Dict[str, Any]],
+    elf_path: str,
+    linker_variables: Optional[Dict[str, Any]]
+) -> Optional[Dict[str, int]]:
+    """Parse the limits linker script and return a ``name -> real_limit_size``
+    mapping for regions that appear in both scripts.
+
+    Raises:
+        ValueError: When ``ORIGIN`` disagrees between the attribution and
+            limits scripts for a given region name — that almost always means
+            the user mixed up two unrelated builds.
+    """
+    if not limits_ld:
+        return None
+
+    if not attribution_regions:
+        logger.warning(
+            "--limits supplied but no attribution regions were parsed; "
+            "ignoring --limits")
+        return None
+
+    if not os.path.exists(limits_ld):
+        raise ValueError(f"Limits linker script not found: {limits_ld}")
+
+    logger.debug("Parsing limits linker script: %s", limits_ld)
+    try:
+        limits_parser = LinkerScriptParser(
+            [limits_ld], elf_file=elf_path, user_variables=linker_variables
+        )
+        limits_regions = limits_parser.parse_memory_regions()
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        logger.error("Failed to parse limits linker script: %s", e)
+        raise ValueError(f"Failed to parse limits linker script: {e}") from e
+
+    real_limits: Dict[str, int] = {}
+    for name, limit_data in limits_regions.items():
+        attribution = attribution_regions.get(name)
+        if attribution is None:
+            logger.warning(
+                "Region '%s' appears in --limits but not in primary "
+                "linker scripts; skipping", name)
+            continue
+
+        if attribution['address'] != limit_data['address']:
+            raise ValueError(
+                f"ORIGIN mismatch for region '{name}': attribution script "
+                f"has 0x{attribution['address']:x} but limits script has "
+                f"0x{limit_data['address']:x}. This usually means the two "
+                f"scripts are from different builds.")
+
+        real_size = limit_data['limit_size']
+        if real_size > attribution['limit_size']:
+            logger.warning(
+                "Region '%s' limit (0x%x) is larger than attribution range "
+                "(0x%x); utilization will not reflect sections past the "
+                "attribution end", name, real_size, attribution['limit_size'])
+
+        real_limits[name] = real_size
+
+    for name in attribution_regions:
+        if name not in real_limits:
+            logger.debug(
+                "Region '%s' has no entry in --limits; keeping attribution "
+                "LENGTH", name)
+
+    return real_limits
 
 
 def _parse_linker_scripts_if_provided(
@@ -883,6 +974,13 @@ def _validate_args(args: argparse.Namespace) -> Optional[str]:
         if not is_valid:
             return error_message
 
+        limits_path = getattr(args, 'limits', None)
+        if limits_path:
+            if not ld_script_paths:
+                return "--limits requires a primary linker script"
+            if not os.path.exists(limits_path):
+                return f"Limits linker script not found: {limits_path}"
+
     return None
 
 
@@ -922,7 +1020,8 @@ def run_report(args: argparse.Namespace) -> int:
                 ld_scripts=args.ld_scripts,
                 skip_line_program=getattr(args, 'skip_line_program', False),
                 linker_variables=linker_variables,
-                map_file=getattr(args, 'map_file', None)
+                map_file=getattr(args, 'map_file', None),
+                limits_ld=getattr(args, 'limits', None)
             )
         except ValueError as e:
             logger.error("Failed to generate report: %s", e)
