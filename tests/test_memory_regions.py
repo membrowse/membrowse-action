@@ -812,6 +812,163 @@ class TestUserVariablesIntegration(unittest.TestCase):
         self.assertEqual(regions['RAM']['limit_size'], 256 * 1024)
 
 
+class TestIncludeDirective(unittest.TestCase):
+    """Tests for GNU LD INCLUDE directive support"""
+
+    def setUp(self):
+        self.temp_dir = Path(tempfile.mkdtemp())
+        self.test_files = []
+
+    def tearDown(self):
+        for file_path in self.test_files:
+            if file_path.exists():
+                file_path.unlink()
+        if self.temp_dir.exists():
+            self.temp_dir.rmdir()
+
+    def create_test_file(self, content: str, filename: str) -> Path:
+        """Create a temporary test file with given content"""
+        file_path = self.temp_dir / filename
+        with open(file_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+        self.test_files.append(file_path)
+        return file_path
+
+    def test_include_inlines_memory_block(self):
+        """INCLUDE pulls a MEMORY block from another file into the parser's view."""
+        self.create_test_file('''
+            MEMORY
+            {
+                FLASH (rx) : ORIGIN = 0x08000000, LENGTH = 512K
+                RAM (rw)   : ORIGIN = 0x20000000, LENGTH = 128K
+            }
+        ''', 'base.ld')
+
+        outer = self.create_test_file('''
+            INCLUDE "base.ld"
+        ''', 'outer.ld')
+
+        regions = parse_linker_scripts([str(outer)])
+        self.assertIn('FLASH', regions)
+        self.assertIn('RAM', regions)
+        self.assertEqual(regions['FLASH']['limit_size'], 512 * 1024)
+
+    def test_include_plus_override_memory_block(self):
+        """Outer script adds regions on top of an INCLUDE'd MEMORY block."""
+        self.create_test_file('''
+            MEMORY
+            {
+                FLASH_ITCM (rx) : ORIGIN = 0x00200000, LENGTH = 64K
+                ITCM_RAM   (rw) : ORIGIN = 0x00000000, LENGTH = 64K
+                DTCM_RAM   (rw) : ORIGIN = 0x20000000, LENGTH = 128K
+                SRAM1      (rw) : ORIGIN = 0x20020000, LENGTH = 368K
+                SRAM2      (rw) : ORIGIN = 0x2007C000, LENGTH = 16K
+            }
+        ''', 'base.ld')
+
+        outer = self.create_test_file('''
+            INCLUDE "base.ld"
+            MEMORY
+            {
+                FLASH_AXIM (rx) : ORIGIN = 0x08008000, LENGTH = 10080K
+            }
+        ''', 'outer.ld')
+
+        regions = parse_linker_scripts([str(outer)])
+        for name in ('FLASH_ITCM', 'ITCM_RAM', 'DTCM_RAM', 'SRAM1', 'SRAM2',
+                    'FLASH_AXIM'):
+            self.assertIn(name, regions)
+        self.assertEqual(regions['FLASH_AXIM']['address'], 0x08008000)
+        self.assertEqual(regions['FLASH_AXIM']['limit_size'], 10080 * 1024)
+
+    def test_include_override_region_later_wins(self):
+        """When the same region is redefined after INCLUDE, the later definition wins."""
+        self.create_test_file('''
+            MEMORY
+            {
+                FLASH (rx) : ORIGIN = 0x08000000, LENGTH = 512K
+            }
+        ''', 'base.ld')
+
+        outer = self.create_test_file('''
+            INCLUDE "base.ld"
+            MEMORY
+            {
+                FLASH (rx) : ORIGIN = 0x08008000, LENGTH = 10080K
+            }
+        ''', 'outer.ld')
+
+        regions = parse_linker_scripts([str(outer)])
+        self.assertEqual(regions['FLASH']['address'], 0x08008000)
+        self.assertEqual(regions['FLASH']['limit_size'], 10080 * 1024)
+
+    def test_include_unquoted_filename(self):
+        """INCLUDE without quotes is supported."""
+        self.create_test_file('''
+            MEMORY { FLASH (rx) : ORIGIN = 0x0, LENGTH = 4K }
+        ''', 'base.ld')
+
+        outer = self.create_test_file('''
+            INCLUDE base.ld
+        ''', 'outer.ld')
+
+        regions = parse_linker_scripts([str(outer)])
+        self.assertIn('FLASH', regions)
+
+    def test_nested_include(self):
+        """INCLUDE chains are resolved recursively."""
+        self.create_test_file('''
+            MEMORY { RAM (rw) : ORIGIN = 0x20000000, LENGTH = 64K }
+        ''', 'inner.ld')
+
+        self.create_test_file('''
+            INCLUDE "inner.ld"
+            MEMORY { FLASH (rx) : ORIGIN = 0x08000000, LENGTH = 256K }
+        ''', 'middle.ld')
+
+        outer = self.create_test_file('''
+            INCLUDE "middle.ld"
+        ''', 'outer.ld')
+
+        regions = parse_linker_scripts([str(outer)])
+        self.assertIn('FLASH', regions)
+        self.assertIn('RAM', regions)
+
+    def test_include_cycle_does_not_hang(self):
+        """A file that INCLUDEs itself terminates instead of infinite-looping."""
+        path_a = self.temp_dir / 'a.ld'
+        path_b = self.temp_dir / 'b.ld'
+        with open(path_a, 'w', encoding='utf-8') as f:
+            f.write('INCLUDE "b.ld"\nMEMORY { FLASH (rx) : ORIGIN = 0x0, LENGTH = 1K }\n')
+        with open(path_b, 'w', encoding='utf-8') as f:
+            f.write('INCLUDE "a.ld"\n')
+        self.test_files.extend([path_a, path_b])
+
+        regions = parse_linker_scripts([str(path_a)])
+        self.assertIn('FLASH', regions)
+
+    def test_missing_include_is_warned_not_fatal(self):
+        """A missing INCLUDE target logs a warning but parsing continues."""
+        outer = self.create_test_file('''
+            INCLUDE "nonexistent.ld"
+            MEMORY { FLASH (rx) : ORIGIN = 0x0, LENGTH = 1K }
+        ''', 'outer.ld')
+
+        with self.assertLogs('membrowse.linker.parser', level='WARNING'):
+            regions = parse_linker_scripts([str(outer)])
+        self.assertIn('FLASH', regions)
+
+    def test_include_inside_comment_is_ignored(self):
+        """INCLUDE directives inside /* ... */ comments must not be resolved."""
+        outer = self.create_test_file('''
+            /* INCLUDE "should-not-be-read.ld" */
+            MEMORY { FLASH (rx) : ORIGIN = 0x0, LENGTH = 1K }
+        ''', 'outer.ld')
+
+        regions = parse_linker_scripts([str(outer)])
+        self.assertIn('FLASH', regions)
+
+
 if __name__ == '__main__':
     print("Memory Regions Test Suite")
     print("=" * 40)
