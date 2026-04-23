@@ -79,6 +79,80 @@ class VariableResolutionError(LinkerScriptError):
 class ScriptContentCleaner:  # pylint: disable=too-few-public-methods
     """Handles preprocessing and cleanup of linker script content"""
 
+    # GNU LD documents a nesting limit of 10 for INCLUDE.
+    MAX_INCLUDE_DEPTH = 10
+
+    @staticmethod
+    def resolve_includes(
+        content: str,
+        base_dir: str,
+        visited: Optional[Set[str]] = None,
+        depth: int = 0,
+    ) -> str:
+        """Inline GNU LD ``INCLUDE filename`` directives.
+
+        Paths are resolved relative to the including script's directory, then
+        the current working directory. Cycles are guarded via ``visited`` and
+        depth is capped at ``MAX_INCLUDE_DEPTH``. Unresolvable includes log a
+        warning and are dropped so parsing can continue.
+        """
+        if visited is None:
+            visited = set()
+
+        if depth >= ScriptContentCleaner.MAX_INCLUDE_DEPTH:
+            logger.warning(
+                "INCLUDE nesting depth exceeds %d, skipping further includes",
+                ScriptContentCleaner.MAX_INCLUDE_DEPTH)
+            return content
+
+        # Strip comments so INCLUDE directives inside comments aren't matched.
+        # clean_content re-runs these regexes; the operation is idempotent.
+        scan = re.sub(r"/\*.*?\*/", "", content, flags=re.DOTALL)
+        scan = re.sub(r"//.*", "", scan)
+
+        # GNU LD syntax: `INCLUDE filename` with optional quoting.
+        include_pattern = re.compile(
+            r'\bINCLUDE\s+"([^"]+)"|\bINCLUDE\s+(\S+?)\s*;?(?=\s|$)')
+
+        def replace_include(match: re.Match) -> str:
+            filename = (match.group(1) or match.group(2)).strip().rstrip(';')
+            resolved = ScriptContentCleaner._resolve_include_path(
+                filename, base_dir)
+            if resolved is None:
+                logger.warning(
+                    "INCLUDE '%s' not found (searched %s and cwd)",
+                    filename, base_dir)
+                return ""
+            if resolved in visited:
+                logger.debug("Skipping already-included file: %s", resolved)
+                return ""
+            visited.add(resolved)
+            try:
+                with open(resolved, "r", encoding="utf-8") as f:
+                    inner = f.read()
+            except OSError as exc:
+                logger.warning("Failed to read INCLUDE %s: %s", resolved, exc)
+                return ""
+            return ScriptContentCleaner.resolve_includes(
+                inner, os.path.dirname(resolved), visited, depth + 1)
+
+        return include_pattern.sub(replace_include, scan)
+
+    @staticmethod
+    def _resolve_include_path(filename: str, base_dir: str) -> Optional[str]:
+        """Resolve an INCLUDE filename to an absolute path or None."""
+        if os.path.isabs(filename):
+            return filename if os.path.exists(filename) else None
+
+        candidate = os.path.join(base_dir, filename)
+        if os.path.exists(candidate):
+            return os.path.abspath(candidate)
+
+        if os.path.exists(filename):
+            return os.path.abspath(filename)
+
+        return None
+
     @staticmethod
     def clean_content(content: str) -> str:
         """Remove comments and normalize whitespace from linker script content"""
@@ -788,6 +862,10 @@ class VariableExtractor:  # pylint: disable=too-few-public-methods
         with open(script_path, "r", encoding="utf-8") as f:
             content = f.read()
 
+        # Inline INCLUDE directives before any other preprocessing
+        content = ScriptContentCleaner.resolve_includes(
+            content, os.path.dirname(os.path.abspath(script_path)))
+
         # Remove comments and preprocessor directives
         content = ScriptContentCleaner.clean_content(content)
 
@@ -1207,18 +1285,23 @@ class LinkerScriptParser:  # pylint: disable=too-few-public-methods,too-many-ins
             return self._parse_icf_script(script_path), []
 
         # GNU LD path (existing logic)
+        # Inline INCLUDE directives before cleaning/scanning
+        content = ScriptContentCleaner.resolve_includes(
+            content, os.path.dirname(os.path.abspath(script_path)))
+
         # Remove comments and normalize whitespace
         content = ScriptContentCleaner.clean_content(content)
 
-        # Find MEMORY block (case insensitive)
-        memory_match = re.search(
-            r"MEMORY\s*\{([^}]+)\}",
-            content,
-            re.IGNORECASE)
-        if not memory_match:
+        # Find all MEMORY blocks (case insensitive). Multiple blocks arise from
+        # INCLUDE chains where an outer script overrides / augments an included
+        # MEMORY definition. Later definitions win for duplicate region names
+        # (see parse_memory_block's dict-assignment behavior).
+        memory_blocks = re.findall(
+            r"MEMORY\s*\{([^}]+)\}", content, re.IGNORECASE)
+        if not memory_blocks:
             return {}, []
 
-        memory_content = memory_match.group(1)
+        memory_content = " ".join(memory_blocks)
         return self.region_builder.parse_memory_block(
             memory_content, deferred_matches)
 

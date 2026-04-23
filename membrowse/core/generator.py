@@ -50,13 +50,15 @@ class ReportGenerator:  # pylint: disable=too-few-public-methods
         elf_analyzer: The underlying ELFAnalyzer instance.
     """
 
-    def __init__(self,
+    def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+                 self,
                  elf_path: str,
                  memory_regions_data: Dict[str,
                                            Dict[str,
                                                 Any]] = None,
                  skip_line_program: bool = False,
-                 map_file_path: Optional[str] = None):
+                 map_file_path: Optional[str] = None,
+                 real_limits: Optional[Dict[str, int]] = None):
         """Initialize the report generator.
 
         Args:
@@ -68,6 +70,12 @@ class ReportGenerator:  # pylint: disable=too-few-public-methods
                 analysis at the cost of reduced source file coverage (~24-31% faster).
             map_file_path: Optional path to a linker map file (GNU LD or IAR)
                 for archive/object file attribution on symbols.
+            real_limits: Optional mapping of region name to the real
+                ``limit_size`` used as the denominator for utilization. The
+                ranges in ``memory_regions_data`` are used for section
+                attribution (they may be inflated to capture overflow
+                sections), and these values replace each region's
+                ``limit_size`` before utilization is computed.
         """
         self.elf_analyzer = ELFAnalyzer(
             elf_path, skip_line_program=skip_line_program,
@@ -75,8 +83,9 @@ class ReportGenerator:  # pylint: disable=too-few-public-methods
         self.memory_regions_data = memory_regions_data
         self.elf_path = elf_path
         self.skip_line_program = skip_line_program
+        self.real_limits = real_limits or {}
 
-    def generate_report(self) -> MemoryReport:
+    def generate_report(self) -> MemoryReport:  # pylint: disable=too-many-locals
         """Generate comprehensive memory report.
 
         Returns:
@@ -149,6 +158,15 @@ class ReportGenerator:  # pylint: disable=too-few-public-methods
                                 "memory region: %s",
                                 len(still_unmapped),
                                 ', '.join(s.name for s in still_unmapped))
+
+                # Swap attribution limit_size for the real limit (from a
+                # separate limits linker script) before computing utilization.
+                # Attribution used the broader range to classify overflow
+                # sections; utilization math uses the real capacity.
+                for name, real_size in self.real_limits.items():
+                    region = memory_regions.get(name)
+                    if region is not None:
+                        region.limit_size = real_size
 
                 MemoryMapper.calculate_utilization(memory_regions)
 

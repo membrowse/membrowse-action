@@ -214,6 +214,20 @@ examples:
         help='Path to linker map file for archive/object file attribution '
              '(supports GNU LD and IAR formats; GNU LD generated with -Wl,-Map=output.map)'
     )
+    parser.add_argument(
+        '--limits',
+        dest='limits',
+        default=None,
+        metavar='PATH',
+        help='Optional linker script supplying the real LENGTH for each '
+             'MEMORY region. Use when --ld-scripts were built with inflated '
+             'region sizes so the link succeeds even when the ELF exceeds the '
+             'real target capacity. Section attribution still uses --ld-scripts '
+             '(the wider ranges); utilization and overflow are reported against '
+             "this script's LENGTH values. Applied to every commit built during "
+             'onboarding. Omit when the binary fits — --ld-scripts is already '
+             'the real limit.'
+    )
 
     return parser
 
@@ -506,7 +520,8 @@ def _build_and_generate_report(commit, args, linker_variables):
         ld_scripts=args.ld_scripts,
         skip_line_program=False,
         linker_variables=linker_variables,
-        map_file=getattr(args, 'map_file', None)
+        map_file=getattr(args, 'map_file', None),
+        limits_ld=getattr(args, 'limits', None)
     )
 
     # Case 3b: Build succeeded but report has empty memory_layout

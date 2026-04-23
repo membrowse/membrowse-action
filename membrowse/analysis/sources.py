@@ -73,7 +73,7 @@ class SourceFileResolver:  # pylint: disable=too-few-public-methods
             return ""
         return result
 
-    def _resolve_source_file(  # pylint: disable=too-many-return-statements
+    def _resolve_source_file(  # pylint: disable=too-many-return-statements,too-many-branches
             self,
             symbol_name: str,
             symbol_type: str,

@@ -61,6 +61,23 @@ The comment action posts a memory report to the PR showing changes between the P
 
 You can customize the comment format by providing a Jinja2 template via the `comment_template` input. Your template receives a `targets` list (each with `regions`, `sections`, `symbols`, and `alerts`) and a top-level `has_alerts` boolean. See the [default template](membrowse/utils/templates/default_comment.j2) for reference.
 
+##### Tracking overflow past the real region size (optional `limits`)
+
+By default, the linker refuses to produce an ELF when a region overflows, so there's nothing to analyze. If you want to keep building (and keep tracking memory growth) past that point, link against an **inflated** linker script whose `LENGTH` values are larger than the real target, and pass the **real** script as `limits`:
+
+```yaml
+      - name: Analyze memory
+        uses: membrowse/membrowse-action@v1
+        with:
+          elf: build/firmware.elf
+          ld: "src/linker.inflated.ld"   # used for linking + section attribution
+          limits: "src/linker.real.ld"   # real per-region LENGTH → utilization & overflow
+          target_name: stm32f4
+          api_key: ${{ secrets.MEMBROWSE_API_KEY }}
+```
+
+`limits` is **optional** — omit it when the binary fits the real layout (then `ld` is already the real limit). When supplied, section-to-region attribution still uses `ld` (so sections placed past the real end stay attributed to their region), and utilization / free / overflow are reported against each region's `LENGTH` from `limits`.
+
 #### Historical Onboarding
 
 For getting historical build data from day one upload the last N commits by
