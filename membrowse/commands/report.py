@@ -1,3 +1,4 @@
+# pylint: disable=too-many-lines
 """Report subcommand - generates memory footprint reports from ELF files."""
 
 import os
@@ -489,7 +490,7 @@ def _apply_default_regions(generator: ReportGenerator, report: dict) -> None:
     }
 
 
-def generate_report(
+def generate_report(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     elf_path: str,
     ld_scripts: Optional[str] = None,
     skip_line_program: bool = False,
@@ -799,8 +800,10 @@ def _build_enriched_report(
         'repository': commit_info.get('repository'),
         'target_name': target_name,
         'analysis_version': version('membrowse'),
-        # Core reads these at metadata.architecture / metadata.toolchain
-        # (membrowse-core/core/src/routes/memory.py).
+        # Core reads these from memory_analysis (where they already are, via
+        # the spread of `report` into memory_analysis below). Duplicated here
+        # so older Core versions that only looked at metadata.* still pick
+        # them up.
         'architecture': report.get('architecture'),
         'toolchain': report.get('toolchain'),
     }
@@ -954,6 +957,19 @@ def _handle_upload_and_alerts(
         return 1
 
 
+def _validate_limits_input(
+    limits_path: Optional[str], ld_script_paths: list[str]
+) -> Optional[str]:
+    """Validate --limits path, returning an error message or None if valid."""
+    if not limits_path:
+        return None
+    if not ld_script_paths:
+        return "--limits requires a primary linker script"
+    if not os.path.exists(limits_path):
+        return f"Limits linker script not found: {limits_path}"
+    return None
+
+
 def _validate_args(args: argparse.Namespace) -> Optional[str]:
     """Validate report arguments, returning an error message or None if valid."""
     identical_mode = getattr(args, 'identical', False)
@@ -980,12 +996,10 @@ def _validate_args(args: argparse.Namespace) -> Optional[str]:
         if not is_valid:
             return error_message
 
-        limits_path = getattr(args, 'limits', None)
-        if limits_path:
-            if not ld_script_paths:
-                return "--limits requires a primary linker script"
-            if not os.path.exists(limits_path):
-                return f"Limits linker script not found: {limits_path}"
+        limits_error = _validate_limits_input(
+            getattr(args, 'limits', None), ld_script_paths)
+        if limits_error:
+            return limits_error
 
     return None
 

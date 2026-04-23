@@ -69,6 +69,7 @@ class MemoryMapper:
             # Clear section.lma on success so a re-run (e.g. after region
             # inference in the caller) doesn't double-credit.
             if section.lma is not None:
+                # pylint: disable-next=protected-access
                 lma_region = mapper._find_region_containing(section.lma)
                 if lma_region is not None:
                     lma_region.sections.append(

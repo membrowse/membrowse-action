@@ -50,7 +50,8 @@ class ReportGenerator:  # pylint: disable=too-few-public-methods
         elf_analyzer: The underlying ELFAnalyzer instance.
     """
 
-    def __init__(self,
+    def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+                 self,
                  elf_path: str,
                  memory_regions_data: Dict[str,
                                            Dict[str,
@@ -84,7 +85,7 @@ class ReportGenerator:  # pylint: disable=too-few-public-methods
         self.skip_line_program = skip_line_program
         self.real_limits = real_limits or {}
 
-    def generate_report(self) -> MemoryReport:
+    def generate_report(self) -> MemoryReport:  # pylint: disable=too-many-locals
         """Generate comprehensive memory report.
 
         Returns:
