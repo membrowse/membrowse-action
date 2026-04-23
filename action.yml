@@ -47,6 +47,17 @@ inputs:
     description: 'Path to linker map file for archive/object file attribution (supports GNU LD and IAR formats)'
     required: false
     default: ''
+  limits:
+    description: |
+      Optional. Linker script supplying the real LENGTH per MEMORY region.
+      Use this when the primary `ld` script is built with inflated region
+      sizes so the link succeeds even when the binary exceeds the real
+      target capacity (e.g. PX4 flash-analysis builds). Section attribution
+      still uses `ld` (the wider ranges); utilization and overflow are then
+      reported against the real LENGTH values from this script. Omit when
+      the binary fits — the primary `ld` is already the real limit.
+    required: false
+    default: ''
 
 outputs:
   report_path:
@@ -118,6 +129,7 @@ runs:
         INPUT_PR_AUTHOR_NAME: ${{ inputs.pr_author_name }}
         INPUT_PR_AUTHOR_EMAIL: ${{ inputs.pr_author_email }}
         INPUT_MAP_FILE: ${{ inputs.map_file }}
+        INPUT_LIMITS: ${{ inputs.limits }}
       run: |
         set -o pipefail
 
@@ -181,6 +193,14 @@ runs:
         # Add map file if provided
         if [ -n "$INPUT_MAP_FILE" ]; then
           ARGS+=(--map-file "$INPUT_MAP_FILE")
+        fi
+
+        # Add limits script if provided. Optional: only needed when the
+        # primary ld script uses inflated region sizes (so the link succeeds
+        # even when the binary exceeds the real target capacity) and we want
+        # utilization to reflect the real per-region LENGTH.
+        if [ -n "$INPUT_LIMITS" ]; then
+          ARGS+=(--limits "$INPUT_LIMITS")
         fi
 
         # Run report command and save output to file. Capture exit status so

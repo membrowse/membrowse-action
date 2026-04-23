@@ -410,12 +410,14 @@ examples:
         '--limits',
         default=None,
         metavar='PATH',
-        help='Linker script supplying the real LENGTH for each MEMORY region. '
-             'Section attribution still uses the primary ld_scripts (which may '
-             'be inflated to swallow overflow sections); utilization is computed '
-             "against this script's LENGTH values. Useful when the build links "
-             'against an oversized region and you want to report overflow '
-             'against the real target size.'
+        help='Optional linker script supplying the real LENGTH for each '
+             'MEMORY region. Use when the primary ld_scripts were built with '
+             'inflated region sizes so the link succeeds even when the ELF '
+             'exceeds the real target capacity. Section attribution still '
+             'uses the primary ld_scripts (the wider ranges, so overflow '
+             'sections stay attributed); utilization and overflow are then '
+             "reported against this script's LENGTH values. Omit when the "
+             'binary fits — the primary ld_scripts are already the real limit.'
     )
 
     # Alert handling
@@ -506,9 +508,13 @@ def generate_report(
         linker_variables: Optional dict of user-defined linker script variables
         map_file: Optional path to GNU LD map file for archive/object file attribution
         limits_ld: Optional path to a separate linker script whose LENGTH
-            values are the real per-region capacities. The primary linker
-            scripts remain the source of truth for section-to-region
-            attribution; this script only overrides the utilization denominator.
+            values are the real per-region capacities. Use when the primary
+            ``ld_scripts`` were built with inflated region sizes so the link
+            succeeds even when the ELF exceeds the real target capacity; the
+            primary scripts remain the source of truth for section-to-region
+            attribution, and this script only overrides the utilization
+            denominator. Omit when the binary fits — the primary scripts are
+            already the real limit.
 
     Returns:
         dict: Memory analysis report (JSON-serializable)

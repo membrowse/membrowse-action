@@ -55,6 +55,18 @@ inputs:
     description: 'Path to linker map file for archive/object file attribution (supports GNU LD and IAR formats)'
     required: false
     default: ''
+  limits:
+    description: |
+      Optional. Linker script supplying the real LENGTH per MEMORY region.
+      Use this when the build's `ld` script is built with inflated region
+      sizes so the link succeeds even when the binary exceeds the real
+      target capacity. Section attribution still uses `ld` (the wider
+      ranges); utilization and overflow are reported against the real
+      LENGTH values from this script. Applied to every commit analyzed
+      during onboarding. Omit when the binary fits — `ld` is already the
+      real limit.
+    required: false
+    default: ''
   verbose:
     description: 'Set logging level: DEBUG, INFO, or WARNING (default: WARNING)'
     required: false
@@ -132,6 +144,7 @@ runs:
         INPUT_INITIAL_COMMIT: ${{ inputs.initial_commit }}
         INPUT_INITIAL_PARENT: ${{ inputs.initial_parent }}
         INPUT_MAP_FILE: ${{ inputs.map_file }}
+        INPUT_LIMITS: ${{ inputs.limits }}
         INPUT_BINARY_SEARCH: ${{ inputs.binary_search }}
       run: |
         # Global args (before subcommand)
@@ -200,6 +213,14 @@ runs:
         # Add map file if provided
         if [ -n "$INPUT_MAP_FILE" ]; then
           ONBOARD_ARGS+=(--map-file "$INPUT_MAP_FILE")
+        fi
+
+        # Add limits script if provided. Optional: only needed when the
+        # ld scripts use inflated region sizes (so the link succeeds even
+        # when the binary exceeds the real target capacity) and we want
+        # utilization reported against the real per-region LENGTH.
+        if [ -n "$INPUT_LIMITS" ]; then
+          ONBOARD_ARGS+=(--limits "$INPUT_LIMITS")
         fi
 
         # Add binary search mode
