@@ -456,94 +456,104 @@ IAR_MAP_EMPTY = """\
 
 
 class TestIARMapFileParser(unittest.TestCase):
-    """Unit tests for IARMapFileParser."""
+    """Unit tests for IAR map parsing via MapFileResolver.
+
+    The parser returns sorted (start, end, archive, object) ranges; tests
+    drive the resolver because that is the consumer-facing API.
+    """
 
     def setUp(self):
         self.parser = IARMapFileParser()
+        self.resolver = MapFileResolver(
+            ranges=self.parser.parse(IAR_MAP_BASIC))
 
     def test_project_object_parsed(self):
         """Project object file is parsed with empty archive."""
-        result = self.parser.parse(IAR_MAP_BASIC)
-        self.assertIn(0xe0, result)
-        archive, obj = result[0xe0]
+        archive, obj = self.resolver.resolve(0xe0)
         self.assertEqual(archive, '')
         self.assertEqual(obj, 'main.o')
 
     def test_library_object_parsed(self):
         """Library object is parsed with correct archive name."""
-        result = self.parser.parse(IAR_MAP_BASIC)
-        self.assertIn(0x12e0, result)
-        archive, obj = result[0x12e0]
+        archive, obj = self.resolver.resolve(0x12e0)
         self.assertEqual(archive, 'dl7M_tlf.a')
         self.assertEqual(obj, 'sprintf.o')
 
     def test_runtime_library_parsed(self):
         """Runtime library object is parsed with correct archive."""
-        result = self.parser.parse(IAR_MAP_BASIC)
-        self.assertIn(0x1360, result)
-        archive, obj = result[0x1360]
+        archive, obj = self.resolver.resolve(0x1360)
         self.assertEqual(archive, 'rt7M_tl.a')
         self.assertEqual(obj, 'ABImemcpy.o')
 
     def test_bss_section_parsed(self):
         """BSS section entries are parsed correctly."""
-        result = self.parser.parse(IAR_MAP_BASIC)
-        self.assertIn(0x20000000, result)
-        archive, obj = result[0x20000000]
+        archive, obj = self.resolver.resolve(0x20000000)
         self.assertEqual(archive, '')
         self.assertEqual(obj, 'main.o')
 
     def test_rodata_section_parsed(self):
         """Read-only data section entries are parsed correctly."""
-        result = self.parser.parse(IAR_MAP_BASIC)
-        self.assertIn(0x13a0, result)
-        archive, obj = result[0x13a0]
+        archive, obj = self.resolver.resolve(0x13a0)
         self.assertEqual(archive, '')
         self.assertEqual(obj, 'main.o')
 
     def test_zero_address_skipped(self):
-        """Entries at address 0 are excluded from results."""
-        result = self.parser.parse(IAR_MAP_BASIC)
-        # .intvec at address 0 should be skipped
-        self.assertNotIn(0x0, result)
+        """Entries at address 0 are excluded from the parsed ranges.
+
+        IAR_MAP_BASIC has ``.intvec ro code 0x0 0xe0 startup.o``; if not
+        skipped this would create a [0, 0xe0) range that swallows the
+        first 0xe0 bytes of address space.
+        """
+        ranges = self.parser.parse(IAR_MAP_BASIC)
+        starts = [r[0] for r in ranges]
+        self.assertNotIn(0x0, starts)
+        # And the resolver agrees that 0x50 (inside the would-be range)
+        # is unattributed.
+        self.assertEqual(self.resolver.resolve(0x50), ('', ''))
 
     def test_no_libraries(self):
         """Map with no library archives parses project objects."""
-        result = self.parser.parse(IAR_MAP_NO_LIBRARIES)
-        self.assertIn(0x100, result)
-        archive, obj = result[0x100]
+        resolver = MapFileResolver(
+            ranges=self.parser.parse(IAR_MAP_NO_LIBRARIES))
+        archive, obj = resolver.resolve(0x100)
         self.assertEqual(archive, '')
         self.assertEqual(obj, 'main.o')
 
     def test_empty_placement(self):
-        """Empty placement summary returns empty dict."""
+        """Empty placement summary returns empty range list."""
         result = self.parser.parse(IAR_MAP_EMPTY)
-        self.assertEqual(result, {})
+        self.assertEqual(result, [])
 
     def test_total_entries(self):
-        """Correct total number of entries parsed from basic fixture."""
+        """Correct total number of ranges parsed from basic fixture."""
         result = self.parser.parse(IAR_MAP_BASIC)
         # startup at 0 skipped, rest: main.o(.text), uart.o(.text),
         # sprintf.o, ABImemcpy.o, main.o(.rodata), main.o(.bss), uart.o(.bss)
         self.assertEqual(len(result), 7)
 
+    def test_ranges_sorted_by_start(self):
+        """Parsed ranges are sorted by start address."""
+        result = self.parser.parse(IAR_MAP_BASIC)
+        starts = [r[0] for r in result]
+        self.assertEqual(starts, sorted(starts))
+
     def test_first_occurrence_wins(self):
-        """When same address appears twice, first one wins."""
+        """When same start address appears twice, first one wins."""
         content = """\
 *** PLACEMENT SUMMARY
 ***
 
   Section          Kind        Address    Size  Object
   .text            ro code  0x00001000    0x80  first.o [1]
-  .text            ro code  0x00001000    0x00  second.o [1]
+  .text            ro code  0x00001000    0x40  second.o [1]
 
 *** MODULE SUMMARY
 ***
 
 project: [1]
 """
-        result = self.parser.parse(content)
-        _, obj = result[0x1000]
+        resolver = MapFileResolver(ranges=self.parser.parse(content))
+        _, obj = resolver.resolve(0x1000)
         self.assertEqual(obj, 'first.o')
 
     def test_digit_separator_in_address(self):
@@ -562,11 +572,138 @@ project: [1]
 
 dl7M_tlf.a: [2]
 """
-        result = self.parser.parse(content)
-        self.assertIn(0x8000130, result)
-        self.assertEqual(result[0x8000130], ('dl7M_tlf.a', 'xprintffull.o'))
-        self.assertIn(0x800145e, result)
-        self.assertEqual(result[0x800145e], ('dl7M_tlf.a', 'xlocale_c.o'))
+        resolver = MapFileResolver(ranges=self.parser.parse(content))
+        self.assertEqual(
+            resolver.resolve(0x8000130),
+            ('dl7M_tlf.a', 'xprintffull.o'))
+        self.assertEqual(
+            resolver.resolve(0x800145e),
+            ('dl7M_tlf.a', 'xlocale_c.o'))
+
+
+class TestIARRangeAttribution(unittest.TestCase):
+    """Tests verifying interior-symbol attribution via range lookup.
+
+    IAR's PLACEMENT SUMMARY emits one entry per object's contribution to
+    a section. Each contribution can span thousands of bytes containing
+    many ELF symbols. Range-based lookup must attribute every interior
+    symbol, not just the one at the section start.
+    """
+
+    # Three library contributions with realistic sizes, plus a BSS region.
+    _MAP = """\
+*******************************************************************************
+*** PLACEMENT SUMMARY
+***
+
+  Section          Kind        Address        Size  Object
+  -------          ----        -------        ----  ------
+  .text            ro code  0x08001000      0x4000  gpio.o [3]
+  .text            ro code  0x08005000      0x2000  flash.o [4]
+  .text            ro code  0x08007000      0x1000  task.o [5]
+  .bss             zero     0x20000000       0x400  main.o [1]
+
+*******************************************************************************
+*** MODULE SUMMARY
+***
+
+C:\\Project\\Debug\\Obj: [1]
+
+libhal.a: [3]
+
+libfs.a: [4]
+
+librtos.a: [5]
+
+*******************************************************************************
+"""
+
+    def setUp(self):
+        self.resolver = MapFileResolver(
+            ranges=IARMapFileParser().parse(self._MAP))
+
+    def test_section_start_resolves(self):
+        """Symbol at exact section start is attributed."""
+        self.assertEqual(
+            self.resolver.resolve(0x08001000),
+            ('libhal.a', 'gpio.o'))
+
+    def test_interior_address_resolves(self):
+        """Symbol deep inside a section is attributed (was the bug)."""
+        # 0x08001241 is well inside gpio.o's [0x08001000, 0x08005000) range.
+        self.assertEqual(
+            self.resolver.resolve(0x08001241),
+            ('libhal.a', 'gpio.o'))
+
+    def test_address_just_before_end_resolves(self):
+        """Symbol at last byte of section is attributed."""
+        self.assertEqual(
+            self.resolver.resolve(0x08004fff),
+            ('libhal.a', 'gpio.o'))
+
+    def test_end_address_belongs_to_next_section(self):
+        """Half-open [start, end): end address belongs to the next range."""
+        # 0x08005000 is end of gpio.o and start of flash.o.
+        self.assertEqual(
+            self.resolver.resolve(0x08005000),
+            ('libfs.a', 'flash.o'))
+
+    def test_thumb_bit_inside_range(self):
+        """Thumb-bit-set symbol address inside a section is attributed."""
+        # 0x08001001 is inside gpio.o range; bit 0 set is irrelevant for
+        # range lookup since 0x08001001 is itself in [0x08001000, 0x08005000).
+        self.assertEqual(
+            self.resolver.resolve(0x08001001),
+            ('libhal.a', 'gpio.o'))
+
+    def test_multi_section_attribution(self):
+        """Different libraries' interior symbols resolve to different archives."""
+        # One deep-interior probe per library.
+        self.assertEqual(
+            self.resolver.resolve(0x080023a9)[0], 'libhal.a')
+        self.assertEqual(
+            self.resolver.resolve(0x08006401)[0], 'libfs.a')
+        self.assertEqual(
+            self.resolver.resolve(0x08007800)[0], 'librtos.a')
+
+    def test_bss_interior_resolves(self):
+        """Interior addresses in RAM/.bss ranges are attributed."""
+        self.assertEqual(
+            self.resolver.resolve(0x20000200),
+            ('', 'main.o'))
+
+    def test_address_below_first_range_misses(self):
+        """Address before the first range returns empty."""
+        self.assertEqual(self.resolver.resolve(0x08000000), ('', ''))
+
+    def test_address_above_last_range_misses(self):
+        """Address past all ranges returns empty."""
+        self.assertEqual(self.resolver.resolve(0x09000000), ('', ''))
+
+    def test_gap_between_ranges_misses(self):
+        """Address in a gap between two ranges returns empty."""
+        # task.o ends at 0x08008000; .bss starts at 0x20000000.
+        self.assertEqual(self.resolver.resolve(0x10000000), ('', ''))
+
+    def test_zero_size_entry_skipped(self):
+        """Zero-size PLACEMENT entries are not emitted as ranges."""
+        content = """\
+*** PLACEMENT SUMMARY
+***
+
+  Section          Kind        Address    Size  Object
+  .text            ro code  0x00001000     0x0  empty.o [1]
+  .text            ro code  0x00002000   0x100  real.o [1]
+
+*** MODULE SUMMARY
+***
+
+project: [1]
+"""
+        ranges = IARMapFileParser().parse(content)
+        starts = [r[0] for r in ranges]
+        self.assertNotIn(0x1000, starts)
+        self.assertIn(0x2000, starts)
 
 
 class TestIARModuleSummary(unittest.TestCase):
