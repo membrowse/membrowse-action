@@ -11,8 +11,9 @@ Supports three map file formats:
 The format is auto-detected by :meth:`MapFileResolver.from_file`.
 """
 
+import bisect
 import logging
-from typing import Dict, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from ..core.exceptions import MapFileParseError
 from .ldmap_parser import MapFileParser
@@ -50,18 +51,40 @@ def _detect_map_format(content: str) -> str:
 class MapFileResolver:
     """Resolve symbol addresses to their originating archive/object files.
 
-    This follows the same pattern as SourceFileResolver: constructed once
-    from pre-parsed data and injected into SymbolExtractor for per-symbol
-    lookups.
+    Two storage backends:
+
+    - ``address_map`` (GNU LD, LLD): exact-address dict. Each linker
+      input-section entry corresponds 1:1 to an ELF symbol address.
+    - ``ranges`` (IAR): sorted list of half-open ``[start, end)`` ranges.
+      IAR's PLACEMENT SUMMARY emits one entry per object's contribution
+      to a section, which can span thousands of bytes containing many
+      ELF symbols. Range lookup attributes every interior symbol.
     """
 
-    def __init__(self, address_map: Dict[int, Tuple[str, str]]):
-        """Initialize with pre-parsed address mapping.
+    def __init__(
+        self,
+        address_map: Optional[Dict[int, Tuple[str, str]]] = None,
+        *,
+        ranges: Optional[List[Tuple[int, int, str, str]]] = None,
+    ):
+        """Initialize with pre-parsed mapping.
+
+        Pass exactly one of ``address_map`` or ``ranges``. Passing neither
+        produces an empty (no-op) resolver.
 
         Args:
-            address_map: Dict mapping addresses to (archive, object_file) tuples.
+            address_map: Dict mapping exact addresses to
+                (archive, object_file) tuples. Used by GNU LD / LLD.
+            ranges: Sorted list of (start, end, archive, object_file)
+                tuples with half-open intervals. Used by IAR.
         """
-        self._address_map = address_map
+        if address_map is not None and ranges is not None:
+            raise ValueError(
+                "MapFileResolver: pass address_map OR ranges, not both")
+        self._address_map = address_map if ranges is None else None
+        self._ranges = ranges
+        self._range_starts = (
+            [r[0] for r in ranges] if ranges else None)
 
     @classmethod
     def from_file(cls, map_path: str) -> 'MapFileResolver':
@@ -73,7 +96,7 @@ class MapFileResolver:
             map_path: Path to the .map file.
 
         Returns:
-            MapFileResolver with parsed address mappings.
+            MapFileResolver with parsed mappings.
 
         Raises:
             MapFileParseError: If the file cannot be read.
@@ -87,24 +110,29 @@ class MapFileResolver:
 
         fmt = _detect_map_format(content)
         if fmt == 'iar':
-            parser = IARMapFileParser()
+            ranges = IARMapFileParser().parse(content)
             logger.debug("Detected IAR map file format: %s", map_path)
+            count = len(ranges)
+            resolver = cls(ranges=ranges)
         elif fmt == 'lld':
-            parser = LLDMapFileParser()
+            address_map = LLDMapFileParser().parse(content)
             logger.debug("Detected LLD map file format: %s", map_path)
+            count = len(address_map)
+            resolver = cls(address_map)
         else:
-            parser = MapFileParser()
+            address_map = MapFileParser().parse(content)
             logger.debug("Detected GNU LD map file format: %s", map_path)
+            count = len(address_map)
+            resolver = cls(address_map)
 
-        address_map = parser.parse(content)
-        if not address_map and content.strip():
+        if count == 0 and content.strip():
             logger.warning(
-                "Map file %s produced no address entries - "
+                "Map file %s produced no entries - "
                 "check that the format is correct", map_path)
         else:
-            logger.debug("Map file parsed: %d address entries from %s",
-                         len(address_map), map_path)
-        return cls(address_map)
+            logger.debug("Map file parsed: %d entries from %s",
+                         count, map_path)
+        return resolver
 
     @classmethod
     def null(cls) -> 'MapFileResolver':
@@ -124,9 +152,24 @@ class MapFileResolver:
         Returns:
             (archive, object_file) tuple, or ("", "") if not found.
         """
-        result = self._address_map.get(address)
-        if result is not None:
-            return result
-        # ARM Thumb functions have bit 0 set in st_value; map files use
-        # the real (even) load address. Try with bit 0 cleared.
-        return self._address_map.get(address & ~1, ('', ''))
+        if self._address_map is not None:
+            result = self._address_map.get(address)
+            if result is not None:
+                return result
+            # ARM Thumb functions have bit 0 set in st_value; map files
+            # use the real (even) load address. Try with bit 0 cleared.
+            return self._address_map.get(address & ~1, ('', ''))
+        if self._ranges:
+            return self._lookup_range(address)
+        return ('', '')
+
+    def _lookup_range(self, address: int) -> Tuple[str, str]:
+        # bisect_right gives the index past the last range whose start <=
+        # address; the candidate containing range is at idx-1.
+        idx = bisect.bisect_right(self._range_starts, address)
+        if idx == 0:
+            return ('', '')
+        start, end, archive, obj = self._ranges[idx - 1]
+        if address < end:
+            return (archive, obj)
+        return ('', '')
