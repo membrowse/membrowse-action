@@ -181,9 +181,13 @@ class MemoryMapper:
     ) -> Dict[str, MemoryRegion]:
         """Infer memory regions from ELF LOAD segments for unmapped sections.
 
-        Groups non-writable PT_LOAD segments as Flash and writable ones as RAM,
-        then creates bounding-box regions for groups not already covered by an
-        existing region.
+        For each PT_LOAD segment not already contained in an existing region,
+        emit a dedicated inferred region. Executable segments (X flag) are
+        treated as FLASH/code; writable, non-executable segments as RAM;
+        read-only data segments as FLASH. This avoids bounding-boxing across
+        spatially distant segments (e.g. flash at 0x0... and an LPRAM region
+        at 0x30000000), which would otherwise produce an absurd region
+        spanning the entire gap.
 
         Args:
             program_headers: ELF program headers (list of dicts with type,
@@ -192,6 +196,9 @@ class MemoryMapper:
 
         Returns:
             Dictionary of newly inferred MemoryRegion objects (may be empty).
+            When more than one region of the same type is inferred, names are
+            disambiguated with the start address (e.g. "Flash (inferred
+            @0x30001fc8)").
         """
         load_segments = [
             ph for ph in program_headers if ph['type'] == 'PT_LOAD'
@@ -199,49 +206,61 @@ class MemoryMapper:
         if not load_segments:
             return {}
 
-        # Group by writability: non-writable (R, RX) → Flash, writable → RAM
-        flash_segs = []
-        ram_segs = []
+        existing_intervals = [
+            (r.address, r.address + r.limit_size)
+            for r in existing_regions.values()
+        ]
+
+        flash_orphans: List[Dict] = []
+        ram_orphans: List[Dict] = []
         for seg in load_segments:
+            seg_start = seg['virt_addr']
+            seg_end = seg_start + seg['mem_size']
+            if seg_end == seg_start:
+                continue
+            if any(iv_start <= seg_start and seg_end <= iv_end
+                   for iv_start, iv_end in existing_intervals):
+                continue
             flags = seg['flags']
-            if 'W' in flags:
-                ram_segs.append(seg)
+            # Executable code → FLASH (covers RX and RWX); writable data → RAM;
+            # otherwise (read-only data) → FLASH.
+            if 'X' in flags:
+                flash_orphans.append(seg)
+            elif 'W' in flags:
+                ram_orphans.append(seg)
             else:
-                flash_segs.append(seg)
+                flash_orphans.append(seg)
 
         inferred: Dict[str, MemoryRegion] = {}
 
-        for label, segs, region_type in [
-            ('Flash (inferred)', flash_segs, 'FLASH'),
-            ('RAM (inferred)', ram_segs, 'RAM'),
+        for base_label, segs, region_type in [
+            ('Flash (inferred)', flash_orphans, 'FLASH'),
+            ('RAM (inferred)', ram_orphans, 'RAM'),
         ]:
             if not segs:
                 continue
-            min_addr = min(s['virt_addr'] for s in segs)
-            max_end = max(s['virt_addr'] + s['mem_size'] for s in segs)
-            size = max_end - min_addr
-
-            # Skip if existing regions collectively cover this range
-            covered_intervals = sorted(
-                (r.address, r.address + r.limit_size)
-                for r in existing_regions.values()
-                if r.address < max_end
-                and r.address + r.limit_size > min_addr
-            )
-            if MemoryMapper._intervals_cover_range(
-                    covered_intervals, min_addr, max_end):
-                continue
-
-            logger.warning(
-                "Inferred %s region at 0x%x-0x%x (size 0x%x) from ELF LOAD "
-                "segments. For accurate results, provide linker script "
-                "definitions or use --def to supply missing symbol values.",
-                label, min_addr, max_end, size)
-            inferred[label] = MemoryRegion(
-                address=min_addr,
-                limit_size=size,
-                type=region_type,
-            )
+            # Disambiguate names when more than one orphan of the same type
+            # exists, so each gets a stable, unique key.
+            disambiguate = len(segs) > 1
+            for seg in segs:
+                start = seg['virt_addr']
+                size = seg['mem_size']
+                end = start + size
+                if disambiguate:
+                    label = f"{base_label[:-1]} @0x{start:x})"
+                else:
+                    label = base_label
+                logger.warning(
+                    "Inferred %s region at 0x%x-0x%x (size 0x%x) from ELF "
+                    "LOAD segments. For accurate results, provide linker "
+                    "script definitions or use --def to supply missing "
+                    "symbol values.",
+                    label, start, end, size)
+                inferred[label] = MemoryRegion(
+                    address=start,
+                    limit_size=size,
+                    type=region_type,
+                )
 
         return inferred
 

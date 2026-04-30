@@ -112,18 +112,14 @@ class MapFileResolver:
         if fmt == 'iar':
             ranges = IARMapFileParser().parse(content)
             logger.debug("Detected IAR map file format: %s", map_path)
-            count = len(ranges)
-            resolver = cls(ranges=ranges)
         elif fmt == 'lld':
-            address_map = LLDMapFileParser().parse(content)
+            ranges = LLDMapFileParser().parse(content)
             logger.debug("Detected LLD map file format: %s", map_path)
-            count = len(address_map)
-            resolver = cls(address_map)
         else:
-            address_map = MapFileParser().parse(content)
+            ranges = MapFileParser().parse(content)
             logger.debug("Detected GNU LD map file format: %s", map_path)
-            count = len(address_map)
-            resolver = cls(address_map)
+        count = len(ranges)
+        resolver = cls(ranges=ranges)
 
         if count == 0 and content.strip():
             logger.warning(
@@ -141,7 +137,7 @@ class MapFileResolver:
         Returns:
             MapFileResolver with empty mapping.
         """
-        return cls({})
+        return cls(ranges=[])
 
     def resolve(self, address: int) -> Tuple[str, str]:
         """Look up the archive and object file for a symbol address.

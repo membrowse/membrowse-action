@@ -7,7 +7,7 @@ Parses map files generated via ``-Wl,-Map=output.map`` with ld.lld
 """
 
 import re
-from typing import Dict, Tuple
+from typing import List, Tuple
 
 
 # LLD map file row:
@@ -27,41 +27,46 @@ from typing import Dict, Tuple
 _LLD_ROW_RE = re.compile(
     r'^\s*([0-9a-f]+)\s+'       # group 1: VMA
     r'[0-9a-f]+\s+'             # LMA (unused)
-    r'[0-9a-f]+\s+'             # size (unused - ELF symtab has sizes)
+    r'([0-9a-f]+)\s+'           # group 2: size
     r'\d+ +'                    # align + separator
-    r'(\S.*)$'                  # group 2: content
+    r'(\S.*)$'                  # group 3: content
 )
 
 # Like GNU LD's _ARCHIVE_RE but also accepts .rlib (Rust crate archives,
 # ar-format archives used by rustc).
-_LLD_ARCHIVE_RE = re.compile(r'^(.+\.(?:a|rlib))\((.+\.o)\)$')
+_LLD_ARCHIVE_RE = re.compile(r'^(.+\.(?:a|rlib))\((.+\.(?:o|obj))\)$')
 
 
 class LLDMapFileParser:  # pylint: disable=too-few-public-methods
     """Parse LLD map file content to extract address-to-object mappings."""
 
-    def parse(self, content: str) -> Dict[int, Tuple[str, str]]:
-        """Parse LLD map file content.
+    def parse(self, content: str) -> List[Tuple[int, int, str, str]]:
+        """Parse LLD map file content into half-open address ranges.
 
         Only input-section rows carry library attribution; output section
         and symbol rows are ignored.  Linker-synthetic sources (``<internal>``,
         ``<linker-created>``) are skipped.
 
+        Each input-section row gives ``(VMA, size, file:(section))``. We emit
+        a half-open ``[VMA, VMA+size)`` range so range lookup attributes every
+        interior symbol — not just the one at the section start.
+
         Args:
             content: Full text content of an ld.lld map file.
 
         Returns:
-            Dict mapping integer addresses to (archive, object_file) tuples.
-            Archive is empty string when the symbol comes from a bare .o file.
+            List of ``(start, end, archive, object_file)`` tuples sorted by
+            ``start``. ``archive`` is "" for bare .o files.
         """
-        mappings: Dict[int, Tuple[str, str]] = {}
+        ranges: List[Tuple[int, int, str, str]] = []
+        seen_starts = set()
 
         for line in content.splitlines():
             match = _LLD_ROW_RE.match(line)
             if not match:
                 continue
 
-            content_field = match.group(2)
+            content_field = match.group(3)
             # Strip trailing ":(.section)" or ":(.section+0xNN)" suffix.
             # Its presence also signals this is an input-section row —
             # output sections and symbol rows lack the ":(" delimiter.
@@ -71,15 +76,21 @@ class LLDMapFileParser:  # pylint: disable=too-few-public-methods
                 continue
 
             address = int(match.group(1), 16)
-            if address == 0:
+            size = int(match.group(2), 16)
+            if address == 0 or size == 0:
+                continue
+            if address in seen_starts:
                 continue
 
             file_ref = content_field[:colon_paren]
             archive, obj = self._parse_file_field(file_ref)
-            if obj and address not in mappings:
-                mappings[address] = (archive, obj)
+            if not obj:
+                continue
+            seen_starts.add(address)
+            ranges.append((address, address + size, archive, obj))
 
-        return mappings
+        ranges.sort(key=lambda r: r[0])
+        return ranges
 
     @staticmethod
     def _parse_file_field(field: str) -> Tuple[str, str]:
@@ -93,7 +104,7 @@ class LLDMapFileParser:  # pylint: disable=too-few-public-methods
         if archive_match:
             return (archive_match.group(1), archive_match.group(2))
 
-        if field.endswith('.o'):
+        if field.endswith('.o') or field.endswith('.obj'):
             return ('', field)
 
         return ('', '')

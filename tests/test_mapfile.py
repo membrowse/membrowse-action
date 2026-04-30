@@ -101,90 +101,90 @@ Name             Origin             Length             Attributes
 
 
 class TestMapFileParser(unittest.TestCase):
-    """Unit tests for MapFileParser."""
+    """Unit tests for MapFileParser via MapFileResolver.
+
+    The parser returns sorted (start, end, archive, object) ranges; tests
+    drive the resolver because that is the consumer-facing API.
+    """
 
     def setUp(self):
         self.parser = MapFileParser()
 
+    def _resolver(self, content):
+        return MapFileResolver(ranges=self.parser.parse(content))
+
     def test_archive_entry_parsed(self):
         """Parse archive entry with library and object file."""
-        result = self.parser.parse(MAP_WITH_ARCHIVES)
-        self.assertIn(0x08000000, result)
-        archive, obj = result[0x08000000]
-        self.assertEqual(archive, 'libstm32hal.a')
-        self.assertEqual(obj, 'stm32_startup.o')
+        self.assertEqual(
+            self._resolver(MAP_WITH_ARCHIVES).resolve(0x08000000),
+            ('libstm32hal.a', 'stm32_startup.o'))
 
     def test_second_archive_entry(self):
         """Parse second archive entry at different address."""
-        result = self.parser.parse(MAP_WITH_ARCHIVES)
-        self.assertIn(0x080000ac, result)
-        archive, obj = result[0x080000ac]
-        self.assertEqual(archive, 'libapp.a')
-        self.assertEqual(obj, 'main.o')
+        self.assertEqual(
+            self._resolver(MAP_WITH_ARCHIVES).resolve(0x080000ac),
+            ('libapp.a', 'main.o'))
 
     def test_bare_object_file(self):
         """Parse bare .o file without archive wrapper."""
-        result = self.parser.parse(MAP_WITH_ARCHIVES)
-        self.assertIn(0x080000e0, result)
-        archive, obj = result[0x080000e0]
-        self.assertEqual(archive, '')
-        self.assertEqual(obj, 'build/src/init.o')
+        self.assertEqual(
+            self._resolver(MAP_WITH_ARCHIVES).resolve(0x080000e0),
+            ('', 'build/src/init.o'))
 
     def test_bare_object_absolute_path(self):
         """Parse bare .o file with absolute path."""
-        result = self.parser.parse(MAP_BARE_OBJECT)
-        self.assertIn(0x08000010, result)
-        archive, obj = result[0x08000010]
-        self.assertEqual(archive, '')
-        self.assertEqual(obj, '/path/to/build/firmware.o')
+        self.assertEqual(
+            self._resolver(MAP_BARE_OBJECT).resolve(0x08000010),
+            ('', '/path/to/build/firmware.o'))
 
     def test_linker_stubs_skipped(self):
-        """Linker stubs entries are not included in results."""
-        result = self.parser.parse(MAP_WITH_ARCHIVES)
-        # 0x080000f0 is linker stubs, should not be in result
-        self.assertNotIn(0x080000f0, result)
+        """Linker stubs entries do not contribute a range of their own."""
+        ranges = self.parser.parse(MAP_WITH_ARCHIVES)
+        starts = [r[0] for r in ranges]
+        self.assertNotIn(0x080000f0, starts)
+        # And 0x080000f0 (the stub address) resolves to nothing — init.o's
+        # range [0x080000e0, 0x080000f0) ends just before it.
+        self.assertEqual(
+            self._resolver(MAP_WITH_ARCHIVES).resolve(0x080000f0),
+            ('', ''))
 
     def test_fill_lines_skipped(self):
         """Fill entries are skipped but real entries are kept."""
-        result = self.parser.parse(MAP_WITH_FILL)
-        # Fill address should not appear
-        self.assertNotIn(0x20000408, result)
-        # Real entry should still be present
-        self.assertIn(0x08000010, result)
+        ranges = self.parser.parse(MAP_WITH_FILL)
+        starts = [r[0] for r in ranges]
+        self.assertNotIn(0x20000408, starts)
+        self.assertEqual(
+            MapFileResolver(ranges=ranges).resolve(0x08000010),
+            ('libfoo.a', 'bar.o'))
 
     def test_zero_address_debug_sections_skipped(self):
         """Debug sections at address 0 are excluded."""
-        result = self.parser.parse(MAP_DEBUG_SECTIONS)
-        # Address 0 (debug sections) should not be in result
-        self.assertNotIn(0x0, result)
-        # Real entry should be present
-        self.assertIn(0x08000010, result)
+        ranges = self.parser.parse(MAP_DEBUG_SECTIONS)
+        starts = [r[0] for r in ranges]
+        self.assertNotIn(0x0, starts)
+        self.assertEqual(
+            MapFileResolver(ranges=ranges).resolve(0x08000010),
+            ('libfoo.a', 'bar.o'))
 
-    def test_empty_map_returns_empty_dict(self):
-        """Map file with no sections returns empty dict."""
-        result = self.parser.parse(MAP_EMPTY)
-        self.assertEqual(result, {})
+    def test_empty_map_returns_empty_list(self):
+        """Map file with no sections returns empty list."""
+        self.assertEqual(self.parser.parse(MAP_EMPTY), [])
 
-    def test_empty_string_returns_empty_dict(self):
-        """Empty string input returns empty dict."""
-        result = self.parser.parse('')
-        self.assertEqual(result, {})
+    def test_empty_string_returns_empty_list(self):
+        """Empty string input returns empty list."""
+        self.assertEqual(self.parser.parse(''), [])
 
     def test_common_section_bare_object(self):
         """COMMON section with bare object file is parsed."""
-        result = self.parser.parse(MAP_WITH_COMMON)
-        self.assertIn(0x20000100, result)
-        archive, obj = result[0x20000100]
-        self.assertEqual(archive, '')
-        self.assertEqual(obj, 'main.o')
+        self.assertEqual(
+            self._resolver(MAP_WITH_COMMON).resolve(0x20000100),
+            ('', 'main.o'))
 
     def test_common_section_archive(self):
         """COMMON section with archive is parsed."""
-        result = self.parser.parse(MAP_WITH_COMMON)
-        self.assertIn(0x20000104, result)
-        archive, obj = result[0x20000104]
-        self.assertEqual(archive, 'libsensor.a')
-        self.assertEqual(obj, 'accel.o')
+        self.assertEqual(
+            self._resolver(MAP_WITH_COMMON).resolve(0x20000104),
+            ('libsensor.a', 'accel.o'))
 
     def test_first_occurrence_wins(self):
         """When multiple input sections share an address, first one wins."""
@@ -192,42 +192,94 @@ class TestMapFileParser(unittest.TestCase):
 Linker script and memory map
 
  .text          0x0000000008000010       0xac libfirst.a(first.o)
- .text          0x0000000008000010       0x00 libsecond.a(second.o)
+ .text          0x0000000008000010       0x10 libsecond.a(second.o)
 """
-        result = self.parser.parse(content)
-        archive, obj = result[0x08000010]
-        self.assertEqual(archive, 'libfirst.a')
-        self.assertEqual(obj, 'first.o')
+        self.assertEqual(
+            self._resolver(content).resolve(0x08000010),
+            ('libfirst.a', 'first.o'))
 
     def test_two_line_bare_object(self):
         """Two-line format: section name wraps, continuation has address."""
-        result = self.parser.parse(MAP_TWO_LINE_FORMAT)
-        self.assertIn(0x080000bc, result)
-        archive, obj = result[0x080000bc]
-        self.assertEqual(archive, '')
-        self.assertEqual(obj, 'build/utils.o')
+        self.assertEqual(
+            self._resolver(MAP_TWO_LINE_FORMAT).resolve(0x080000bc),
+            ('', 'build/utils.o'))
 
     def test_two_line_archive(self):
         """Two-line format with archive(object) on continuation line."""
-        result = self.parser.parse(MAP_TWO_LINE_FORMAT)
-        self.assertIn(0x080000f0, result)
-        archive, obj = result[0x080000f0]
-        self.assertEqual(archive, 'libhal.a')
-        self.assertEqual(obj, 'gpio.o')
+        self.assertEqual(
+            self._resolver(MAP_TWO_LINE_FORMAT).resolve(0x080000f0),
+            ('libhal.a', 'gpio.o'))
 
     def test_two_line_mixed_with_single_line(self):
         """Single-line entries still work alongside two-line entries."""
-        result = self.parser.parse(MAP_TWO_LINE_FORMAT)
-        self.assertIn(0x08000010, result)
-        archive, obj = result[0x08000010]
-        self.assertEqual(archive, '')
-        self.assertEqual(obj, 'build/main.o')
+        self.assertEqual(
+            self._resolver(MAP_TWO_LINE_FORMAT).resolve(0x08000010),
+            ('', 'build/main.o'))
 
     def test_two_line_zero_address_skipped(self):
         """Two-line entries with address 0 are skipped."""
-        result = self.parser.parse(MAP_TWO_LINE_ZERO_ADDRESS)
-        self.assertNotIn(0x0, result)
-        self.assertIn(0x08000100, result)
+        ranges = self.parser.parse(MAP_TWO_LINE_ZERO_ADDRESS)
+        starts = [r[0] for r in ranges]
+        self.assertNotIn(0x0, starts)
+        self.assertIn(0x08000100, starts)
+
+    def test_interior_symbol_resolves_to_section_object(self):
+        """Symbols inside a multi-symbol input section get attributed.
+
+        GNU LD emits one entry per linker INPUT section, not per ELF symbol.
+        Compiler-generated CSWTCH tables, anonymous-namespace helpers, and
+        constants pools sit at addresses interior to a section; they must
+        inherit the section's archive/object instead of going unattributed.
+        """
+        content = """\
+Linker script and memory map
+
+ .text          0x0000000008000010      0x100 libfoo.a(foo.o)
+"""
+        resolver = self._resolver(content)
+        # First byte resolves (was the only working case before).
+        self.assertEqual(
+            resolver.resolve(0x08000010), ('libfoo.a', 'foo.o'))
+        # Interior — previously unattributed.
+        self.assertEqual(
+            resolver.resolve(0x08000080), ('libfoo.a', 'foo.o'))
+        # Last byte before end.
+        self.assertEqual(
+            resolver.resolve(0x0800010f), ('libfoo.a', 'foo.o'))
+        # Just past the end belongs to no range.
+        self.assertEqual(resolver.resolve(0x08000110), ('', ''))
+
+    def test_consecutive_wrapped_section_names(self):
+        """A section-name-only line followed by another section-name-only
+        line (instead of a continuation) must not drop the second entry.
+
+        This can happen when GNU LD emits a wrapped section name whose
+        size/address line is missing (e.g. a synthetic entry was filtered
+        out) immediately before another wrapped section.
+        """
+        content = """\
+Linker script and memory map
+
+ .text.dropped_no_continuation
+ .text.has_continuation
+                0x0000000008000200       0x40 libapp.a(main.o)
+"""
+        resolver = self._resolver(content)
+        self.assertEqual(
+            resolver.resolve(0x08000200), ('libapp.a', 'main.o'))
+
+    def test_thumb_bit_address_resolves_via_range(self):
+        """ARM Thumb-bit-set address (odd) falls inside the function range."""
+        content = """\
+Linker script and memory map
+
+ .text          0x00000000080000ac       0x34 libapp.a(main.o)
+"""
+        resolver = self._resolver(content)
+        # ELF stores 0x080000ad (Thumb bit), function starts at 0x080000ac;
+        # range [0x080000ac, 0x080000e0) contains 0x080000ad.
+        self.assertEqual(
+            resolver.resolve(0x080000ad), ('libapp.a', 'main.o'))
 
 
 class TestMapFileParserFileField(unittest.TestCase):
@@ -267,6 +319,20 @@ class TestMapFileParserFileField(unittest.TestCase):
             '')
         self.assertEqual(archive, '')
         self.assertEqual(obj, '')
+
+    def test_bare_obj_extension(self):
+        """CMake-style .obj suffix is recognized as a bare object file."""
+        archive, obj = MapFileParser._parse_file_field(  # pylint: disable=protected-access
+            'CMakeFiles/proj.dir/src/main.cpp.obj')
+        self.assertEqual(archive, '')
+        self.assertEqual(obj, 'CMakeFiles/proj.dir/src/main.cpp.obj')
+
+    def test_archive_with_obj_extension(self):
+        """Archive members with .obj suffix are recognized."""
+        archive, obj = MapFileParser._parse_file_field(  # pylint: disable=protected-access
+            'C:/build/libfoo.a(bar.cpp.obj)')
+        self.assertEqual(archive, 'C:/build/libfoo.a')
+        self.assertEqual(obj, 'bar.cpp.obj')
 
 
 class TestMapFileResolver(unittest.TestCase):
@@ -324,6 +390,21 @@ class TestMapFileResolver(unittest.TestCase):
         """Missing map file raises MapFileParseError."""
         with self.assertRaises(MapFileParseError):
             MapFileResolver.from_file('/nonexistent/path/to.map')
+
+    def test_from_file_resolves_thumb_address(self):
+        """End-to-end: from_file() builds a range-backed resolver that
+        resolves a Thumb-bit-set address (odd) into the function's range."""
+        content = """\
+Linker script and memory map
+
+ .text          0x00000000080000ac       0x34 libapp.a(main.o)
+"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            map_path = Path(tmpdir) / 'thumb.map'
+            map_path.write_text(content, encoding='utf-8')
+            resolver = MapFileResolver.from_file(str(map_path))
+        self.assertEqual(
+            resolver.resolve(0x080000ad), ('libapp.a', 'main.o'))
 
     def test_from_file_with_test_firmware_map(self):
         """Parse the existing test fixture map file."""
@@ -859,89 +940,83 @@ LLD_MAP_NONSTANDARD_SPACING = """\
 
 
 class TestLLDMapFileParser(unittest.TestCase):
-    """Unit tests for LLDMapFileParser."""
+    """Unit tests for LLDMapFileParser via MapFileResolver."""
 
     def setUp(self):
         self.parser = LLDMapFileParser()
 
+    def _resolver(self, content):
+        return MapFileResolver(ranges=self.parser.parse(content))
+
     def test_bare_object_parsed(self):
         """Bare .o input section is parsed with empty archive."""
-        result = self.parser.parse(LLD_MAP_BASIC)
-        self.assertIn(0x2fc, result)
-        archive, obj = result[0x2fc]
-        self.assertEqual(archive, '')
-        self.assertEqual(obj, '/usr/lib/gcc/Scrt1.o')
+        self.assertEqual(
+            self._resolver(LLD_MAP_BASIC).resolve(0x2fc),
+            ('', '/usr/lib/gcc/Scrt1.o'))
 
     def test_rlib_archive_parsed(self):
         """Rust .rlib archive is recognized and path is kept in full."""
-        result = self.parser.parse(LLD_MAP_BASIC)
-        self.assertIn(0x1180ec, result)
-        archive, obj = result[0x1180ec]
         self.assertEqual(
-            archive, '/home/user/.rustup/lib/libcompiler_builtins.rlib')
-        self.assertEqual(obj, 'compiler_builtins.rcgu.o')
+            self._resolver(LLD_MAP_BASIC).resolve(0x1180ec),
+            ('/home/user/.rustup/lib/libcompiler_builtins.rlib',
+             'compiler_builtins.rcgu.o'))
 
     def test_dot_a_archive_parsed(self):
         """Traditional .a archive is parsed correctly."""
-        result = self.parser.parse(LLD_MAP_BASIC)
-        self.assertIn(0x200000, result)
-        archive, obj = result[0x200000]
-        self.assertEqual(archive, 'build/libhal.a')
-        self.assertEqual(obj, 'gpio.o')
+        self.assertEqual(
+            self._resolver(LLD_MAP_BASIC).resolve(0x200000),
+            ('build/libhal.a', 'gpio.o'))
 
     def test_internal_entries_skipped(self):
-        """<internal>:(...) synthetic rows produce no entries."""
-        result = self.parser.parse(LLD_MAP_BASIC)
-        self.assertNotIn(0x2e0, result)
-        self.assertNotIn(0x32a64, result)
+        """<internal>:(...) synthetic rows produce no ranges of their own."""
+        starts = [r[0] for r in self.parser.parse(LLD_MAP_BASIC)]
+        self.assertNotIn(0x2e0, starts)
+        self.assertNotIn(0x32a64, starts)
 
     def test_output_section_rows_ignored(self):
-        """Output section rows (1-space separator) produce no entries."""
-        result = self.parser.parse(LLD_MAP_BASIC)
-        # 0x31000 is the ".rodata" output section; no input entry sits here
-        self.assertNotIn(0x31000, result)
+        """Output section rows (1-space separator) produce no ranges."""
+        starts = [r[0] for r in self.parser.parse(LLD_MAP_BASIC)]
+        # 0x31000 is the ".rodata" output section; no input entry sits here.
+        self.assertNotIn(0x31000, starts)
 
     def test_symbol_rows_ignored(self):
-        """Symbol rows (17-space separator) produce no entries on their own.
+        """Symbol rows produce no ranges on their own.
 
         At 0x2fc the input-section entry wins (bare Scrt1.o); the following
         symbol row "__abi_tag" must not overwrite or add anything.
         """
-        result = self.parser.parse(LLD_MAP_BASIC)
-        _, obj = result[0x2fc]
-        self.assertEqual(obj, '/usr/lib/gcc/Scrt1.o')
+        self.assertEqual(
+            self._resolver(LLD_MAP_BASIC).resolve(0x2fc)[1],
+            '/usr/lib/gcc/Scrt1.o')
 
     def test_zero_address_skipped(self):
         """Entries at address 0 are excluded."""
-        result = self.parser.parse(LLD_MAP_ZERO_ADDRESS)
-        self.assertNotIn(0x0, result)
-        self.assertIn(0x1000, result)
+        starts = [r[0] for r in self.parser.parse(LLD_MAP_ZERO_ADDRESS)]
+        self.assertNotIn(0x0, starts)
+        self.assertIn(0x1000, starts)
 
     def test_first_occurrence_wins(self):
         """Duplicate addresses keep the first-seen input section entry."""
-        result = self.parser.parse(LLD_MAP_FIRST_WINS)
-        _, obj = result[0x1000]
-        self.assertEqual(obj, 'first.o')
+        self.assertEqual(
+            self._resolver(LLD_MAP_FIRST_WINS).resolve(0x1000)[1],
+            'first.o')
 
-    def test_empty_returns_empty_dict(self):
-        """Header-only map file returns empty dict."""
-        result = self.parser.parse(LLD_MAP_EMPTY)
-        self.assertEqual(result, {})
+    def test_empty_returns_empty_list(self):
+        """Header-only map file returns empty list."""
+        self.assertEqual(self.parser.parse(LLD_MAP_EMPTY), [])
 
     def test_section_offset_suffix_tolerated(self):
         """Sections with '+0xNN' offset suffixes are parsed correctly."""
-        result = self.parser.parse(LLD_MAP_BASIC)
-        # 0x300000 has ":(.text.helper+0x4)" suffix; bare .o, not archive
-        self.assertIn(0x300000, result)
-        archive, obj = result[0x300000]
-        self.assertEqual(archive, '')
-        self.assertEqual(obj, 'build/util.o')
+        # 0x300000 has ":(.text.helper+0x4)" suffix; bare .o, not archive.
+        self.assertEqual(
+            self._resolver(LLD_MAP_BASIC).resolve(0x300000),
+            ('', 'build/util.o'))
 
     def test_nonstandard_separator_spacing(self):
         """Input rows are classified by ':(' delimiter, not separator width."""
-        result = self.parser.parse(LLD_MAP_NONSTANDARD_SPACING)
-        self.assertEqual(result[0x1000], ('', 'odd_spacing.o'))
-        self.assertEqual(result[0x2000], ('', 'wider_spacing.o'))
+        resolver = self._resolver(LLD_MAP_NONSTANDARD_SPACING)
+        self.assertEqual(resolver.resolve(0x1000), ('', 'odd_spacing.o'))
+        self.assertEqual(resolver.resolve(0x2000), ('', 'wider_spacing.o'))
 
 
 class TestLLDDetectMapFormat(unittest.TestCase):

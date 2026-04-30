@@ -6,7 +6,7 @@ Parses map files generated via ``-Wl,-Map=output.map`` (GCC, Clang, Rust).
 """
 
 import re
-from typing import Dict, Tuple
+from typing import List, Tuple
 
 
 # Match input section contribution lines (indented):
@@ -36,18 +36,27 @@ _CONTINUATION_RE = re.compile(
     r'(.+)$'                     # group 3: file/archive path
 )
 
-# Match archive(object) pattern: libfoo.a(bar.o)
-_ARCHIVE_RE = re.compile(r'^(.+\.a)\((.+\.o)\)$')
+# Match archive(object) pattern: libfoo.a(bar.o) or libfoo.a(bar.cpp.obj).
+# CMake builds (especially on Windows hosts) emit objects with a .obj suffix.
+_ARCHIVE_RE = re.compile(r'^(.+\.a)\((.+\.(?:o|obj))\)$')
 
 
 class MapFileParser:  # pylint: disable=too-few-public-methods
     """Parse GNU LD map file content to extract address-to-object mappings."""
 
-    def parse(self, content: str) -> Dict[int, Tuple[str, str]]:
-        """Parse map file content and return address->(archive, object_file) mapping.
+    def parse(self, content: str) -> List[Tuple[int, int, str, str]]:
+        """Parse map file content into half-open address ranges.
 
-        Handles both single-line and two-line continuation formats.
-        GNU LD wraps long section names to the next line::
+        GNU LD emits one entry per linker INPUT section (e.g. ``.text.foo``
+        for a single function), each carrying an address, size, and source
+        file. Multiple ELF symbols can live inside a single input section —
+        compiler-generated tables (``CSWTCH.*``), constants pools, and
+        anonymous-namespace helpers all share the section's address window.
+        Range-based lookup attributes every byte in the section, not just
+        the first symbol.
+
+        Handles both single-line and two-line continuation formats. GNU LD
+        wraps long section names to the next line::
 
             .text.short   0x08000000  0x10 file.o       (single line)
 
@@ -58,28 +67,50 @@ class MapFileParser:  # pylint: disable=too-few-public-methods
             content: Full text content of a GNU LD map file.
 
         Returns:
-            Dict mapping integer addresses to (archive, object_file) tuples.
-            Archive is empty string when symbol comes from a bare .o file.
+            List of ``(start, end, archive, object_file)`` tuples sorted by
+            ``start``. ``archive`` is "" for bare .o files. Zero-size and
+            zero-address entries are skipped.
         """
-        mappings: Dict[int, Tuple[str, str]] = {}
+        ranges: List[Tuple[int, int, str, str]] = []
+        seen_starts = set()
         pending_section = None
+
+        def emit(address: int, size: int, file_field: str) -> None:
+            if address == 0 or size == 0:
+                return
+            if address in seen_starts:
+                # First occurrence wins (GNU LD lists in link order).
+                return
+            archive, obj = self._parse_file_field(file_field.strip())
+            if not obj:
+                return
+            seen_starts.add(address)
+            ranges.append((address, address + size, archive, obj))
 
         for line in content.splitlines():
             # Try single-line format first (section + address + size + file)
             match = _SECTION_CONTRIB_RE.match(line)
             if match:
                 pending_section = None
-                address = int(match.group(2), 16)
-                if address == 0:
-                    continue
-
-                file_field = match.group(4).strip()
-                archive, obj = self._parse_file_field(file_field)
-                if obj:
-                    # First occurrence wins (GNU LD lists in link order)
-                    if address not in mappings:
-                        mappings[address] = (archive, obj)
+                emit(int(match.group(2), 16),
+                     int(match.group(3), 16),
+                     match.group(4))
                 continue
+
+            # Check for continuation line (address + size + file) for an
+            # already-pending wrapped section name.
+            if pending_section is not None:
+                cont_match = _CONTINUATION_RE.match(line)
+                if cont_match:
+                    pending_section = None
+                    emit(int(cont_match.group(1), 16),
+                         int(cont_match.group(2), 16),
+                         cont_match.group(3))
+                    continue
+                # Line didn't continue the pending section. Fall through so
+                # the current line still gets a chance to be recognized as
+                # the start of a new wrapped entry.
+                pending_section = None
 
             # Check for section-name-only line (start of two-line entry)
             name_match = _SECTION_NAME_ONLY_RE.match(line)
@@ -87,25 +118,8 @@ class MapFileParser:  # pylint: disable=too-few-public-methods
                 pending_section = name_match.group(1)
                 continue
 
-            # Check for continuation line (address + size + file)
-            if pending_section is not None:
-                cont_match = _CONTINUATION_RE.match(line)
-                if cont_match:
-                    address = int(cont_match.group(1), 16)
-                    pending_section = None
-                    if address == 0:
-                        continue
-
-                    file_field = cont_match.group(3).strip()
-                    archive, obj = self._parse_file_field(file_field)
-                    if obj:
-                        if address not in mappings:
-                            mappings[address] = (archive, obj)
-                    continue
-                # Line didn't match continuation — reset pending state
-                pending_section = None
-
-        return mappings
+        ranges.sort(key=lambda r: r[0])
+        return ranges
 
     @staticmethod
     def _parse_file_field(field: str) -> Tuple[str, str]:
@@ -122,7 +136,7 @@ class MapFileParser:  # pylint: disable=too-few-public-methods
         if archive_match:
             return (archive_match.group(1), archive_match.group(2))
 
-        if field.endswith('.o'):
+        if field.endswith('.o') or field.endswith('.obj'):
             return ('', field)
 
         return ('', '')
