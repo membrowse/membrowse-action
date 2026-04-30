@@ -580,6 +580,53 @@ dl7M_tlf.a: [2]
             resolver.resolve(0x800145e),
             ('dl7M_tlf.a', 'xlocale_c.o'))
 
+    def test_alignment_column_present(self):
+        """Newer IAR (EWARM 8+) emits an Alignment column between Address and Size."""
+        content = """\
+*** PLACEMENT SUMMARY
+***
+
+  Section          Kind        Address  Alignment    Size  Object
+  -------          ----        -------  ---------    ----  ------
+    .text          ro code  0x00003018          4   0x128  app.o [1]
+    .rodata        const    0x000046fc          4    0x20  data.o [2]
+
+*******************************************************************************
+*** MODULE SUMMARY
+***
+
+project: [1]
+
+libfoo.a: [2]
+"""
+        resolver = MapFileResolver(ranges=self.parser.parse(content))
+        self.assertEqual(resolver.resolve(0x3018), ('', 'app.o'))
+        self.assertEqual(resolver.resolve(0x3100), ('', 'app.o'))
+        self.assertEqual(resolver.resolve(0x46fc), ('libfoo.a', 'data.o'))
+
+    def test_wrapped_section_name(self):
+        """Long section names wrap to their own line; data follows on the next."""
+        content = """\
+*** PLACEMENT SUMMARY
+***
+
+  Section          Kind        Address  Alignment    Size  Object
+  -------          ----        -------  ---------    ----  ------
+    .very_long_section_name_that_wraps
+                   const    0x00002800          4    0x40  startup.o [1]
+    .text          ro code  0x00002840          4    0x70  main.o [1]
+
+*******************************************************************************
+*** MODULE SUMMARY
+***
+
+project: [1]
+"""
+        resolver = MapFileResolver(ranges=self.parser.parse(content))
+        self.assertEqual(resolver.resolve(0x2800), ('', 'startup.o'))
+        self.assertEqual(resolver.resolve(0x2820), ('', 'startup.o'))
+        self.assertEqual(resolver.resolve(0x2840), ('', 'main.o'))
+
 
 class TestIARRangeAttribution(unittest.TestCase):
     """Tests verifying interior-symbol attribution via range lookup.

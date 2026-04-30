@@ -9,20 +9,28 @@ import re
 from typing import Dict, List, Tuple
 
 
-# Match IAR PLACEMENT SUMMARY contribution lines:
-#   .text              ro code  0x000000e0  0x3040  HART.o [1]
-#   .rodata            const    0x0000515c   0xc8  system.o [1]
-#   .bss               zero     0x20000000   0x200  main.o [1]
-#   .text              ro code  0x800'0130  0x10c6  xprintffull.o [2]
-#   __DLIB_PERTHREAD   inited   0x20000008    0x88  localeconv.o [3]
-#   CODE               ro code  0x800'5894    0x88  portasm.o [1]
-# Note: Kind field can be multi-word ("ro code", "ro data")
-# Note: Addresses may use ' as digit separator (e.g. 0x800'0000)
-# Note: Section names may not start with '.' (e.g. CODE, __DLIB_PERTHREAD)
+# Match IAR PLACEMENT SUMMARY contribution lines. Two layouts seen in the wild:
+#
+#   5-col:  Section Kind  Address  Size  Object [N]
+#     .text    ro code  0x000000e0  0x3040  main.o [1]
+#     .text    ro code  0x800'0130  0x10c6  xprintffull.o [2]
+#
+#   6-col:  Section Kind  Address  Alignment  Size  Object [N]
+#     .text    ro code  0x000000e0          4  0x3040  main.o [1]
+#
+# Wrapped section names: when a long section name does not fit it occupies its
+# own line, and the data follows on the next line starting at the kind column.
+# The leading token captured in group 1 is then the kind, not the section name;
+# the resolver only consumes the address range and object so this is harmless.
+#
+# Note: Kind may be multi-word ("ro code", "ro data") or absent.
+# Note: Addresses may use ' as digit separator (e.g. 0x800'0000).
+# Note: Section names need not start with '.' (e.g. CODE, __DLIB_PERTHREAD).
 _IAR_PLACEMENT_RE = re.compile(
-    r'^\s+(\S+)\s+'             # group 1: section name
-    r'.+?'                      # kind (ro code, const, zero, uninit - may have spaces)
+    r'^\s+(\S+)\s+'             # group 1: section name (or kind on a wrapped line)
+    r'.+?'                      # kind (may be empty or contain whitespace)
     r"(0x[0-9a-fA-F']+)\s+"    # group 2: address (may have ' separators)
+    r"(?:\d+\s+)?"              # optional alignment column (decimal integer)
     r"(0x[0-9a-fA-F']+)\s+"    # group 3: size (may have ' separators)
     r'(\S+\.o)\s+'              # group 4: object file
     r'\[(\d+)\]'                # group 5: module group index
