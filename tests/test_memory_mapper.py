@@ -443,6 +443,99 @@ class TestMemoryMapper(unittest.TestCase):
         inferred = MemoryMapper.infer_regions_from_segments([], {})
         self.assertEqual(inferred, {})
 
+    def test_rwx_segment_classified_as_flash(self):
+        """A LOAD segment with RWX flags carries executable code → FLASH."""
+        program_headers = [
+            {
+                'type': 'PT_LOAD',
+                'virt_addr': 0x00000000,
+                'mem_size': 0x10000,
+                'flags': 'RWX',
+            },
+        ]
+        inferred = MemoryMapper.infer_regions_from_segments(
+            program_headers, {})
+        self.assertIn('Flash (inferred)', inferred)
+        self.assertNotIn('RAM (inferred)', inferred)
+        self.assertEqual(inferred['Flash (inferred)'].type, 'FLASH')
+
+    def test_orphan_segments_do_not_bound_box_across_covered(self):
+        """Covered segments must not inflate the bounding box of orphans.
+
+        With FLASH and RAM declared, an orphan LPRAM segment at 0x30000000
+        previously caused the inferred RAM region to span 0x0..0x30000220
+        (it merged covered + orphan). Each orphan should now get its own
+        region tightly bounded to the segment.
+        """
+        program_headers = [
+            {  # covered FLASH (RWX is still executable code)
+                'type': 'PT_LOAD',
+                'virt_addr': 0x00000000,
+                'mem_size': 0x6540,
+                'flags': 'RWX',
+            },
+            {  # covered RAM
+                'type': 'PT_LOAD',
+                'virt_addr': 0x20000000,
+                'mem_size': 0x0cf8,
+                'flags': 'RW',
+            },
+            {  # orphan: LPRAM bss
+                'type': 'PT_LOAD',
+                'virt_addr': 0x30000000,
+                'mem_size': 0x0220,
+                'flags': 'RW',
+            },
+            {  # orphan: ramfunc VMA
+                'type': 'PT_LOAD',
+                'virt_addr': 0x30001fc8,
+                'mem_size': 0x000c,
+                'flags': 'RX',
+            },
+        ]
+        existing = {
+            'FLASH': MemoryRegion(
+                address=0x00000000, limit_size=0x10000, type='FLASH'),
+            'RAM': MemoryRegion(
+                address=0x20000000, limit_size=0x3fc8, type='RAM'),
+            'RAMFUNC': MemoryRegion(
+                address=0x20003fc8, limit_size=0x38, type='RAMFUNC'),
+        }
+        inferred = MemoryMapper.infer_regions_from_segments(
+            program_headers, existing)
+
+        # One orphan FLASH and one orphan RAM, each tightly bounded.
+        self.assertEqual(len(inferred), 2)
+        flash = inferred['Flash (inferred)']
+        self.assertEqual(flash.address, 0x30001fc8)
+        self.assertEqual(flash.limit_size, 0x0c)
+        ram = inferred['RAM (inferred)']
+        self.assertEqual(ram.address, 0x30000000)
+        self.assertEqual(ram.limit_size, 0x0220)
+
+    def test_multiple_orphans_of_same_type_get_disambiguated_names(self):
+        """Two orphan FLASH segments produce two regions with unique names."""
+        program_headers = [
+            {
+                'type': 'PT_LOAD',
+                'virt_addr': 0x00002800,
+                'mem_size': 0x1000,
+                'flags': 'RX',
+            },
+            {
+                'type': 'PT_LOAD',
+                'virt_addr': 0x10000000,
+                'mem_size': 0x2000,
+                'flags': 'RX',
+            },
+        ]
+        inferred = MemoryMapper.infer_regions_from_segments(
+            program_headers, {})
+        self.assertEqual(len(inferred), 2)
+        # Names must be unique and identify the segment by address.
+        self.assertIn('Flash (inferred @0x2800)', inferred)
+        self.assertIn('Flash (inferred @0x10000000)', inferred)
+
 
 if __name__ == '__main__':
     unittest.main()
