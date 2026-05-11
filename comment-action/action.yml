@@ -22,6 +22,10 @@ inputs:
   comment_template:
     description: 'Optional path to custom Jinja2 template file for comment formatting'
     required: false
+  verbose:
+    description: 'Set logging level: DEBUG, INFO, or WARNING (default: WARNING)'
+    required: false
+    default: 'WARNING'
 
 runs:
   using: 'composite'
@@ -74,20 +78,36 @@ runs:
 
     - name: Post combined PR comment
       shell: bash
+      env:
+        INPUT_VERBOSE: ${{ inputs.verbose }}
+        INPUT_JSON_FILES: ${{ inputs.json_files }}
+        INPUT_API_KEY: ${{ inputs.api_key }}
+        INPUT_COMMIT: ${{ inputs.commit }}
+        INPUT_PR_NUMBER: ${{ inputs.pr_number }}
+        INPUT_API_URL: ${{ inputs.api_url }}
+        INPUT_COMMENT_TEMPLATE: ${{ inputs.comment_template }}
+        EVENT_PR_NUMBER: ${{ github.event.pull_request.number }}
       run: |
+        # Global args (before subcommand)
+        GLOBAL_ARGS=()
+        if [ "$INPUT_VERBOSE" != "WARNING" ]; then
+          GLOBAL_ARGS+=(--verbose "$INPUT_VERBOSE")
+        fi
+
         # Summary mode: api_key + commit
-        if [ -n "${{ inputs.api_key }}" ] && [ -n "${{ inputs.commit }}" ]; then
+        if [ -n "$INPUT_API_KEY" ] && [ -n "$INPUT_COMMIT" ]; then
           # Resolve PR number from explicit input or event context
-          PR_NUMBER="${{ inputs.pr_number }}"
+          PR_NUMBER="$INPUT_PR_NUMBER"
           if [ -z "$PR_NUMBER" ]; then
-            PR_NUMBER="${{ github.event.pull_request.number }}"
+            PR_NUMBER="$EVENT_PR_NUMBER"
           fi
 
           # Fetch summary JSON (single API call)
-          membrowse summary "${{ inputs.commit }}" \
-            --api-key "${{ inputs.api_key }}" \
-            --api-url "${{ inputs.api_url }}" \
-            --json > /tmp/membrowse-summary.json
+          SUMMARY_ARGS=("$INPUT_COMMIT" --api-key "$INPUT_API_KEY" --json)
+          if [ -n "$INPUT_API_URL" ]; then
+            SUMMARY_ARGS+=(--api-url "$INPUT_API_URL")
+          fi
+          membrowse "${GLOBAL_ARGS[@]}" summary "${SUMMARY_ARGS[@]}" > /tmp/membrowse-summary.json
 
           # Post comment: extracts pr_number from JSON if not provided,
           # renders template, and posts in one step
@@ -95,19 +115,19 @@ runs:
           if [ -n "$PR_NUMBER" ]; then
             COMMENT_ARGS+=(--pr-number "$PR_NUMBER")
           fi
-          if [ -n "${{ inputs.comment_template }}" ]; then
-            COMMENT_ARGS+=(--comment-template "${{ inputs.comment_template }}")
+          if [ -n "$INPUT_COMMENT_TEMPLATE" ]; then
+            COMMENT_ARGS+=(--comment-template "$INPUT_COMMENT_TEMPLATE")
           fi
           ${{ steps.detect-python.outputs.python }} -m membrowse.utils.github_comment "${COMMENT_ARGS[@]}"
         else
           # File mode (backward compat)
           ARGS=()
-          if [ -n "${{ inputs.comment_template }}" ]; then
-            ARGS+=(--comment-template "${{ inputs.comment_template }}")
+          if [ -n "$INPUT_COMMENT_TEMPLATE" ]; then
+            ARGS+=(--comment-template "$INPUT_COMMENT_TEMPLATE")
           fi
 
           shopt -s nullglob
-          FILES=(${{ inputs.json_files }})
+          FILES=($INPUT_JSON_FILES)
           shopt -u nullglob
 
           ${{ steps.detect-python.outputs.python }} -m membrowse.utils.github_comment "${ARGS[@]}" "${FILES[@]}"
