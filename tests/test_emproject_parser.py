@@ -305,6 +305,28 @@ class TestMixedEmProjectAndICF(_EmProjectTestBase):
             parser.parse_memory_regions()
         self.assertIn("could not resolve", str(ctx.exception))
 
+    def test_local_icf_definition_overrides_external_with_same_name(self):
+        # An .icf may locally redefine a region whose name also appears in
+        # the .emProject (different range). The local definition wins —
+        # the external must NOT silently shadow it.
+        emp = self._write_emproject(_MINIMAL_EMPROJECT)  # FLASH1 @ 0x08000000 / 0x100000
+        icf_override = (
+            "define memory with size = 4G;\n"
+            # Local FLASH1 with a different address and smaller size:
+            "define region FLASH1 = [from 0x10000000 size 0x00010000];\n"
+        )
+        icf = self._write_icf(icf_override)
+
+        parser = LinkerScriptParser(ld_scripts=[emp, icf])
+        regions = parser.parse_memory_regions()
+
+        # FLASH1 must reflect the .icf's local range, not the .emProject's.
+        self.assertEqual(regions["FLASH1"]["address"], 0x10000000)
+        self.assertEqual(regions["FLASH1"]["limit_size"], 0x00010000)
+        # RAM1 from the .emProject is unaffected.
+        self.assertEqual(regions["RAM1"]["address"], 0x24000000)
+        self.assertEqual(regions["RAM1"]["limit_size"], 0x00080000)
+
 
 if __name__ == "__main__":
     unittest.main()

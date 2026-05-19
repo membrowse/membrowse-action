@@ -737,12 +737,16 @@ class IARLinkerScriptParser(LinkerScriptFormatParser):
         # Stage 6: Parse define region directives
         region_specs = self._parse_region_specs(content, symbols)
 
-        # Seed external regions for cross-file resolution. They're added
-        # to the lookup table used by set-op resolution but tracked
-        # separately so Stage 8 can skip re-emitting them.
+        # Seed external regions for cross-file resolution. Only inject
+        # those whose names are NOT already defined locally — a local
+        # `define region NAME = ...` always wins. Track the names we
+        # actually injected so Stage 8 can suppress just those (and not
+        # accidentally drop local overrides).
+        seeded_names: set = set()
         for name, ext_spec in self._external_specs.items():
             if name not in region_specs:
                 region_specs[name] = ext_spec
+                seeded_names.add(name)
 
         # Register all regions (including empty) for built-ins
         for spec in region_specs.values():
@@ -751,21 +755,24 @@ class IARLinkerScriptParser(LinkerScriptFormatParser):
         # Stage 7: Resolve set operations for regions with empty spans
         self._resolve_set_operations(content, region_specs, symbols)
 
-        # Index seeded spans by (address, limit_size) so locally-defined
-        # aliases that resolve to the same range can be suppressed.
+        # Index *seeded* spans by (address, limit_size) so locally-defined
+        # aliases that resolve to the same range can be suppressed. A local
+        # override of an external name is NOT in seeded_names, so its range
+        # is correctly absent here.
         external_ranges = {
-            (s.address, s.limit_size)
-            for s in self._external_specs.values()
-            if s.spans
+            (region_specs[n].address, region_specs[n].limit_size)
+            for n in seeded_names
+            if region_specs[n].spans
         }
 
         # Stage 8: Convert to MemoryRegion output
         result: Dict[str, MemoryRegion] = {}
         unresolved_locals: List[str] = []
         for name, spec in region_specs.items():
-            # Never re-emit a seeded external region; the caller already
-            # holds it.
-            if name in self._external_specs:
+            # Skip only regions we actually seeded from externals; locally
+            # defined regions (even ones sharing a name with an external)
+            # must reach the output so the override propagates.
+            if name in seeded_names:
                 continue
             if not spec.spans:
                 if not spec.explicitly_empty:

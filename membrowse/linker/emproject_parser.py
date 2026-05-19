@@ -55,29 +55,31 @@ class SEGGEREmProjectParser(LinkerScriptFormatParser):
         """Parse an .emProject XML file and return MemoryRegion objects.
 
         Raises LinkerScriptError if the XML is malformed, the segments
-        attribute is missing, or no valid segments were extracted.
+        attribute is missing, or no valid segments were extracted. Each
+        failure is also logged at ERROR level so the failure is captured
+        even when callers re-raise without preserving the message.
         """
         path = Path(script_path).resolve()
         try:
             tree = ET.parse(str(path))  # nosec B314 - input is local trusted file
         except ET.ParseError as exc:
-            raise LinkerScriptError(
-                f"{path.name}: malformed .emProject XML: {exc}"
-            ) from exc
+            msg = f"{path.name}: malformed .emProject XML: {exc}"
+            logger.error(msg)
+            raise LinkerScriptError(msg) from exc
 
         segments_attr = self._find_segments_attribute(tree.getroot())
         if segments_attr is None:
-            raise LinkerScriptError(
-                f"{path.name}: no <configuration> element carries "
-                f"'{self._LINKER_SEGMENTS_ATTR}'"
-            )
+            msg = (f"{path.name}: no <configuration> element carries "
+                   f"'{self._LINKER_SEGMENTS_ATTR}'")
+            logger.error(msg)
+            raise LinkerScriptError(msg)
 
         regions = self._parse_segments(segments_attr, path.name)
         if not regions:
-            raise LinkerScriptError(
-                f"{path.name}: '{self._LINKER_SEGMENTS_ATTR}' yielded "
-                "no valid memory regions"
-            )
+            msg = (f"{path.name}: '{self._LINKER_SEGMENTS_ATTR}' yielded "
+                   "no valid memory regions")
+            logger.error(msg)
+            raise LinkerScriptError(msg)
 
         logger.debug(".emProject parser extracted %d memory regions from %s",
                      len(regions), path.name)
