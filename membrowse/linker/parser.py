@@ -1168,8 +1168,11 @@ class LinkerScriptParser:  # pylint: disable=too-few-public-methods,too-many-ins
             self.evaluator.add_variables(
                 self.parsing_strategy['default_variables'])
 
-        # ICF scripts cache (populated during variable extraction)
+        # Per-format script caches (populated during variable extraction).
+        # ICF and .emProject files are routed to their own parsers and
+        # excluded from the GNU LD variable scan.
         self._icf_scripts: set = set()
+        self._emproject_scripts: set = set()
 
         # Apply user-defined variables (override architecture defaults)
         self._user_variables = user_variables or {}
@@ -1196,15 +1199,19 @@ class LinkerScriptParser:  # pylint: disable=too-few-public-methods,too-many-ins
 
     def _extract_all_variables(self) -> None:
         """Extract variables from all linker scripts"""
-        # Skip ICF files — the GNU LD variable extractor would pollute
-        # evaluator.variables with unparseable region-name strings.
-        # Cache the set so _parse_all_memory_regions can skip them on retries.
+        # Skip ICF and .emProject files — the GNU LD variable extractor would
+        # pollute evaluator.variables with unparseable strings. Caching the
+        # set lets _parse_all_memory_regions skip them on retries (their
+        # parsers produce no deferred matches).
         self._icf_scripts = set()
+        self._emproject_scripts = set()
         gnu_scripts = []
         for script_path in self.ld_scripts:
             with open(script_path, "r", encoding="utf-8") as f:
                 content = f.read()
-            if LinkerFormatDetector.is_icf(content):
+            if LinkerFormatDetector.is_emproject(content):
+                self._emproject_scripts.add(script_path)
+            elif LinkerFormatDetector.is_icf(content):
                 self._icf_scripts.add(script_path)
             else:
                 gnu_scripts.append(script_path)
@@ -1221,10 +1228,21 @@ class LinkerScriptParser:  # pylint: disable=too-few-public-methods,too-many-ins
         # architecture defaults)
         self.evaluator.add_variables(self.variable_extractor.variables)
 
-    def _parse_all_memory_regions(self) -> Dict[str, MemoryRegion]:
+    def _parse_all_memory_regions(  # pylint: disable=too-many-locals
+            self) -> Dict[str, MemoryRegion]:
         """Parse memory regions from all scripts with iterative dependency resolution"""
         memory_regions = {}
         deferred_matches = []
+
+        # ICF files can reference regions defined elsewhere (e.g. an SES
+        # .emProject or a sibling GNU LD script). Parse non-ICF scripts
+        # first so their regions are available to seed the ICF parser,
+        # regardless of CLI argument order.
+        non_icf_scripts = [s for s in self.ld_scripts
+                           if s not in self._icf_scripts]
+        icf_scripts = [s for s in self.ld_scripts
+                       if s in self._icf_scripts]
+        ordered_scripts = non_icf_scripts + icf_scripts
 
         # Parse regions iteratively to handle ORIGIN/LENGTH dependencies
         max_iterations = 3
@@ -1232,12 +1250,19 @@ class LinkerScriptParser:  # pylint: disable=too-few-public-methods,too-many-ins
             old_count = len(memory_regions)
             new_deferred = []
 
-            for script_path in self.ld_scripts:
-                # ICF files never produce deferred matches, skip on retries
-                if iteration > 0 and script_path in self._icf_scripts:
+            for script_path in ordered_scripts:
+                # ICF and .emProject files never produce deferred matches;
+                # skip them on retries.
+                if iteration > 0 and (
+                    script_path in self._icf_scripts
+                    or script_path in self._emproject_scripts
+                ):
                     continue
                 script_regions, script_deferred = self._parse_single_script(
-                    script_path, deferred_matches if iteration > 0 else None
+                    script_path,
+                    deferred_matches if iteration > 0 else None,
+                    external_regions=memory_regions
+                    if script_path in self._icf_scripts else None,
                 )
                 memory_regions.update(script_regions)
                 new_deferred.extend(script_deferred)
@@ -1267,22 +1292,37 @@ class LinkerScriptParser:  # pylint: disable=too-few-public-methods,too-many-ins
         return memory_regions
 
     def _parse_single_script(
-            self, script_path: str, deferred_matches: Optional[List[tuple]] = None
+            self, script_path: str,
+            deferred_matches: Optional[List[tuple]] = None,
+            external_regions: Optional[Dict[str, MemoryRegion]] = None,
     ) -> tuple:
         """Parse memory regions from a single linker script file
 
         Detects format from content and delegates to the appropriate parser.
 
+        Args:
+            script_path: linker script file to parse
+            deferred_matches: GNU LD deferred matches to retry (ignored for
+                ICF / .emProject which never defer)
+            external_regions: regions already parsed from sibling scripts.
+                Currently only the ICF parser consumes these, to resolve
+                cross-file region references (e.g. an .icf that aliases
+                regions defined in an .emProject).
+
         Returns:
             Tuple of (parsed_regions, failed_matches)
-            ICF files always return an empty failed_matches list.
+            ICF and .emProject files always return an empty failed_matches list.
         """
         with open(script_path, "r", encoding="utf-8") as f:
             content = f.read()
 
+        # Auto-detect SEGGER ES .emProject XML and delegate
+        if LinkerFormatDetector.is_emproject(content):
+            return self._parse_emproject_script(script_path), []
+
         # Auto-detect IAR ICF format and delegate
         if LinkerFormatDetector.is_icf(content):
-            return self._parse_icf_script(script_path), []
+            return self._parse_icf_script(script_path, external_regions), []
 
         # GNU LD path (existing logic)
         # Inline INCLUDE directives before cleaning/scanning
@@ -1305,16 +1345,32 @@ class LinkerScriptParser:  # pylint: disable=too-few-public-methods,too-many-ins
         return self.region_builder.parse_memory_block(
             memory_content, deferred_matches)
 
-    def _parse_icf_script(self, script_path: str) -> Dict[str, MemoryRegion]:
+    def _parse_icf_script(
+            self,
+            script_path: str,
+            external_regions: Optional[Dict[str, MemoryRegion]] = None,
+    ) -> Dict[str, MemoryRegion]:
         """Delegate ICF file parsing to IARLinkerScriptParser."""
         from .icf_parser import IARLinkerScriptParser  # pylint: disable=import-outside-toplevel
         logger.debug("Detected IAR ICF format in %s, delegating to IARLinkerScriptParser",
                      script_path)
         icf_parser = IARLinkerScriptParser(
             user_variables=dict(self.evaluator.variables),
-            user_overrides=set(self._user_variables) if self._user_variables else None
+            user_overrides=set(self._user_variables) if self._user_variables else None,
+            external_regions=external_regions,
         )
         return icf_parser.parse(script_path)
+
+    def _parse_emproject_script(
+            self, script_path: str) -> Dict[str, MemoryRegion]:
+        """Delegate .emProject XML parsing to SEGGEREmProjectParser."""
+        # Local import: keeps emproject_parser out of the import graph when
+        # no .emProject file is involved.
+        from .emproject_parser import SEGGEREmProjectParser  # pylint: disable=import-outside-toplevel
+        logger.debug(
+            "Detected SEGGER .emProject in %s, delegating to "
+            "SEGGEREmProjectParser", script_path)
+        return SEGGEREmProjectParser().parse(script_path)
 
 
 # Convenience functions for backward compatibility
