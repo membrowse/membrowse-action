@@ -12,7 +12,7 @@ A tool for analyzing binary size and memory footprint of embedded firmware. MemB
 
 - **Architecture Agnostic**: Works with architectures that produce ELFs with DWARF debug format
 - **Source File Mapping**: Symbols are mapped to their definition source files
-- **Memory Region Extraction**: Memory region capacity and layout are extracted from GNU LD and ICF linker scripts
+- **Memory Region Extraction**: Memory region capacity and layout are extracted from GNU LD scripts, IAR ICF scripts, and SEGGER Embedded Studio `.emProject` project files
 - **Cloud Integration**: Upload reports to [MemBrowse](https://membrowse.com) for historical tracking, diffs, monitoring and CI gating 
 
 ## CI/CD Integration
@@ -259,7 +259,16 @@ membrowse onboard \
 
 ## Platform Support
 
-MemBrowse works with toolchains that produce ELF files and supports GNU LD and ICF linker scripts.
+MemBrowse works with toolchains that produce ELF files. Supported memory layout sources:
+
+- **GNU LD** linker scripts (`*.ld`, `*.cmd`) — including `INCLUDE`d sub-scripts
+- **IAR EWARM ICF** files (`*.icf`)
+- **SEGGER Embedded Studio** project files (`*.emProject`) — regions are read from the
+  `linker_section_placements_segments` attribute. A `.emProject` can be used on its own
+  or alongside its companion `.icf`; cross-file region references resolve transparently.
+
+Format detection is content-based, so the file extension does not have to match.
+
 If you found that you're not getting optimal results please contact us: support@membrowse.com 
 We are actively working on improving MemBrowse.
 

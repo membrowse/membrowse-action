@@ -59,6 +59,23 @@ class LinkerFormatDetector:  # pylint: disable=too-few-public-methods
         # GNU LD scripts with MEMORY { } blocks are never ICF
         if re.search(r'\bMEMORY\s*\{', content, re.IGNORECASE):
             return False
+        # SEGGER .emProject XML files contain ICF markers in comments/attrs
+        # — exclude them so they route to the dedicated XML parser.
+        if cls.is_emproject(content):
+            return False
         content_lower = content.lower()
         matches = sum(1 for m in cls._ICF_MARKERS if m in content_lower)
         return matches >= 2
+
+    @classmethod
+    def is_emproject(cls, content: str) -> bool:
+        """Detect a SEGGER Embedded Studio ``.emProject`` XML file.
+
+        Matches the CrossStudio DOCTYPE or a <solution> root element near
+        the start of the file. Whole-file scan is bounded so this remains
+        cheap on large files.
+        """
+        head = content.lstrip()[:512]
+        if "CrossStudio_Project_File" in head:
+            return True
+        return head.startswith("<solution") or "<solution " in head

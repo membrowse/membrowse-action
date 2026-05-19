@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# pylint: disable=too-many-lines
 
 """
 icf_parser.py - IAR EWARM linker configuration file (.icf) parser.
@@ -674,9 +675,25 @@ class IARLinkerScriptParser(LinkerScriptFormatParser):
     """
 
     def __init__(self, user_variables: Optional[Dict[str, Any]] = None,
-                 user_overrides: Optional[set] = None) -> None:
+                 user_overrides: Optional[set] = None,
+                 external_regions: Optional[Dict[str, MemoryRegion]] = None
+                 ) -> None:
         self._user_variables = user_variables or {}
         self._user_overrides = user_overrides or set()
+        # External regions are pre-resolved spans (typically from an SES
+        # .emProject XML or a sibling GNU LD script) that the .icf may
+        # reference but does not itself define. They participate in set-op
+        # resolution but are NOT re-emitted in the parser's output.
+        self._external_specs: Dict[str, ICFRegionSpec] = {}
+        if external_regions:
+            for name, region in external_regions.items():
+                self._external_specs[name] = ICFRegionSpec(
+                    name=name,
+                    spans=[_Span(
+                        start=region.address,
+                        end=region.address + region.limit_size - 1,
+                    )],
+                )
 
     @staticmethod
     def detect(content: str) -> bool:
@@ -720,6 +737,17 @@ class IARLinkerScriptParser(LinkerScriptFormatParser):
         # Stage 6: Parse define region directives
         region_specs = self._parse_region_specs(content, symbols)
 
+        # Seed external regions for cross-file resolution. Only inject
+        # those whose names are NOT already defined locally — a local
+        # `define region NAME = ...` always wins. Track the names we
+        # actually injected so Stage 8 can suppress just those (and not
+        # accidentally drop local overrides).
+        seeded_names: set = set()
+        for name, ext_spec in self._external_specs.items():
+            if name not in region_specs:
+                region_specs[name] = ext_spec
+                seeded_names.add(name)
+
         # Register all regions (including empty) for built-ins
         for spec in region_specs.values():
             symbols.register_region(spec)
@@ -727,28 +755,52 @@ class IARLinkerScriptParser(LinkerScriptFormatParser):
         # Stage 7: Resolve set operations for regions with empty spans
         self._resolve_set_operations(content, region_specs, symbols)
 
+        # Index *seeded* spans by (address, limit_size) so locally-defined
+        # aliases that resolve to the same range can be suppressed. A local
+        # override of an external name is NOT in seeded_names, so its range
+        # is correctly absent here.
+        external_ranges = {
+            (region_specs[n].address, region_specs[n].limit_size)
+            for n in seeded_names
+            if region_specs[n].spans
+        }
+
         # Stage 8: Convert to MemoryRegion output
         result: Dict[str, MemoryRegion] = {}
+        unresolved_locals: List[str] = []
         for name, spec in region_specs.items():
+            # Skip only regions we actually seeded from externals; locally
+            # defined regions (even ones sharing a name with an external)
+            # must reach the output so the override propagates.
+            if name in seeded_names:
+                continue
             if not spec.spans:
                 if not spec.explicitly_empty:
                     logger.warning(
                         "ICF region '%s' has no resolved spans; skipping. "
                         "If this region depends on build-time symbols, "
                         "use --def NAME=VALUE to provide them.", name)
+                    unresolved_locals.append(name)
+                continue
+            # Suppress alias rows that exactly duplicate an external range
+            # (e.g., `define region FLASH = FLASH1;` when FLASH1 was seeded).
+            if (spec.address, spec.limit_size) in external_ranges:
+                logger.debug(
+                    "ICF region '%s' duplicates seeded range "
+                    "[0x%x..0x%x]; skipping alias",
+                    name, spec.address, spec.end_address,
+                )
                 continue
             result[name] = spec.to_memory_region()
 
-        if not result and region_specs:
-            # Don't count explicitly-empty regions as failures
-            non_empty_specs = [
-                k for k, v in region_specs.items()
-                if not v.explicitly_empty
-            ]
-            if non_empty_specs:
-                raise LinkerScriptError(
-                    f"ICF parser could not resolve any memory regions "
-                    f"from {path.name}: {', '.join(sorted(non_empty_specs))}")
+        # An empty result is only an error when there were locally-defined
+        # regions we could not resolve. When every local region was either
+        # resolved+deduped or genuinely seeded externally, an empty result
+        # is the expected outcome.
+        if not result and unresolved_locals:
+            raise LinkerScriptError(
+                f"ICF parser could not resolve any memory regions "
+                f"from {path.name}: {', '.join(sorted(unresolved_locals))}")
 
         logger.debug("ICF parser extracted %d memory regions from %s",
                      len(result), path.name)
