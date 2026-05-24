@@ -223,11 +223,17 @@ class ReportGenerator:  # pylint: disable=too-few-public-methods
     def _apply_section_skips(self, sections, symbols):
         """Remove sections (and symbols inside them) whose names appear in
         ``self.skip_sections``. Names are matched exactly.
+
+        ``present``/``missing`` are computed against every section in the
+        ELF (including non-ALLOC sections like ``.debug_info``), not just
+        the ALLOC ones returned by :meth:`ELFAnalyzer.get_sections`, so
+        ``--skip-section .debug_info`` warns only when the section truly
+        isn't there and still filters its symbols out of the report.
         """
         skip = self.skip_sections
-        kept_sections = [s for s in sections if s.name not in skip]
-        present = {s.name for s in sections if s.name in skip}
-        missing = skip - present
+        all_section_names = self.elf_analyzer.get_all_section_names()
+        present = skip & all_section_names
+        missing = skip - all_section_names
 
         if present:
             logger.info(
@@ -238,7 +244,8 @@ class ReportGenerator:  # pylint: disable=too-few-public-methods
                 "--skip-section name(s) not present in ELF: %s",
                 ", ".join(sorted(missing)))
 
-        kept_symbols = [s for s in symbols if s.section not in present]
+        kept_sections = [s for s in sections if s.name not in skip]
+        kept_symbols = [s for s in symbols if s.section not in skip]
         return kept_sections, kept_symbols
 
     def _convert_to_memory_regions(

@@ -209,6 +209,17 @@ class ELFAnalyzer:  # pylint: disable=too-many-instance-attributes
         """
         return self._section_analyzer.analyze_sections()
 
+    def get_all_section_names(self) -> set:
+        """Return names of every section in the ELF, including non-ALLOC
+        sections (e.g. ``.debug_info``, ``.comment``).
+
+        Unlike :meth:`get_sections`, this is not restricted to ``SHF_ALLOC``
+        sections — callers validating a user-supplied section name
+        (e.g. ``--skip-section``) should use this so non-loaded sections
+        aren't mistaken for missing.
+        """
+        return {s.name for s in self.elffile.iter_sections() if s.name}
+
     def get_symbols(self) -> List[Symbol]:
         """Extract symbols from the ELF file.
 
