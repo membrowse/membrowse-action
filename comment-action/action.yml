@@ -90,9 +90,17 @@ runs:
       run: |
         # Global args (before subcommand)
         GLOBAL_ARGS=()
-        if [ "$INPUT_VERBOSE" != "WARNING" ]; then
-          GLOBAL_ARGS+=(--verbose "$INPUT_VERBOSE")
-        fi
+        case "$INPUT_VERBOSE" in
+          DEBUG|INFO|WARNING)
+            GLOBAL_ARGS+=(--verbose "$INPUT_VERBOSE")
+            ;;
+          "")
+            ;;
+          *)
+            echo "::error::Invalid verbose level: '$INPUT_VERBOSE' (expected DEBUG, INFO, or WARNING)"
+            exit 1
+            ;;
+        esac
 
         # Summary mode: api_key + commit
         if [ -n "$INPUT_API_KEY" ] && [ -n "$INPUT_COMMIT" ]; then
