@@ -215,6 +215,16 @@ examples:
              '(supports GNU LD and IAR formats; GNU LD generated with -Wl,-Map=output.map)'
     )
     parser.add_argument(
+        '--skip-section',
+        dest='skip_sections',
+        action='append',
+        metavar='NAME',
+        help='Exclude an ELF section by exact name from each commit\'s '
+             'report (can be specified multiple times), e.g. '
+             '--skip-section .noinit --skip-section .user_data. Applied to '
+             'every commit built during onboarding.'
+    )
+    parser.add_argument(
         '--limits',
         dest='limits',
         default=None,
@@ -521,7 +531,8 @@ def _build_and_generate_report(commit, args, linker_variables):
         skip_line_program=False,
         linker_variables=linker_variables,
         map_file=getattr(args, 'map_file', None),
-        limits_ld=getattr(args, 'limits', None)
+        limits_ld=getattr(args, 'limits', None),
+        skip_sections=getattr(args, 'skip_sections', None),
     )
 
     # Case 3b: Build succeeded but report has empty memory_layout

@@ -58,6 +58,14 @@ inputs:
       the binary fits — the primary `ld` is already the real limit.
     required: false
     default: ''
+  skip_sections:
+    description: |
+      Space-separated list of ELF section names to exclude from the report
+      (exact match), e.g. ".noinit .user_data". Skipped sections do not
+      contribute to any region's used_size, and symbols inside them are
+      removed from the report.
+    required: false
+    default: ''
 
 outputs:
   report_path:
@@ -130,6 +138,7 @@ runs:
         INPUT_PR_AUTHOR_EMAIL: ${{ inputs.pr_author_email }}
         INPUT_MAP_FILE: ${{ inputs.map_file }}
         INPUT_LIMITS: ${{ inputs.limits }}
+        INPUT_SKIP_SECTIONS: ${{ inputs.skip_sections }}
       run: |
         set -o pipefail
 
@@ -201,6 +210,17 @@ runs:
         # utilization to reflect the real per-region LENGTH.
         if [ -n "$INPUT_LIMITS" ]; then
           ARGS+=(--limits "$INPUT_LIMITS")
+        fi
+
+        # Add --skip-section for each section name listed. Word-split on
+        # whitespace; disable glob expansion so names like .data.* aren't
+        # expanded against workspace files.
+        if [ -n "$INPUT_SKIP_SECTIONS" ]; then
+          set -f
+          for sec in $INPUT_SKIP_SECTIONS; do
+            ARGS+=(--skip-section "$sec")
+          done
+          set +f
         fi
 
         # Run report command and save output to file. Capture exit status so

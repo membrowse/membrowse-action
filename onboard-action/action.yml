@@ -67,6 +67,15 @@ inputs:
       real limit.
     required: false
     default: ''
+  skip_sections:
+    description: |
+      Space-separated list of ELF section names to exclude from each
+      commit's report (exact match), e.g. ".noinit .user_data". Skipped
+      sections do not contribute to any region's used_size, and symbols
+      inside them are removed from the report. Applied to every commit
+      analyzed during onboarding.
+    required: false
+    default: ''
   verbose:
     description: 'Set logging level: DEBUG, INFO, or WARNING (default: WARNING)'
     required: false
@@ -145,6 +154,7 @@ runs:
         INPUT_INITIAL_PARENT: ${{ inputs.initial_parent }}
         INPUT_MAP_FILE: ${{ inputs.map_file }}
         INPUT_LIMITS: ${{ inputs.limits }}
+        INPUT_SKIP_SECTIONS: ${{ inputs.skip_sections }}
         INPUT_BINARY_SEARCH: ${{ inputs.binary_search }}
       run: |
         # Global args (before subcommand)
@@ -221,6 +231,17 @@ runs:
         # utilization reported against the real per-region LENGTH.
         if [ -n "$INPUT_LIMITS" ]; then
           ONBOARD_ARGS+=(--limits "$INPUT_LIMITS")
+        fi
+
+        # Add --skip-section for each section name listed. Word-split on
+        # whitespace; disable glob expansion so names like .data.* aren't
+        # expanded against workspace files.
+        if [ -n "$INPUT_SKIP_SECTIONS" ]; then
+          set -f
+          for sec in $INPUT_SKIP_SECTIONS; do
+            ONBOARD_ARGS+=(--skip-section "$sec")
+          done
+          set +f
         fi
 
         # Add binary search mode

@@ -408,6 +408,17 @@ examples:
              '(supports GNU LD and IAR formats; GNU LD generated with -Wl,-Map=output.map)'
     )
     perf_group.add_argument(
+        '--skip-section',
+        dest='skip_sections',
+        action='append',
+        metavar='NAME',
+        help='Exclude an ELF section by exact name (can be specified '
+             'multiple times), e.g. --skip-section .noinit --skip-section '
+             '.user_data. Skipped sections do not contribute to any region\'s '
+             'used_size, and symbols inside them are also removed from the '
+             'report.'
+    )
+    perf_group.add_argument(
         '--limits',
         default=None,
         metavar='PATH',
@@ -459,6 +470,9 @@ def _apply_default_regions(generator: ReportGenerator, report: dict) -> None:
         report: Report dict to update with memory_layout
     """
     sections = generator.elf_analyzer.get_sections()
+    if generator.skip_sections:
+        sections, _ = generator._apply_section_skips(  # pylint: disable=protected-access
+            sections, [])
     default_regions_data = create_default_memory_regions(sections)
 
     if not default_regions_data:
@@ -496,7 +510,8 @@ def generate_report(  # pylint: disable=too-many-arguments,too-many-positional-a
     skip_line_program: bool = False,
     linker_variables: Optional[Dict[str, Any]] = None,
     map_file: Optional[str] = None,
-    limits_ld: Optional[str] = None
+    limits_ld: Optional[str] = None,
+    skip_sections: Optional[list] = None,
 ) -> dict:
     """
     Generate a memory footprint report from ELF and optionally linker scripts.
@@ -516,6 +531,10 @@ def generate_report(  # pylint: disable=too-many-arguments,too-many-positional-a
             attribution, and this script only overrides the utilization
             denominator. Omit when the binary fits — the primary scripts are
             already the real limit.
+        skip_sections: Optional list of exact ELF section names (e.g.
+            ``.noinit``) to exclude from the report. Listed sections are
+            removed before region mapping so they don't contribute to any
+            region's ``used_size``; symbols inside them are also dropped.
 
     Returns:
         dict: Memory analysis report (JSON-serializable)
@@ -547,7 +566,8 @@ def generate_report(  # pylint: disable=too-many-arguments,too-many-positional-a
             memory_regions_data,
             skip_line_program=skip_line_program,
             map_file_path=map_file,
-            real_limits=real_limits
+            real_limits=real_limits,
+            skip_sections=skip_sections,
         )
         report = generator.generate_report()
 
@@ -1041,7 +1061,8 @@ def run_report(args: argparse.Namespace) -> int:
                 skip_line_program=getattr(args, 'skip_line_program', False),
                 linker_variables=linker_variables,
                 map_file=getattr(args, 'map_file', None),
-                limits_ld=getattr(args, 'limits', None)
+                limits_ld=getattr(args, 'limits', None),
+                skip_sections=getattr(args, 'skip_sections', None),
             )
         except ValueError as e:
             logger.error("Failed to generate report: %s", e)

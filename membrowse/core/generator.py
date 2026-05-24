@@ -8,7 +8,7 @@ the generation of comprehensive memory reports from ELF files and memory regions
 
 import time
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, List, Optional
 from .models import MemoryRegion, MemoryReport
 from .analyzer import ELFAnalyzer
 from ..analysis.mapper import MemoryMapper
@@ -58,7 +58,8 @@ class ReportGenerator:  # pylint: disable=too-few-public-methods
                                                 Any]] = None,
                  skip_line_program: bool = False,
                  map_file_path: Optional[str] = None,
-                 real_limits: Optional[Dict[str, int]] = None):
+                 real_limits: Optional[Dict[str, int]] = None,
+                 skip_sections: Optional[List[str]] = None):
         """Initialize the report generator.
 
         Args:
@@ -76,6 +77,11 @@ class ReportGenerator:  # pylint: disable=too-few-public-methods
                 attribution (they may be inflated to capture overflow
                 sections), and these values replace each region's
                 ``limit_size`` before utilization is computed.
+            skip_sections: Optional list of exact ELF section names (e.g.
+                ``.debug_info``) to exclude from the report. Listed sections
+                are removed before mapping, so they do not contribute to any
+                region's ``used_size``; symbols residing in those sections
+                are also dropped to keep the report consistent.
         """
         self.elf_analyzer = ELFAnalyzer(
             elf_path, skip_line_program=skip_line_program,
@@ -84,6 +90,7 @@ class ReportGenerator:  # pylint: disable=too-few-public-methods
         self.elf_path = elf_path
         self.skip_line_program = skip_line_program
         self.real_limits = real_limits or {}
+        self.skip_sections = set(skip_sections) if skip_sections else set()
 
     def generate_report(self) -> MemoryReport:  # pylint: disable=too-many-locals
         """Generate comprehensive memory report.
@@ -129,6 +136,11 @@ class ReportGenerator:  # pylint: disable=too-few-public-methods
             symbols = self.elf_analyzer.get_symbols()
             sections = self.elf_analyzer.get_sections()
             program_headers = self.elf_analyzer.get_program_headers()
+
+            # Skip user-requested sections (and their symbols) before mapping
+            # so they don't contribute to any region's used_size.
+            if self.skip_sections:
+                sections, symbols = self._apply_section_skips(sections, symbols)
 
             # Convert memory regions data to MemoryRegion objects (if provided)
             memory_regions = {}
@@ -207,6 +219,34 @@ class ReportGenerator:  # pylint: disable=too-few-public-methods
         except Exception as e:
             raise ELFAnalysisError(
                 f"Failed to generate memory report: {e}") from e
+
+    def _apply_section_skips(self, sections, symbols):
+        """Remove sections (and symbols inside them) whose names appear in
+        ``self.skip_sections``. Names are matched exactly.
+
+        ``present``/``missing`` are computed against every section in the
+        ELF (including non-ALLOC sections like ``.debug_info``), not just
+        the ALLOC ones returned by :meth:`ELFAnalyzer.get_sections`, so
+        ``--skip-section .debug_info`` warns only when the section truly
+        isn't there and still filters its symbols out of the report.
+        """
+        skip = self.skip_sections
+        all_section_names = self.elf_analyzer.get_all_section_names()
+        present = skip & all_section_names
+        missing = skip - all_section_names
+
+        if present:
+            logger.info(
+                "Skipping %d section(s) per --skip-section: %s",
+                len(present), ", ".join(sorted(present)))
+        if missing:
+            logger.warning(
+                "--skip-section name(s) not present in ELF: %s",
+                ", ".join(sorted(missing)))
+
+        kept_sections = [s for s in sections if s.name not in skip]
+        kept_symbols = [s for s in symbols if s.section not in skip]
+        return kept_sections, kept_symbols
 
     def _convert_to_memory_regions(
         self, regions_data: Dict[str, Dict[str, Any]]
