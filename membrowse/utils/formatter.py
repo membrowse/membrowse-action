@@ -134,6 +134,21 @@ def _calculate_parent_used_size(
     return memory_layout[region_name].get('used_size', 0)
 
 
+# Names of the synthesized regions used when no linker script is provided
+# (see membrowse.analysis.defaults). When such a region also has limit_size=0,
+# there is no hardware budget to report against, so Size/Free/Utilization
+# are not meaningful and are rendered as "unknown" / omitted.
+_DEFAULT_REGION_NAMES = frozenset({"Code", "Data"})
+
+
+def _is_default_unbounded_region(region_name: str, region_data: Dict[str, Any]) -> bool:
+    """Return True for the synthesized Code/Data regions that have no known limit."""
+    return (
+        region_name in _DEFAULT_REGION_NAMES
+        and region_data.get('limit_size', 0) == 0
+    )
+
+
 def _format_region_row(
     region_name: str,
     region_data: Dict[str, Any],
@@ -151,6 +166,19 @@ def _format_region_row(
     """
     address = region_data.get('address', 0)
     limit_size = region_data.get('limit_size', 0)
+
+    if _is_default_unbounded_region(region_name, region_data):
+        # No known limit: report Used only; Size shows "unknown" and
+        # Free/Utilization are blank to avoid the misleading "0 bytes /
+        # negative free / 0%" output that comes from treating limit=0
+        # as a real value.
+        addr_range = _format_address(address)
+        return (
+            f"{region_name:<20} {addr_range:<30} "
+            f"{'unknown':>18}  {used_size:>12,} bytes  "
+            f"{'':>18}  "
+        )
+
     free_size = limit_size - used_size
     utilization = (used_size / limit_size * 100) if limit_size > 0 else 0.0
     end_address = address + limit_size
