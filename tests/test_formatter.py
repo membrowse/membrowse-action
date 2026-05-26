@@ -153,6 +153,84 @@ class TestFormatMemoryRegions:
         assert '.text' in output
         assert '.rodata' in output
 
+    def test_format_default_unbounded_regions(self):
+        """Default Code/Data regions (limit_size=0) must show Size as
+        'unknown' and omit Free/Utilization rather than displaying the
+        misleading '0 bytes / negative free / 0%' that comes from
+        treating an unknown limit as a real value."""
+        report = {
+            'memory_layout': {
+                'Code': {
+                    'address': 0x00000238,
+                    'limit_size': 0,
+                    'used_size': 17929,
+                    'free_size': -17929,
+                    'utilization_percent': 0.0,
+                    'sections': [
+                        {'name': '.text', 'address': 0x1000, 'size': 14174}
+                    ]
+                },
+                'Data': {
+                    'address': 0x00006de8,
+                    'limit_size': 0,
+                    'used_size': 592,
+                    'free_size': -592,
+                    'utilization_percent': 0.0,
+                    'sections': [
+                        {'name': '.data', 'address': 0x7000, 'size': 8}
+                    ]
+                }
+            }
+        }
+
+        output = _format_memory_regions(report)
+
+        # Size column must say "unknown" instead of "0 bytes" for both regions.
+        assert 'unknown' in output
+        assert '0 bytes' not in output.split('Code')[1].split('\n')[0]
+
+        # The misleading negative free numbers must not appear anywhere.
+        assert '-17,929' not in output
+        assert '-592' not in output
+
+        # No utilization bar/percent on the unbounded rows. The bar uses
+        # the block character; the only block characters in this fixture
+        # come from the utilization column, so there should be none.
+        assert '█' not in output  # solid block
+        assert '░' not in output  # shaded block
+
+        # Address range collapses to just the start address (no "X-X").
+        assert '0x00000238-0x00000238' not in output
+        assert '0x00006de8-0x00006de8' not in output
+        assert '0x00000238' in output
+        assert '0x00006de8' in output
+
+        # Used must still be reported correctly.
+        assert '17,929' in output
+        assert '592' in output
+
+    def test_format_default_region_name_with_real_limit_still_renders_normally(self):
+        """A region literally named 'Code' with a real limit_size should
+        be treated as a normal bounded region (the unbounded special-case
+        only fires when limit_size == 0)."""
+        report = {
+            'memory_layout': {
+                'Code': {
+                    'address': 0x08000000,
+                    'limit_size': 1024,
+                    'used_size': 512,
+                    'free_size': 512,
+                    'utilization_percent': 50.0,
+                    'sections': []
+                }
+            }
+        }
+
+        output = _format_memory_regions(report)
+        # Should render with normal columns, not "unknown".
+        assert 'unknown' not in output
+        assert '50.0%' in output
+
     def test_format_memory_regions_sorted_by_address(self):
         """Test that regions are sorted by address."""
         report = {
