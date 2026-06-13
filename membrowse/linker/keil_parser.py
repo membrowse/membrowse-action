@@ -128,24 +128,78 @@ class KeilScatterParser(LinkerScriptFormatParser):
                 "content", path.name)
         cleaned = strip_scatter_comments(content)
 
-        regions = self._scan_regions(cleaned, path.name)
+        regions, containment = self._scan_regions(cleaned, path.name)
         if not regions:
             msg = f"{path.name}: no valid memory regions found in scatter file"
             logger.error(msg)
             raise LinkerScriptError(msg)
 
+        self._validate_regions(regions, containment, path.name)
+
         logger.debug("Keil scatter parser extracted %d memory regions from %s",
                      len(regions), path.name)
         return regions
+
+    @staticmethod
+    def _validate_regions(
+            regions: Dict[str, MemoryRegion],
+            containment: Dict[str, Tuple[int, int]],
+            source: str) -> None:
+        """Validate the parsed memory map for overlaps and containment.
+
+        Two checks, both best-effort (warn, never reject):
+
+        - Overlap: emitted regions whose [address, address+limit_size)
+          ranges intersect signal an inconsistent map. Execution regions
+          legitimately subdivide their parent load region, but each
+          subdivision occupies a distinct slice, so siblings should not
+          overlap. Mirrors the GNU LD path's overlap validation.
+        - Containment: an execution region must fall within its parent
+          load region's address range; one that extends past either end
+          indicates a malformed scatter file.
+        """
+        ordered = sorted(
+            (r for r in regions.values()
+             if r.address is not None and r.limit_size),
+            key=lambda r: (r.address, r.limit_size))
+        for prev, curr in zip(ordered, ordered[1:]):
+            prev_end = prev.address + prev.limit_size
+            if curr.address < prev_end:
+                logger.warning(
+                    "%s: memory regions overlap: '%s' "
+                    "[0x%x, 0x%x) and '%s' [0x%x, 0x%x)",
+                    source, prev.name, prev.address, prev_end,
+                    curr.name, curr.address,
+                    curr.address + curr.limit_size)
+
+        for name, (load_base, load_end) in containment.items():
+            region = regions.get(name)
+            if region is None or region.address is None or not region.limit_size:
+                continue
+            region_end = region.address + region.limit_size
+            if region.address < load_base or region_end > load_end:
+                logger.warning(
+                    "%s: execution region '%s' [0x%x, 0x%x) extends beyond "
+                    "its load region [0x%x, 0x%x)",
+                    source, name, region.address, region_end,
+                    load_base, load_end)
 
     # ------------------------------------------------------------------
     # Region scanning
     # ------------------------------------------------------------------
 
     def _scan_regions(  # pylint: disable=too-many-branches,too-many-locals,too-many-statements
-            self, content: str, source: str) -> Dict[str, MemoryRegion]:
-        """Walk braces, collecting load and execution regions."""
+            self, content: str,
+            source: str) -> Tuple[Dict[str, MemoryRegion],
+                                  Dict[str, Tuple[int, int]]]:
+        """Walk braces, collecting load and execution regions.
+
+        Returns the emitted regions and a containment map of execution
+        region name -> parent load region [base, end) range (only for
+        regions whose parent load range is fully resolved).
+        """
         regions: Dict[str, MemoryRegion] = {}
+        containment: Dict[str, Tuple[int, int]] = {}
         # Stack frames:
         # [kind, header|None, body_start, exec_count, cursor, region_base]
         # cursor is the running placement point for '+offset' children and
@@ -174,14 +228,16 @@ class KeilScatterParser(LinkerScriptFormatParser):
                 header_start = idx + 1
             elif char == '}':
                 if not stack:
-                    raise LinkerScriptError(
-                        f"{source}: unbalanced '}}' in scatter file")
+                    msg = f"{source}: unbalanced '}}' in scatter file"
+                    logger.error(msg)
+                    raise LinkerScriptError(msg)
                 kind, header, body_start, exec_count, _, base = stack.pop()
                 body = content[body_start:idx]
                 if kind == 'exec' and header is not None:
                     load_frame = stack[0] if stack else None
                     self._emit_exec_region(
-                        regions, header, body, load_frame, source)
+                        regions, containment, header, body, load_frame,
+                        source)
                 elif kind == 'load' and header is not None:
                     if exec_count == 0:
                         self._add_region(regions, header.name, base,
@@ -193,16 +249,24 @@ class KeilScatterParser(LinkerScriptFormatParser):
                 header_start = idx + 1
 
         if stack:
-            raise LinkerScriptError(
-                f"{source}: unbalanced '{{' in scatter file")
-        return regions
+            msg = f"{source}: unbalanced '{{' in scatter file"
+            logger.error(msg)
+            raise LinkerScriptError(msg)
+        return regions, containment
 
     def _emit_exec_region(  # pylint: disable=too-many-arguments,too-many-positional-arguments
-            self, regions: Dict[str, MemoryRegion], header: _RegionHeader,
+            self, regions: Dict[str, MemoryRegion],
+            containment: Dict[str, Tuple[int, int]], header: _RegionHeader,
             body: str, load_frame: Optional[list], source: str) -> None:
-        """Resolve an execution region's base/size and add it."""
+        """Resolve an execution region's base/size and add it.
+
+        Records the parent load region's [base, end) range in
+        ``containment`` so a post-parse pass can verify the execution
+        region stays within it.
+        """
         load_header = load_frame[1] if load_frame else None
         load_cursor = load_frame[4] if load_frame else None
+        load_base = load_frame[5] if load_frame else None
 
         base = self._resolve_base(header, load_cursor, source)
         size = header.max_size
@@ -210,7 +274,6 @@ class KeilScatterParser(LinkerScriptFormatParser):
         if size is None and base is not None and load_header is not None:
             # No explicit max size: inside the load region's address range
             # the remaining load region space is the effective limit.
-            load_base = load_frame[5] if load_frame else None
             if (load_base is not None and load_header.max_size is not None
                     and load_base <= base < load_base + load_header.max_size):
                 size = load_base + load_header.max_size - base
@@ -221,6 +284,10 @@ class KeilScatterParser(LinkerScriptFormatParser):
                 "(unresolved base address or size)", source, header.name)
         else:
             self._add_region(regions, header.name, base, size, body, source)
+            if (load_base is not None and load_header is not None
+                    and load_header.max_size is not None):
+                containment[header.name] = (
+                    load_base, load_base + load_header.max_size)
 
         # Advance the parent load region's placement cursor for
         # subsequent '+offset' execution regions. A negative size grows

@@ -16,6 +16,7 @@ Covers:
 """
 # pylint: disable=missing-function-docstring,protected-access
 
+import logging
 import shutil
 import tempfile
 import unittest
@@ -257,6 +258,67 @@ LR_2 0x08080000 0x00080000 {
         with self.assertRaises(LinkerScriptError):
             KeilScatterParser().parse(self._write("; just a comment\n"))
 
+    def test_unbalanced_braces_are_logged(self):
+        content = "LR_1 0x0 0x1000 {\n  ER_1 0x0 0x1000 { .ANY (+RO) }\n"
+        with self.assertLogs(
+                "membrowse.linker.keil_parser", level="ERROR") as cm:
+            with self.assertRaises(LinkerScriptError):
+                KeilScatterParser().parse(self._write(content))
+        self.assertTrue(any("unbalanced" in m for m in cm.output))
+
+    def test_non_utf8_scatter_file_parses(self):
+        # A stray non-UTF-8 byte (e.g. latin-1 comment) must not abort parsing.
+        path = self.temp_dir / "app.sct"
+        text = (
+            "; \xa9 copyright\n"
+            "LR_1 0x08000000 0x00080000 {\n"
+            "  ER_1 0x08000000 0x00010000 { .ANY (+RO) }\n"
+            "}\n"
+        )
+        path.write_bytes(text.encode("latin-1"))
+        regions = KeilScatterParser().parse(str(path))
+        self.assertIn("ER_1", regions)
+
+    def test_overlapping_regions_are_logged(self):
+        content = """\
+LR_1 0x08000000 0x00080000 {
+  ER_1 0x08000000 0x00020000 { .ANY (+RO) }
+  ER_2 0x08010000 0x00020000 { .ANY (+RO) }
+}
+"""
+        with self.assertLogs(
+                "membrowse.linker.keil_parser", level="WARNING") as cm:
+            KeilScatterParser().parse(self._write(content))
+        self.assertTrue(any("overlap" in m for m in cm.output))
+
+    def test_exec_region_beyond_load_region_is_logged(self):
+        # ER_1 ends at 0x08020000, past the load region end 0x08010000.
+        content = """\
+LR_1 0x08000000 0x00010000 {
+  ER_1 0x08000000 0x00020000 { .ANY (+RO) }
+}
+"""
+        with self.assertLogs(
+                "membrowse.linker.keil_parser", level="WARNING") as cm:
+            KeilScatterParser().parse(self._write(content))
+        self.assertTrue(
+            any("extends beyond" in m for m in cm.output), cm.output)
+
+    def test_contained_exec_region_is_not_logged(self):
+        # Well-formed: exec region fits inside the load region.
+        content = """\
+LR_1 0x08000000 0x00080000 {
+  ER_1 0x08000000 0x00010000 { .ANY (+RO) }
+}
+"""
+        logger_name = "membrowse.linker.keil_parser"
+        with self.assertLogs(logger_name, level="WARNING") as cm:
+            logging.getLogger(logger_name).warning("sentinel")
+            KeilScatterParser().parse(self._write(content))
+        self.assertFalse(
+            any("extends beyond" in m or "overlap" in m for m in cm.output),
+            cm.output)
+
 
 class TestKeilOrchestration(_ScatterTestBase):
     """Tests parsing through the LinkerScriptParser orchestrator."""
@@ -279,6 +341,15 @@ class TestKeilOrchestration(_ScatterTestBase):
             set(result), {"FLASH", "RAM", "ER_IROM1", "RW_IRAM1"})
         self.assertEqual(result["FLASH"]["limit_size"], 512 * 1024)
         self.assertEqual(result["ER_IROM1"]["limit_size"], 0x00080000)
+
+    def test_non_utf8_scatter_dispatches(self):
+        # Orchestrator reads scripts before Keil detection: a non-UTF-8 byte
+        # must not raise UnicodeDecodeError before dispatch.
+        path = self.temp_dir / "app.sct"
+        path.write_bytes(
+            ("; \xa9\n" + _STM32_SCATTER).encode("latin-1"))
+        result = LinkerScriptParser([str(path)]).parse_memory_regions()
+        self.assertEqual(set(result), {"ER_IROM1", "RW_IRAM1"})
 
 
 if __name__ == '__main__':

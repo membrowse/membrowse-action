@@ -859,7 +859,7 @@ class VariableExtractor:  # pylint: disable=too-few-public-methods
 
     def extract_from_script(self, script_path: str) -> None:
         """Extract variable definitions from a linker script"""
-        with open(script_path, "r", encoding="utf-8") as f:
+        with open(script_path, "r", encoding="utf-8", errors="replace") as f:
             content = f.read()
 
         # Inline INCLUDE directives before any other preprocessing
@@ -1209,7 +1209,7 @@ class LinkerScriptParser:  # pylint: disable=too-few-public-methods,too-many-ins
         self._keil_scripts = set()
         gnu_scripts = []
         for script_path in self.ld_scripts:
-            with open(script_path, "r", encoding="utf-8") as f:
+            with open(script_path, "r", encoding="utf-8", errors="replace") as f:
                 content = f.read()
             if LinkerFormatDetector.is_emproject(content):
                 self._emproject_scripts.add(script_path)
@@ -1318,7 +1318,7 @@ class LinkerScriptParser:  # pylint: disable=too-few-public-methods,too-many-ins
             Tuple of (parsed_regions, failed_matches)
             ICF and .emProject files always return an empty failed_matches list.
         """
-        with open(script_path, "r", encoding="utf-8") as f:
+        with open(script_path, "r", encoding="utf-8", errors="replace") as f:
             content = f.read()
 
         # Auto-detect SEGGER ES .emProject XML and delegate
