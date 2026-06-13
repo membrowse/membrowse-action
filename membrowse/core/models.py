@@ -89,6 +89,7 @@ class Symbol:  # pylint: disable=too-many-instance-attributes
     binding: str
     section: str
     source_file: str = ""
+    source_line: int = 0
     visibility: str = ""
     archive: str = ""
     object_file: str = ""
@@ -128,6 +129,7 @@ class SymbolDict(TypedDict):
     binding: str
     section: str
     source_file: str
+    source_line: int
     visibility: str
     archive: str
     object_file: str

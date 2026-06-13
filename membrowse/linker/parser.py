@@ -859,7 +859,7 @@ class VariableExtractor:  # pylint: disable=too-few-public-methods
 
     def extract_from_script(self, script_path: str) -> None:
         """Extract variable definitions from a linker script"""
-        with open(script_path, "r", encoding="utf-8") as f:
+        with open(script_path, "r", encoding="utf-8", errors="replace") as f:
             content = f.read()
 
         # Inline INCLUDE directives before any other preprocessing
@@ -1169,10 +1169,11 @@ class LinkerScriptParser:  # pylint: disable=too-few-public-methods,too-many-ins
                 self.parsing_strategy['default_variables'])
 
         # Per-format script caches (populated during variable extraction).
-        # ICF and .emProject files are routed to their own parsers and
-        # excluded from the GNU LD variable scan.
+        # ICF, .emProject and Keil scatter files are routed to their own
+        # parsers and excluded from the GNU LD variable scan.
         self._icf_scripts: set = set()
         self._emproject_scripts: set = set()
+        self._keil_scripts: set = set()
 
         # Apply user-defined variables (override architecture defaults)
         self._user_variables = user_variables or {}
@@ -1199,20 +1200,23 @@ class LinkerScriptParser:  # pylint: disable=too-few-public-methods,too-many-ins
 
     def _extract_all_variables(self) -> None:
         """Extract variables from all linker scripts"""
-        # Skip ICF and .emProject files — the GNU LD variable extractor would
-        # pollute evaluator.variables with unparseable strings. Caching the
-        # set lets _parse_all_memory_regions skip them on retries (their
-        # parsers produce no deferred matches).
+        # Skip ICF, .emProject and Keil scatter files — the GNU LD variable
+        # extractor would pollute evaluator.variables with unparseable
+        # strings. Caching the set lets _parse_all_memory_regions skip them
+        # on retries (their parsers produce no deferred matches).
         self._icf_scripts = set()
         self._emproject_scripts = set()
+        self._keil_scripts = set()
         gnu_scripts = []
         for script_path in self.ld_scripts:
-            with open(script_path, "r", encoding="utf-8") as f:
+            with open(script_path, "r", encoding="utf-8", errors="replace") as f:
                 content = f.read()
             if LinkerFormatDetector.is_emproject(content):
                 self._emproject_scripts.add(script_path)
             elif LinkerFormatDetector.is_icf(content):
                 self._icf_scripts.add(script_path)
+            elif LinkerFormatDetector.is_keil(content):
+                self._keil_scripts.add(script_path)
             else:
                 gnu_scripts.append(script_path)
 
@@ -1251,11 +1255,12 @@ class LinkerScriptParser:  # pylint: disable=too-few-public-methods,too-many-ins
             new_deferred = []
 
             for script_path in ordered_scripts:
-                # ICF and .emProject files never produce deferred matches;
-                # skip them on retries.
+                # ICF, .emProject and Keil scatter files never produce
+                # deferred matches; skip them on retries.
                 if iteration > 0 and (
                     script_path in self._icf_scripts
                     or script_path in self._emproject_scripts
+                    or script_path in self._keil_scripts
                 ):
                     continue
                 script_regions, script_deferred = self._parse_single_script(
@@ -1313,7 +1318,7 @@ class LinkerScriptParser:  # pylint: disable=too-few-public-methods,too-many-ins
             Tuple of (parsed_regions, failed_matches)
             ICF and .emProject files always return an empty failed_matches list.
         """
-        with open(script_path, "r", encoding="utf-8") as f:
+        with open(script_path, "r", encoding="utf-8", errors="replace") as f:
             content = f.read()
 
         # Auto-detect SEGGER ES .emProject XML and delegate
@@ -1323,6 +1328,10 @@ class LinkerScriptParser:  # pylint: disable=too-few-public-methods,too-many-ins
         # Auto-detect IAR ICF format and delegate
         if LinkerFormatDetector.is_icf(content):
             return self._parse_icf_script(script_path, external_regions), []
+
+        # Auto-detect Keil/Arm scatter file format and delegate
+        if LinkerFormatDetector.is_keil(content):
+            return self._parse_keil_script(script_path), []
 
         # GNU LD path (existing logic)
         # Inline INCLUDE directives before cleaning/scanning
@@ -1360,6 +1369,17 @@ class LinkerScriptParser:  # pylint: disable=too-few-public-methods,too-many-ins
             external_regions=external_regions,
         )
         return icf_parser.parse(script_path)
+
+    def _parse_keil_script(
+            self, script_path: str) -> Dict[str, MemoryRegion]:
+        """Delegate Keil scatter file parsing to KeilScatterParser."""
+        # Local import: keeps keil_parser out of the import graph when
+        # no scatter file is involved.
+        from .keil_parser import KeilScatterParser  # pylint: disable=import-outside-toplevel
+        logger.debug(
+            "Detected Keil scatter file format in %s, delegating to "
+            "KeilScatterParser", script_path)
+        return KeilScatterParser().parse(script_path)
 
     def _parse_emproject_script(
             self, script_path: str) -> Dict[str, MemoryRegion]:
