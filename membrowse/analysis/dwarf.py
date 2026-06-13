@@ -80,6 +80,8 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
         self.dwarf_data = {
             # address -> filename (from line programs)
             'address_to_file': {},
+            # address -> line number (from line programs)
+            'address_to_line': {},
             # (symbol_name, address) -> filename
             'symbol_to_file': {},
             'address_to_cu_file': {},       # address -> cu_filename
@@ -553,6 +555,7 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
                     try:
                         address = entry.state.address
                         file_index = entry.state.file
+                        line_number = getattr(entry.state, 'line', 0) or 0
 
                         if address == 0 or file_index == 0:
                             continue
@@ -567,6 +570,8 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
                                 if filename:
                                     # Store in dictionary
                                     self.dwarf_data['address_to_file'][address] = filename
+                                    if line_number:
+                                        self.dwarf_data['address_to_line'][address] = line_number
 
                     except (IndexError, AttributeError) as e:
                         logger.error(

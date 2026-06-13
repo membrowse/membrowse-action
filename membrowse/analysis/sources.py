@@ -73,6 +73,27 @@ class SourceFileResolver:  # pylint: disable=too-few-public-methods
             return ""
         return result
 
+    def extract_source_line(self, symbol_address: Optional[int]) -> int:
+        """Return the source line for a symbol address from the DWARF line program.
+
+        Returns 0 when no line program entry covers the address. The lookup is
+        address-based only — for inlined or moved code, this is the line the
+        line program ultimately landed on, which is the same answer ``nm -l``
+        gives.
+        """
+        if not self.dwarf_data or not symbol_address:
+            return 0
+        addr_to_line = self.dwarf_data.get('address_to_line')
+        if not addr_to_line:
+            return 0
+        line = addr_to_line.get(symbol_address)
+        if line:
+            return line
+        nearby = self._find_nearby_address(symbol_address)
+        if nearby is not None:
+            return addr_to_line.get(nearby, 0)
+        return 0
+
     def _resolve_source_file(  # pylint: disable=too-many-return-statements,too-many-branches
             self,
             symbol_name: str,

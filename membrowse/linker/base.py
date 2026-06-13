@@ -34,6 +34,18 @@ class LinkerScriptFormatParser(ABC):
         """Return True if content matches this parser's format."""
 
 
+def strip_scatter_comments(content: str) -> str:
+    """Strip Keil scatter file comments and preprocessor lines.
+
+    Removes ';' line comments, C/C++ style comments ('//', '/* */'),
+    and '#'-prefixed preprocessor directives ('#!', '#define', '#if').
+    """
+    content = re.sub(r'/\*.*?\*/', ' ', content, flags=re.DOTALL)
+    content = re.sub(r'(;|//).*?$', '', content, flags=re.MULTILINE)
+    content = re.sub(r'^\s*#.*?$', '', content, flags=re.MULTILINE)
+    return content
+
+
 class LinkerFormatDetector:  # pylint: disable=too-few-public-methods
     """Content-based detection of linker script dialects."""
 
@@ -79,3 +91,18 @@ class LinkerFormatDetector:  # pylint: disable=too-few-public-methods
         if "CrossStudio_Project_File" in head:
             return True
         return head.startswith("<solution") or "<solution " in head
+
+    @classmethod
+    def is_keil(cls, content: str) -> bool:
+        """Detect a Keil/Arm armlink scatter (.sct) file from content.
+
+        Delegates to KeilScatterParser.detect which requires a region
+        header (name + numeric base + brace) plus a scatter-specific
+        selector or attribute keyword, and rejects GNU LD MEMORY blocks.
+        """
+        if cls.is_emproject(content):
+            return False
+        # Local import: keil_parser imports parser which imports this
+        # module; deferring the import avoids a circular dependency.
+        from .keil_parser import KeilScatterParser  # pylint: disable=import-outside-toplevel,cyclic-import
+        return KeilScatterParser.detect(content)

@@ -35,6 +35,11 @@ _IAR_FILL_RE = re.compile(r'^Fill\d+$')
 # More specific compilers are checked first so that e.g. clang wins over
 # a libc GCC entry that may also be present in the same .comment section.
 _TOOLCHAIN_PATTERNS = (
+    # Keil MDK / Arm Compiler: AC5 emits "ARM Compiler 5.06 ...", AC6
+    # (armclang) emits "Arm Compiler for Embedded 6.21 ..." — both must
+    # win over the embedded clang entry that AC6 also carries.
+    ('armcc', re.compile(rb'Arm Compiler\D*?(\d+\.\d+(?:\.\d+)?)',
+                         re.IGNORECASE)),
     ('clang', re.compile(rb'clang version (\d+\.\d+(?:\.\d+)?)')),
     ('rustc', re.compile(rb'rustc (?:version )?(\d+\.\d+(?:\.\d+)?)')),
     ('iar', re.compile(rb'IAR.*?V(\d+\.\d+(?:\.\d+)?)')),
