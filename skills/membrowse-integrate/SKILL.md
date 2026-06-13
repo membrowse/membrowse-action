@@ -573,10 +573,13 @@ on:
 jobs:
   comment:
     runs-on: ubuntu-latest
-    # Run even if some builds failed — only skip if the run was cancelled
+    # Run even if some builds failed — but skip cancelled runs and skipped runs
+    # (e.g. draft PRs, where nothing is built or uploaded, so the summary lookup
+    # would 404 on a commit with no report).
     if: >
       github.event.workflow_run.event == 'pull_request' &&
-      github.event.workflow_run.conclusion != 'cancelled'
+      github.event.workflow_run.conclusion != 'cancelled' &&
+      github.event.workflow_run.conclusion != 'skipped'
     permissions:
       contents: read
       pull-requests: write
