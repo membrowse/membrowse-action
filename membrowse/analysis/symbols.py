@@ -155,16 +155,6 @@ class SymbolExtractor:  # pylint: disable=too-few-public-methods
         """Initialize with ELF file handle."""
         self.elffile = elffile
 
-    def _demangle_symbol_name(self, name: str) -> str:
-        """Demangle a C++ or Rust symbol name. See :meth:`_demangle_with_kind`.
-
-        Returns only the demangled string — the ``kind`` is discarded. Callers
-        that need to know which demangler succeeded (e.g. to extract a Rust
-        crate) should use :meth:`_demangle_with_kind` directly.
-        """
-        demangled, _ = self._demangle_with_kind(name)
-        return demangled
-
     def _demangle_with_kind(  # pylint: disable=too-many-return-statements
             self, name: str) -> Tuple[str, str]:
         """Demangle and also report which demangler handled the name.

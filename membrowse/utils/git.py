@@ -259,34 +259,6 @@ def detect_git_metadata() -> Dict[str, Any]:
     }
 
 
-def _build_metadata_result(
-    git_context: GitContext,
-    commit_details: tuple,
-    pr_info: tuple
-) -> Dict[str, Any]:
-    """Build the metadata result dictionary."""
-    commit_message, commit_timestamp, author_name, author_email = commit_details
-    pr_number, pr_name, pr_author_name, pr_author_email = pr_info
-
-    tags = get_commit_tags(git_context.commit_sha)
-
-    return {
-        'commit_hash': git_context.commit_sha or None,
-        'base_commit_hash': git_context.parent_sha or None,
-        'branch_name': git_context.branch_name or None,
-        'repository': git_context.repo_name or None,
-        'commit_message': commit_message or None,
-        'commit_timestamp': commit_timestamp or None,
-        'author_name': author_name or None,
-        'author_email': author_email or None,
-        'tags': tags,
-        'pr_number': pr_number or None,
-        'pr_name': pr_name or None,
-        'pr_author_name': pr_author_name or None,
-        'pr_author_email': pr_author_email or None
-    }
-
-
 def detect_github_metadata() -> Dict[str, Any]:
     """
     Detect Git metadata from GitHub Actions environment.

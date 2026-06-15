@@ -3,7 +3,6 @@
 import argparse
 import json
 import logging
-import subprocess
 import sys
 from pathlib import Path
 from typing import Optional
@@ -11,8 +10,8 @@ from typing import Optional
 from jinja2 import TemplateError as Jinja2TemplateError
 
 from .summary_formatter import (
-    build_summary_template_context,
-    enrich_regions, enrich_sections, process_alerts, render_jinja2_template,
+    build_summary_template_context, build_target_context,
+    process_alerts, render_jinja2_template,
 )
 from .github_common import (
     is_gh_cli_available,
@@ -25,6 +24,31 @@ logger = logging.getLogger(__name__)
 
 # Unique marker to identify MemBrowse comments
 COMMENT_MARKER = "<!-- membrowse-pr-comment -->"
+
+# Brand header prepended to every MemBrowse PR comment (includes the marker).
+_LOGO = '<img src="https://membrowse.com/membrowse-logo.svg" height="24" align="top">'
+COMMENT_HEADER = f"{COMMENT_MARKER}\n## {_LOGO} MemBrowse Memory Report\n"
+
+
+def _wrap_with_header(body: str) -> str:
+    """Prepend the MemBrowse marker + brand header to a rendered comment body."""
+    return f"{COMMENT_HEADER}\n{body}"
+
+
+def _post_comment(body: str, pr_number: str, debug_msg: str) -> None:
+    """Create or update a MemBrowse PR comment, guarding on gh availability.
+
+    Centralizes the gh-CLI availability check and error handling shared by all
+    comment-posting entry points.
+    """
+    if not is_gh_cli_available():
+        logger.warning("GitHub CLI (gh) not available, skipping PR comment")
+        return
+    try:
+        create_or_update_comment(body, pr_number, COMMENT_MARKER)
+        logger.debug(debug_msg)
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        handle_comment_error(e, "PR comment")
 
 
 def _extract_pr_number(results: list[dict]) -> str:
@@ -82,13 +106,10 @@ def post_combined_pr_comment(
         logger.error("Template syntax error: %s", e)
         raise
 
-    try:
-        create_or_update_comment(comment_body, pr_number, COMMENT_MARKER)
-        logger.debug("Posted combined PR comment for %d targets", len(results))
-    except subprocess.CalledProcessError as e:
-        handle_comment_error(e, "PR comment")
-    except Exception as e:  # pylint: disable=broad-exception-caught
-        handle_comment_error(e, "PR comment")
+    _post_comment(
+        comment_body, pr_number,
+        f"Posted combined PR comment for {len(results)} targets",
+    )
 
 
 def post_pr_comment_from_body(body: str, pr_number: str) -> None:
@@ -101,21 +122,8 @@ def post_pr_comment_from_body(body: str, pr_number: str) -> None:
         body: Pre-rendered markdown body (e.g., from membrowse summary)
         pr_number: PR number to post the comment on
     """
-    if not is_gh_cli_available():
-        logger.warning("GitHub CLI (gh) not available, skipping PR comment")
-        return
-
-    logo = '<img src="https://membrowse.com/membrowse-logo.svg" height="24" align="top">'
-    header = f"{COMMENT_MARKER}\n## {logo} MemBrowse Memory Report\n"
-    comment_body = f"{header}\n{body}"
-
-    try:
-        create_or_update_comment(comment_body, pr_number, COMMENT_MARKER)
-        logger.debug("Posted PR comment")
-    except subprocess.CalledProcessError as e:
-        handle_comment_error(e, "PR comment")
-    except Exception as e:  # pylint: disable=broad-exception-caught
-        handle_comment_error(e, "PR comment")
+    comment_body = _wrap_with_header(body)
+    _post_comment(comment_body, pr_number, "Posted PR comment")
 
 
 def _build_template_context(results: list[dict]) -> dict:  # pylint: disable=too-many-locals
@@ -145,27 +153,20 @@ def _build_template_context(results: list[dict]) -> dict:  # pylint: disable=too
         if alerts:
             has_any_alerts = True
 
-        regions = enrich_regions(changes_data.get('regions', {}))
-        sections, sections_by_region = enrich_sections(changes_data.get('sections', {}))
-
         symbols = {
             'added': symbols_data.get('added', []),
             'removed': symbols_data.get('removed', []),
             'modified': symbols_data.get('modified', []),
             'moved': symbols_data.get('moved', []),
-        } if symbols_data else {'added': [], 'removed': [], 'modified': [], 'moved': []}
+        } if symbols_data else None
 
-        targets.append({
-            'name': result.get('target_name', 'Unknown'),
-            'comparison_url': result.get('comparison_url'),
-            'regions': regions,
-            'sections': sections,
-            'sections_by_region': sections_by_region,
-            'symbols': symbols,
-            'alerts': alerts,
-            'has_changes': bool(regions),
-            'has_alerts': bool(alerts),
-        })
+        targets.append(build_target_context(
+            name=result.get('target_name', 'Unknown'),
+            comparison_url=result.get('comparison_url'),
+            changes=changes_data,
+            alerts=alerts,
+            symbols=symbols,
+        ))
 
     return {
         'targets': targets,
@@ -187,11 +188,7 @@ def _render_template(template_path: str, context: dict) -> str:
         Jinja2TemplateError: If template has syntax errors
     """
     rendered = render_jinja2_template(template_path, context)
-
-    logo = '<img src="https://membrowse.com/membrowse-logo.svg" height="24" align="top">'
-    header = f"{COMMENT_MARKER}\n## {logo} MemBrowse Memory Report\n"
-
-    return f"{header}\n{rendered}"
+    return _wrap_with_header(rendered)
 
 
 def _render_comment_body(
@@ -262,17 +259,7 @@ def post_summary_comment(
     # body already includes the header/marker from _render_comment_body,
     # so post directly instead of going through post_pr_comment_from_body
     # which would add the header a second time.
-    if not is_gh_cli_available():
-        logger.warning("GitHub CLI (gh) not available, skipping PR comment")
-        return
-
-    try:
-        create_or_update_comment(body, pr_number, COMMENT_MARKER)
-        logger.debug("Posted summary PR comment")
-    except subprocess.CalledProcessError as e:
-        handle_comment_error(e, "PR comment")
-    except Exception as e:  # pylint: disable=broad-exception-caught
-        handle_comment_error(e, "PR comment")
+    _post_comment(body, pr_number, "Posted summary PR comment")
 
 
 def main():
