@@ -152,29 +152,6 @@ class MemoryMapper:
         return region_type in compatibility_map.get(section_type, [])
 
     @staticmethod
-    def _intervals_cover_range(
-            intervals: List[tuple], start: int, end: int) -> bool:
-        """Check whether a sorted list of (start, end) intervals fully covers
-        [start, end).
-
-        Args:
-            intervals: Sorted list of (interval_start, interval_end) tuples.
-            start: Start of the range to check.
-            end: End of the range to check.
-
-        Returns:
-            True if the intervals collectively cover the entire range.
-        """
-        cursor = start
-        for iv_start, iv_end in intervals:
-            if iv_start > cursor:
-                return False
-            cursor = max(cursor, iv_end)
-            if cursor >= end:
-                return True
-        return cursor >= end
-
-    @staticmethod
     def infer_regions_from_segments(
             program_headers: List[Dict],
             existing_regions: Dict[str, MemoryRegion]

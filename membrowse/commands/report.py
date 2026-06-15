@@ -13,10 +13,9 @@ from ..utils.budget_alerts import iter_budget_alerts
 from ..utils.formatter import format_report_human_readable
 from ..utils.github import is_fork_pr
 from ..linker.parser import LinkerScriptParser
-from ..core.generator import ReportGenerator
+from ..core.generator import ReportGenerator, make_empty_report
 from ..core.models import MemoryRegion
-from ..api.client import MemBrowseClient
-from ..auth.strategy import determine_auth_strategy
+from ..api.client import MemBrowseClient, DEFAULT_API_URL
 from ..analysis.defaults import (
     create_default_memory_regions,
     map_sections_to_default_regions
@@ -25,9 +24,6 @@ from ..analysis.mapper import MemoryMapper
 
 # Set up logger
 logger = logging.getLogger(__name__)
-
-# Default MemBrowse API base URL (automatically appends /upload)
-DEFAULT_API_URL = 'https://api.membrowse.com'
 
 
 def print_upload_response(response_data: dict) -> str:
@@ -700,28 +696,6 @@ def _parse_linker_scripts_if_provided(
         raise ValueError(f"Failed to parse memory regions: {e}") from e
 
 
-def _create_metadata_only_report() -> dict:
-    """
-    Create a minimal report for identical commits (no build-relevant changes).
-
-    Contains only structural fields, no actual analysis.
-
-    Returns:
-        Minimal report dictionary for identical commits
-    """
-    return {
-        'file_path': None,
-        'architecture': None,
-        'toolchain': None,
-        'entry_point': None,
-        'file_type': None,
-        'machine': None,
-        'symbols': [],
-        'program_headers': [],
-        'memory_layout': {}
-    }
-
-
 def upload_report(  # pylint: disable=too-many-arguments
     report: dict,
     commit_info: dict,
@@ -852,12 +826,9 @@ def _perform_upload(  # pylint: disable=too-many-arguments,too-many-positional-a
     """Perform the actual upload to MemBrowse."""
     try:
         if client is None:
-            # Determine authentication strategy
-            auth_context = determine_auth_strategy(
-                api_key=api_key,
-                auto_detect_fork=is_github_mode
+            client = MemBrowseClient.from_api_key(
+                api_key, api_url, auto_detect_fork=is_github_mode
             )
-            client = MemBrowseClient(auth_context, api_url)
         return client.upload_report(enriched_report)
     except Exception as e:  # pylint: disable=broad-exception-caught
         logger.error("%s: Failed to upload report to %s: %s", log_prefix, api_url, e)
@@ -1048,7 +1019,7 @@ def run_report(args: argparse.Namespace) -> int:
     # Handle identical mode: create metadata-only report, skip ELF analysis
     if identical_mode:
         logger.debug("Identical mode: skipping ELF analysis, uploading metadata only")
-        report = _create_metadata_only_report()
+        report = make_empty_report()
     else:
         # Parse linker variable definitions
         linker_variables = _parse_linker_definitions(getattr(args, 'linker_defs', None))

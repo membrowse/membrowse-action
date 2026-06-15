@@ -24,7 +24,7 @@ class TestSymbolDemangling(unittest.TestCase):  # pylint: disable=too-many-publi
     def test_demangle_cpp_function(self):
         """Test demangling of a simple C++ function"""
         mangled = "_Z3foov"
-        demangled = self.extractor._demangle_symbol_name(mangled)
+        demangled = self.extractor._demangle_with_kind(mangled)[0]
         self.assertEqual(demangled, "foo()")
 
     def test_demangle_cpp_lambda_inside_function(self):
@@ -32,19 +32,19 @@ class TestSymbolDemangling(unittest.TestCase):  # pylint: disable=too-many-publi
         # upstream itanium_demangler raises NotImplementedError on local
         # names; our _cpp_demangle patch handles them.
         mangled = "_ZZN3foo3barEvEUliE_"
-        demangled = self.extractor._demangle_symbol_name(mangled)
+        demangled = self.extractor._demangle_with_kind(mangled)[0]
         self.assertEqual(demangled, "foo::bar()::{lambda(int)#1}")
 
     def test_demangle_cpp_named_entity_in_local_scope(self):
         mangled = "_ZZN3foo3barEvEN3baz3quxE"
-        demangled = self.extractor._demangle_symbol_name(mangled)
+        demangled = self.extractor._demangle_with_kind(mangled)[0]
         self.assertEqual(demangled, "foo::bar()::baz::qux")
 
     def test_demangle_cpp_closure_as_template_arg(self):
         # A closure type used directly as a template argument, without the
         # enclosing Z...E local-name wrapper.
         mangled = "_ZNSt3foo3barIUlvE_EEvT_"
-        demangled = self.extractor._demangle_symbol_name(mangled)
+        demangled = self.extractor._demangle_with_kind(mangled)[0]
         self.assertIn("{lambda(void)#1}", demangled)
 
     def test_demangle_cpp_nvs_find_if_with_lambda(self):
@@ -55,7 +55,7 @@ class TestSymbolDemangling(unittest.TestCase):  # pylint: disable=too-many-publi
             "_ZSt7find_ifIN14intrusive_listIN3nvs7Storage14NamespaceEntryEE"
             "8iteratorEZNS2_21createOrOpenNamespaceEPKcbRhEUlRKS3_E_ET_SC_SC_T0_"
         )
-        demangled = self.extractor._demangle_symbol_name(mangled)
+        demangled = self.extractor._demangle_with_kind(mangled)[0]
         self.assertIn("std::find_if", demangled)
         self.assertIn(
             "nvs::Storage::createOrOpenNamespace"
@@ -69,13 +69,13 @@ class TestSymbolDemangling(unittest.TestCase):  # pylint: disable=too-many-publi
     def test_demangle_cpp_function_with_args(self):
         """Test demangling of C++ function with arguments"""
         mangled = "_Z3addii"
-        demangled = self.extractor._demangle_symbol_name(mangled)
+        demangled = self.extractor._demangle_with_kind(mangled)[0]
         self.assertEqual(demangled, "add(int, int)")
 
     def test_demangle_cpp_namespace_function(self):
         """Test demangling of C++ namespaced function"""
         mangled = "_ZN9MyClass6methodEv"
-        demangled = self.extractor._demangle_symbol_name(mangled)
+        demangled = self.extractor._demangle_with_kind(mangled)[0]
         # Expected format: MyClass::method()
         self.assertIn("MyClass", demangled)
         self.assertIn("method", demangled)
@@ -83,43 +83,43 @@ class TestSymbolDemangling(unittest.TestCase):  # pylint: disable=too-many-publi
     def test_c_symbol_unchanged(self):
         """Test that C symbols remain unchanged"""
         c_symbol = "my_c_function"
-        result = self.extractor._demangle_symbol_name(c_symbol)
+        result = self.extractor._demangle_with_kind(c_symbol)[0]
         self.assertEqual(result, c_symbol)
 
     def test_already_demangled_unchanged(self):
         """Test that already demangled names remain unchanged"""
         demangled = "foo()"
-        result = self.extractor._demangle_symbol_name(demangled)
+        result = self.extractor._demangle_with_kind(demangled)[0]
         self.assertEqual(result, demangled)
 
     def test_invalid_mangled_returns_original(self):
         """Test that invalid mangled symbols return the original name"""
         invalid = "_ZQQ"  # Invalid mangled name
-        result = self.extractor._demangle_symbol_name(invalid)
+        result = self.extractor._demangle_with_kind(invalid)[0]
         self.assertEqual(result, invalid)
 
     def test_empty_string(self):
         """Test handling of empty string"""
-        result = self.extractor._demangle_symbol_name("")
+        result = self.extractor._demangle_with_kind("")[0]
         self.assertEqual(result, "")
 
     def test_special_characters(self):
         """Test handling of symbols with special characters"""
         symbol = "$special_symbol"
-        result = self.extractor._demangle_symbol_name(symbol)
+        result = self.extractor._demangle_with_kind(symbol)[0]
         self.assertEqual(result, symbol)
 
     def test_demangle_cpp_constructor(self):
         """Test demangling of C++ constructor"""
         mangled = "_ZN9MyClassC1Ev"
-        demangled = self.extractor._demangle_symbol_name(mangled)
+        demangled = self.extractor._demangle_with_kind(mangled)[0]
         # Should contain MyClass and constructor indication
         self.assertIn("MyClass", demangled)
 
     def test_demangle_cpp_destructor(self):
         """Test demangling of C++ destructor"""
         mangled = "_ZN9MyClassD1Ev"
-        demangled = self.extractor._demangle_symbol_name(mangled)
+        demangled = self.extractor._demangle_with_kind(mangled)[0]
         # Should contain MyClass and destructor indication
         self.assertIn("MyClass", demangled)
 
@@ -129,7 +129,7 @@ class TestSymbolDemangling(unittest.TestCase):  # pylint: disable=too-many-publi
         """Test demangling of Rust v0 mangled symbol"""
         # Rust v0 mangling starts with _R
         mangled = "_RNvC6_123foo3bar"
-        demangled = self.extractor._demangle_symbol_name(mangled)
+        demangled = self.extractor._demangle_with_kind(mangled)[0]
         # Should demangle to something readable
         self.assertNotEqual(demangled, mangled)
         self.assertIn("bar", demangled)
@@ -138,7 +138,7 @@ class TestSymbolDemangling(unittest.TestCase):  # pylint: disable=too-many-publi
         """Test demangling of legacy Rust mangled symbol"""
         # Legacy Rust mangling uses _ZN prefix like C++
         mangled = "_ZN3foo3barE"
-        demangled = self.extractor._demangle_symbol_name(mangled)
+        demangled = self.extractor._demangle_with_kind(mangled)[0]
         # Should demangle to foo::bar
         self.assertEqual(demangled, "foo::bar")
 
@@ -146,7 +146,7 @@ class TestSymbolDemangling(unittest.TestCase):  # pylint: disable=too-many-publi
         """Test demangling of legacy Rust symbol with nested modules"""
         # Legacy Rust symbol with nested modules
         mangled = "_ZN4core3ptr13drop_in_placeE"
-        demangled = self.extractor._demangle_symbol_name(mangled)
+        demangled = self.extractor._demangle_with_kind(mangled)[0]
         # Should demangle to core::ptr::drop_in_place
         self.assertEqual(demangled, "core::ptr::drop_in_place")
 
@@ -154,7 +154,7 @@ class TestSymbolDemangling(unittest.TestCase):  # pylint: disable=too-many-publi
         """Test demangling of Rust v0 function symbol"""
         # Example v0 mangled name
         mangled = "_RNvNtCs123_4core3ptr13drop_in_place"
-        demangled = self.extractor._demangle_symbol_name(mangled)
+        demangled = self.extractor._demangle_with_kind(mangled)[0]
         # Should start with _R prefix and be demangled
         self.assertNotEqual(demangled, mangled)
 
@@ -162,7 +162,7 @@ class TestSymbolDemangling(unittest.TestCase):  # pylint: disable=too-many-publi
         """Test that invalid Rust-like symbols return original"""
         # Invalid _R prefixed symbol
         invalid = "_Rinvalid"
-        result = self.extractor._demangle_symbol_name(invalid)
+        result = self.extractor._demangle_with_kind(invalid)[0]
         # Should return original if demangling fails
         self.assertEqual(result, invalid)
 
@@ -170,12 +170,12 @@ class TestSymbolDemangling(unittest.TestCase):  # pylint: disable=too-many-publi
         """Test that both Rust and C++ symbols can be demangled"""
         # C++ symbol
         cpp_mangled = "_Z3foov"
-        cpp_demangled = self.extractor._demangle_symbol_name(cpp_mangled)
+        cpp_demangled = self.extractor._demangle_with_kind(cpp_mangled)[0]
         self.assertEqual(cpp_demangled, "foo()")
 
         # Rust legacy symbol
         rust_mangled = "_ZN3foo3barE"
-        rust_demangled = self.extractor._demangle_symbol_name(rust_mangled)
+        rust_demangled = self.extractor._demangle_with_kind(rust_mangled)[0]
         self.assertEqual(rust_demangled, "foo::bar")
 
     # Compiler suffix stripping tests
@@ -183,7 +183,7 @@ class TestSymbolDemangling(unittest.TestCase):  # pylint: disable=too-many-publi
     def test_demangle_cpp_with_part_suffix(self):
         """Test demangling C++ symbol with GCC .part.N suffix"""
         mangled = "_ZN6matrix6MatrixIfLj3ELj1EEaSERKS1_.part.0"
-        demangled = self.extractor._demangle_symbol_name(mangled)
+        demangled = self.extractor._demangle_with_kind(mangled)[0]
         self.assertIn("matrix::Matrix", demangled)
         self.assertIn("operator=", demangled)
         self.assertTrue(demangled.endswith(".part.0"))
@@ -191,37 +191,37 @@ class TestSymbolDemangling(unittest.TestCase):  # pylint: disable=too-many-publi
     def test_demangle_cpp_with_constprop_suffix(self):
         """Test demangling C++ symbol with GCC .constprop.N suffix"""
         mangled = "_Z3foov.constprop.0"
-        demangled = self.extractor._demangle_symbol_name(mangled)
+        demangled = self.extractor._demangle_with_kind(mangled)[0]
         self.assertEqual(demangled, "foo().constprop.0")
 
     def test_demangle_cpp_with_isra_suffix(self):
         """Test demangling C++ symbol with GCC .isra.N suffix"""
         mangled = "_Z3addii.isra.0"
-        demangled = self.extractor._demangle_symbol_name(mangled)
+        demangled = self.extractor._demangle_with_kind(mangled)[0]
         self.assertEqual(demangled, "add(int, int).isra.0")
 
     def test_demangle_cpp_with_cold_suffix(self):
         """Test demangling C++ symbol with .cold suffix (no number)"""
         mangled = "_Z3foov.cold"
-        demangled = self.extractor._demangle_symbol_name(mangled)
+        demangled = self.extractor._demangle_with_kind(mangled)[0]
         self.assertEqual(demangled, "foo().cold")
 
     def test_demangle_cpp_with_lto_priv_suffix(self):
         """Test demangling C++ symbol with .lto_priv.N suffix"""
         mangled = "_Z3foov.lto_priv.0"
-        demangled = self.extractor._demangle_symbol_name(mangled)
+        demangled = self.extractor._demangle_with_kind(mangled)[0]
         self.assertEqual(demangled, "foo().lto_priv.0")
 
     def test_demangle_rust_with_compiler_suffix(self):
         """Test demangling Rust symbol with compiler suffix"""
         mangled = "_ZN3foo3barE.part.0"
-        demangled = self.extractor._demangle_symbol_name(mangled)
+        demangled = self.extractor._demangle_with_kind(mangled)[0]
         self.assertEqual(demangled, "foo::bar.part.0")
 
     def test_c_symbol_with_dot_unchanged(self):
         """Test that C symbols with dots are not mangled and stay unchanged"""
         c_symbol = "my_c_function.cold"
-        result = self.extractor._demangle_symbol_name(c_symbol)
+        result = self.extractor._demangle_with_kind(c_symbol)[0]
         self.assertEqual(result, c_symbol)
 
 

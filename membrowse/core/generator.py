@@ -18,6 +18,38 @@ from .exceptions import ELFAnalysisError
 logger = logging.getLogger(__name__)
 
 
+def make_empty_report(elf_path: Optional[str] = None, *,
+                      build_failed: bool = False) -> Dict[str, Any]:
+    """Create a minimal report dict with no symbol/section analysis.
+
+    Used for commits that are skipped rather than analyzed:
+
+    - ``build_failed=False`` (default): an identical/unchanged commit with no
+      build-relevant changes. ELF-derived fields are ``None``.
+    - ``build_failed=True``: a commit whose build failed. ELF-derived fields
+      carry placeholder values (``entry_point=0``, ``file_type`` /
+      ``machine`` = ``'unknown'``) instead of ``None``.
+
+    Args:
+        elf_path: Path recorded in ``file_path`` (``None`` when unknown).
+        build_failed: Select the build-failure placeholder values.
+
+    Returns:
+        Report dictionary matching the structure of a successful report.
+    """
+    return {
+        'file_path': elf_path,
+        'architecture': None,
+        'toolchain': None,
+        'entry_point': 0 if build_failed else None,
+        'file_type': 'unknown' if build_failed else None,
+        'machine': 'unknown' if build_failed else None,
+        'symbols': [],
+        'program_headers': [],
+        'memory_layout': {}
+    }
+
+
 class ReportGenerator:  # pylint: disable=too-few-public-methods
     """Main class for generating comprehensive memory reports.
 

@@ -165,42 +165,6 @@ def create_or_update_comment(
         create_comment(body, pr_num)
 
 
-def build_memory_change_row(region: dict) -> Optional[dict]:
-    """
-    Build a single table row for memory changes.
-
-    Args:
-        region: Region data with current and old values
-
-    Returns:
-        dict: Row data with formatted strings, or None if no changes
-    """
-    current_used = region.get('used_size', 0)
-    old_data = region.get('old', {})
-    old_used = old_data.get('used_size')
-
-    # Only show if used_size changed
-    if old_used is None or old_used == current_used:
-        return None
-
-    # Calculate delta
-    delta = current_used - old_used
-    delta_pct = (delta / old_used * 100) if old_used > 0 else 0
-
-    # Format delta with sign
-    delta_str = f"+{delta:,}" if delta >= 0 else f"{delta:,}"
-    delta_pct_str = f"+{delta_pct:.1f}%" if delta >= 0 else f"{delta_pct:.1f}%"
-
-    return {
-        'delta': delta,
-        'delta_str': delta_str,
-        'delta_pct_str': delta_pct_str,
-        'current_used': current_used,
-        'region_name': region.get('name', 'Unknown'),
-        'limit_size': region.get('limit_size', 0)
-    }
-
-
 def handle_comment_error(error: Exception, context: str = "PR comment") -> None:
     """
     Handle errors from comment creation with consistent logging.

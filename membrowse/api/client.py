@@ -12,15 +12,18 @@ import os
 import random
 import time
 from importlib.metadata import version
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 import requests
 
-from ..auth.strategy import AuthContext
+from ..auth.strategy import AuthContext, determine_auth_strategy
 
 logger = logging.getLogger(__name__)
 
 PACKAGE_VERSION = version('membrowse')
+
+# Canonical default MemBrowse API base URL, shared by all CLI subcommands.
+DEFAULT_API_URL = 'https://api.membrowse.com'
 
 
 def _detect_ci_platform() -> str:
@@ -52,6 +55,28 @@ class MemBrowseClient:
         ci_platform = _detect_ci_platform()
         headers['User-Agent'] = f'MemBrowse-Client/{PACKAGE_VERSION} ({ci_platform})'
         self.session.headers.update(headers)
+
+    @classmethod
+    def from_api_key(
+        cls,
+        api_key: Optional[str],
+        api_base_url: str,
+        *,
+        auto_detect_fork: bool = False,
+    ) -> "MemBrowseClient":
+        """Build a client from an API key, resolving the auth strategy.
+
+        Args:
+            api_key: API key (may be None/empty to allow tokenless fork detection)
+            api_base_url: API base URL
+            auto_detect_fork: Whether to fall back to tokenless fork-PR auth when
+                no API key is available (enabled by the --github flag)
+        """
+        auth_context = determine_auth_strategy(
+            api_key=api_key,
+            auto_detect_fork=auto_detect_fork,
+        )
+        return cls(auth_context, api_base_url)
 
     def upload_report(self, report_data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -205,7 +230,3 @@ class MemBrowseClient:
         raise requests.exceptions.RequestException(
             "Unexpected error: reached end of retry loop without success or exception"
         )
-
-
-# Backward compatibility alias
-MemBrowseUploader = MemBrowseClient

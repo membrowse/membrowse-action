@@ -8,13 +8,11 @@ from typing import Dict, Any
 
 from jinja2 import TemplateError as Jinja2TemplateError
 
-from ..api.client import MemBrowseClient
-from ..auth.strategy import AuthContext, AuthType
+from ..api.client import MemBrowseClient, DEFAULT_API_URL
 from ..utils.summary_formatter import build_summary_template_context, render_jinja2_template
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_API_URL = 'https://api.membrowse.com'
 DEFAULT_TEMPLATE = Path(__file__).parent.parent / 'utils' / 'templates' / 'default_comment.j2'
 
 
@@ -76,11 +74,7 @@ def _fetch_summary(
     Raises:
         RuntimeError: If API request fails or returns an error
     """
-    auth_context = AuthContext(
-        auth_type=AuthType.API_KEY,
-        api_key=api_key,
-    )
-    client = MemBrowseClient(auth_context, api_url)
+    client = MemBrowseClient.from_api_key(api_key, api_url)
     response = client.get_summary(commit_sha)
 
     if not response.get('success'):

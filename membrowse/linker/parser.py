@@ -390,10 +390,6 @@ class ExpressionEvaluator:
         self.variables: Dict[str, Any] = {}
         self._memory_regions: Dict[str, MemoryRegion] = {}
 
-    def set_variables(self, variables: Dict[str, Any]) -> None:
-        """Set variables for expression evaluation"""
-        self.variables = variables.copy()
-
     def add_variables(self, variables: Dict[str, Any]) -> None:
         """Add variables to existing variables dictionary"""
         self.variables.update(variables)

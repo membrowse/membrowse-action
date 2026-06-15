@@ -9,6 +9,8 @@ Parses map files generated via ``-Wl,-Map=output.map`` with ld.lld
 import re
 from typing import List, Tuple
 
+from ._maprange import RangeAccumulator, resolve_archive_object
+
 
 # LLD map file row:
 #
@@ -58,8 +60,7 @@ class LLDMapFileParser:  # pylint: disable=too-few-public-methods
             List of ``(start, end, archive, object_file)`` tuples sorted by
             ``start``. ``archive`` is "" for bare .o files.
         """
-        ranges: List[Tuple[int, int, str, str]] = []
-        seen_starts = set()
+        acc = RangeAccumulator()
 
         for line in content.splitlines():
             match = _LLD_ROW_RE.match(line)
@@ -77,20 +78,11 @@ class LLDMapFileParser:  # pylint: disable=too-few-public-methods
 
             address = int(match.group(1), 16)
             size = int(match.group(2), 16)
-            if address == 0 or size == 0:
-                continue
-            if address in seen_starts:
-                continue
-
             file_ref = content_field[:colon_paren]
             archive, obj = self._parse_file_field(file_ref)
-            if not obj:
-                continue
-            seen_starts.add(address)
-            ranges.append((address, address + size, archive, obj))
+            acc.add(address, size, archive, obj)
 
-        ranges.sort(key=lambda r: r[0])
-        return ranges
+        return acc.finalize()
 
     @staticmethod
     def _parse_file_field(field: str) -> Tuple[str, str]:
@@ -99,12 +91,4 @@ class LLDMapFileParser:  # pylint: disable=too-few-public-methods
         # <linker-created>.  They have no object file to attribute to.
         if field.startswith('<'):
             return ('', '')
-
-        archive_match = _LLD_ARCHIVE_RE.match(field)
-        if archive_match:
-            return (archive_match.group(1), archive_match.group(2))
-
-        if field.endswith('.o') or field.endswith('.obj'):
-            return ('', field)
-
-        return ('', '')
+        return resolve_archive_object(field, _LLD_ARCHIVE_RE)

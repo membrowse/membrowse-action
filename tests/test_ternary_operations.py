@@ -141,20 +141,20 @@ class TestExpressionEvaluatorTernary(unittest.TestCase):
 
     def test_simple_defined_true(self):
         """Test DEFINED() returns 1 when variable is defined"""
-        self.evaluator.set_variables({'MY_VAR': 100})
+        self.evaluator.add_variables({'MY_VAR': 100})
         # After DEFINED processing, should become "1"
         result = self.evaluator.evaluate_expression("DEFINED(MY_VAR) ? 100 : 200")
         self.assertEqual(result, 100)
 
     def test_simple_defined_false(self):
         """Test DEFINED() returns 0 when variable is not defined"""
-        self.evaluator.set_variables({})
+        self.evaluator.add_variables({})
         result = self.evaluator.evaluate_expression("DEFINED(MY_VAR) ? 100 : 200")
         self.assertEqual(result, 200)
 
     def test_negated_defined_true(self):
         """Test !DEFINED() returns 1 when variable is NOT defined"""
-        self.evaluator.set_variables({})
+        self.evaluator.add_variables({})
         # !DEFINED(MY_VAR) should be true (1) when MY_VAR is not defined
         result = self.evaluator.evaluate_expression("!DEFINED(MY_VAR) ? 100 : 200")
         # Note: The parser may not handle ! properly, this tests current behavior
@@ -162,19 +162,19 @@ class TestExpressionEvaluatorTernary(unittest.TestCase):
 
     def test_ternary_with_numeric_condition_true(self):
         """Test ternary with numeric condition evaluating to true"""
-        self.evaluator.set_variables({})
+        self.evaluator.add_variables({})
         result = self.evaluator.evaluate_expression("1 ? 500 : 600")
         self.assertEqual(result, 500)
 
     def test_ternary_with_numeric_condition_false(self):
         """Test ternary with numeric condition evaluating to false"""
-        self.evaluator.set_variables({})
+        self.evaluator.add_variables({})
         result = self.evaluator.evaluate_expression("0 ? 500 : 600")
         self.assertEqual(result, 600)
 
     def test_ternary_with_variable_substitution(self):
         """Test ternary where result requires variable substitution"""
-        self.evaluator.set_variables({
+        self.evaluator.add_variables({
             'DEFINED_SIZE': 256 * 1024,
             'DEFAULT_SIZE': 128 * 1024,
         })
@@ -186,7 +186,7 @@ class TestExpressionEvaluatorTernary(unittest.TestCase):
 
     def test_ternary_true_branch_with_variable(self):
         """Test ternary where true branch is taken and uses variable"""
-        self.evaluator.set_variables({
+        self.evaluator.add_variables({
             'SOME_VAR': 1,
             'DEFINED_SIZE': 256 * 1024,
             'DEFAULT_SIZE': 128 * 1024,
@@ -198,7 +198,7 @@ class TestExpressionEvaluatorTernary(unittest.TestCase):
 
     def test_nested_ternary_first_condition_true(self):
         """Test nested ternary when first condition is true"""
-        self.evaluator.set_variables({
+        self.evaluator.add_variables({
             'FIRST_VAR': 100,
             'FIRST_VALUE': 1000,
             'SECOND_VALUE': 2000,
@@ -212,7 +212,7 @@ class TestExpressionEvaluatorTernary(unittest.TestCase):
 
     def test_nested_ternary_second_condition_true(self):
         """Test nested ternary when first is false but second is true"""
-        self.evaluator.set_variables({
+        self.evaluator.add_variables({
             'SECOND_VAR': 200,
             'FIRST_VALUE': 1000,
             'SECOND_VALUE': 2000,
@@ -226,7 +226,7 @@ class TestExpressionEvaluatorTernary(unittest.TestCase):
 
     def test_nested_ternary_all_conditions_false(self):
         """Test nested ternary when all conditions are false"""
-        self.evaluator.set_variables({
+        self.evaluator.add_variables({
             'FIRST_VALUE': 1000,
             'SECOND_VALUE': 2000,
             'DEFAULT_VALUE': 3000,
@@ -247,19 +247,19 @@ class TestTernaryEdgeCases(unittest.TestCase):
 
     def test_ternary_with_hex_values(self):
         """Test ternary with hex values"""
-        self.evaluator.set_variables({})
+        self.evaluator.add_variables({})
         result = self.evaluator.evaluate_expression("0 ? 0x1000 : 0x2000")
         self.assertEqual(result, 0x2000)
 
     def test_ternary_with_arithmetic_in_branches(self):
         """Test ternary with arithmetic expressions in branches"""
-        self.evaluator.set_variables({})
+        self.evaluator.add_variables({})
         result = self.evaluator.evaluate_expression("1 ? 1024 + 512 : 2048")
         self.assertEqual(result, 1536)
 
     def test_ternary_with_size_suffix(self):
         """Test ternary with size suffixes (K, M)"""
-        self.evaluator.set_variables({})
+        self.evaluator.add_variables({})
         result = self.evaluator.evaluate_expression("0 ? 512K : 256K")
         self.assertEqual(result, 256 * 1024)
 
@@ -270,7 +270,7 @@ class TestTernaryEdgeCases(unittest.TestCase):
                        XIP_SECONDARY_SLOT_IMAGE == 1 ? XIP_SECONDARY_FLASH_IMAGE_START :
                        FLASH_IMAGE_START;
         """
-        self.evaluator.set_variables({
+        self.evaluator.add_variables({
             'FLASH_START': 0x08000000,
             'FLASH_IMAGE_START': 0x08010000,
             'XIP_SECONDARY_SLOT_IMAGE': 0,
@@ -293,7 +293,7 @@ class TestTernaryEdgeCases(unittest.TestCase):
                                     OPTION_SETTING_LENGTH == 0 ? 0 :
                                     OPTION_SETTING_LENGTH - OPTION_SETTING_SAS_SIZE;
         """
-        self.evaluator.set_variables({
+        self.evaluator.add_variables({
             'OPTION_SETTING_LENGTH': 1024,
             'OPTION_SETTING_SAS_SIZE': 256,
         })
@@ -327,7 +327,7 @@ class TestTernarySecurity(unittest.TestCase):
     def test_reasonable_nesting_depth_works(self):
         """Test that reasonable nesting depth (under limit) works fine"""
         # Build a ternary with 5 levels - should work
-        self.evaluator.set_variables({'FINAL': 999})
+        self.evaluator.add_variables({'FINAL': 999})
         expr = "0 ? A : 0 ? B : 0 ? C : 0 ? D : 0 ? E : FINAL"
         result = self.evaluator.evaluate_expression(expr)
         self.assertEqual(result, 999)
