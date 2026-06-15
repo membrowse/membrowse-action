@@ -736,8 +736,10 @@ class ExpressionEvaluator:
 
     def _safe_arithmetic_eval(self, expr: str) -> int:
         """Safely evaluate arithmetic expressions without using eval"""
-        # Only allow safe arithmetic characters (including << and >> for bitshift)
-        if not re.match(r"^[0-9+\-*/<>() \t]+$", expr):
+        # Only allow safe arithmetic characters (<< >> bitshift and & | ^ ~
+        # bitwise ops — ESP-IDF memory.ld sizes segments with the alignment
+        # idiom (x + 7) & ~7).
+        if not re.match(r"^[0-9+\-*/<>()&|^~ \t]+$", expr):
             raise ValueError(f"Invalid characters in expression: {expr}")
 
         # Use a simple recursive descent parser for arithmetic
@@ -746,11 +748,14 @@ class ExpressionEvaluator:
     def _parse_expression(self, expr: str) -> int:
         """Parse arithmetic expression using recursive descent
 
-        Operator precedence (lowest to highest):
-        1. << >> (bitshift)
-        2. + - (addition, subtraction)
-        3. * / (multiplication, division)
-        4. unary +/-, parentheses
+        Operator precedence (lowest to highest, matching C):
+        1. | (bitwise OR)
+        2. ^ (bitwise XOR)
+        3. & (bitwise AND)
+        4. << >> (bitshift)
+        5. + - (addition, subtraction)
+        6. * / (multiplication, division)
+        7. unary +/-/~, parentheses
         """
         index = [0]  # Use list to allow modification in nested functions
 
@@ -765,7 +770,7 @@ class ExpressionEvaluator:
         def parse_factor():
             if index[0] < len(expr) and expr[index[0]] == "(":
                 index[0] += 1  # Skip '('
-                result = parse_shift()
+                result = parse_or()
                 if index[0] >= len(expr) or expr[index[0]] != ")":
                     raise ValueError("Missing closing parenthesis")
                 index[0] += 1  # Skip ')'
@@ -776,6 +781,9 @@ class ExpressionEvaluator:
             if index[0] < len(expr) and expr[index[0]] == "+":
                 index[0] += 1  # Skip '+'
                 return parse_factor()
+            if index[0] < len(expr) and expr[index[0]] == "~":
+                index[0] += 1  # Skip '~'
+                return ~parse_factor()
             return parse_number()
 
         def parse_term():
@@ -821,7 +829,33 @@ class ExpressionEvaluator:
                     break
             return result
 
-        result = parse_shift()
+        def parse_and():
+            """Parse bitwise AND (&), but not && which never appears here"""
+            result = parse_shift()
+            while (index[0] < len(expr) and expr[index[0]] == "&"
+                   and expr[index[0]:index[0] + 2] != "&&"):
+                index[0] += 1  # Skip '&'
+                result &= parse_shift()
+            return result
+
+        def parse_xor():
+            """Parse bitwise XOR (^)"""
+            result = parse_and()
+            while index[0] < len(expr) and expr[index[0]] == "^":
+                index[0] += 1  # Skip '^'
+                result ^= parse_and()
+            return result
+
+        def parse_or():
+            """Parse bitwise OR (|), but not || which never appears here"""
+            result = parse_xor()
+            while (index[0] < len(expr) and expr[index[0]] == "|"
+                   and expr[index[0]:index[0] + 2] != "||"):
+                index[0] += 1  # Skip '|'
+                result |= parse_xor()
+            return result
+
+        result = parse_or()
         if index[0] < len(expr):
             raise ValueError(
                 f"Unexpected character at position {index[0]}: {expr[index[0]]}")

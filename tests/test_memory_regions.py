@@ -697,6 +697,52 @@ class TestUserVariablesIntegration(unittest.TestCase):
         self.assertEqual(regions['drom_seg']['address'], 0x3F400000)
         self.assertEqual(regions['drom_seg']['limit_size'], 4 * 1024 * 1024)
 
+    def test_esp32_rtc_segment_bitwise_alignment(self):
+        """ESP-IDF's shipped esp32-s3/c6 memory.ld sizes the rtc-fast / lp
+        reserved segments with the C alignment idiom ``(x + 7) & ~7``, e.g.
+
+            rtc_iram_seg(RWX) : org = 0x600fe000,
+                len = 0x2000 - ((((0x10) + (8 - 1)) & ~(8 - 1)) + (24))
+
+        The expression evaluator must support bitwise & and unary ~ or these
+        regions never resolve and the whole report fails. Regression for the
+        esp32-s3/c6 'Could not resolve memory regions' failures."""
+        reserve = ((0x10 + (8 - 1)) & ~(8 - 1)) + 24  # = 0x28
+        content = '''
+        MEMORY
+        {
+          rtc_iram_seg(RWX) :    org = 0x600fe000, len = 0x2000 - ((((0x10) + (8 - 1)) & ~(8 - 1)) + (24))
+          rtc_reserved_seg(RW) : org = 0x600fe000 + 0x2000 - ((((0x10) + (8 - 1)) & ~(8 - 1)) + (24)), len = ((((0x10) + (8 - 1)) & ~(8 - 1)) + (24))
+        }
+        '''
+        file_path = self.create_test_file(content)
+        regions = LinkerScriptParser([str(file_path)]).parse_memory_regions()
+
+        self.assertEqual(regions['rtc_iram_seg']['address'], 0x600fe000)
+        self.assertEqual(regions['rtc_iram_seg']['limit_size'],
+                         0x2000 - reserve)
+        self.assertEqual(regions['rtc_reserved_seg']['address'],
+                         0x600fe000 + 0x2000 - reserve)
+        self.assertEqual(regions['rtc_reserved_seg']['limit_size'], reserve)
+
+    def test_bitwise_operator_precedence(self):
+        """Bitwise &, |, ^, ~ evaluate with C precedence (| < ^ < & < shift
+        < add < mul < unary)."""
+        # pylint: disable=import-outside-toplevel
+        from membrowse.linker.parser import ExpressionEvaluator
+        ev = ExpressionEvaluator()
+        cases = {
+            '~7': ~7,
+            '0xff & 0x0f': 0xff & 0x0f,
+            '0xf0 ^ 0x0f': 0xff,
+            '1 | 2 | 4': 7,
+            '(0x10 + 7) & ~7': 0x10,
+            '0x1 | 0x2 & 0x2': 0x1 | (0x2 & 0x2),   # & binds tighter than |
+            '0x100 + 0x10 << 2': (0x100 + 0x10) << 2,  # + binds tighter than <<
+        }
+        for expr, expected in cases.items():
+            self.assertEqual(ev.evaluate_expression(expr), expected, expr)
+
     def test_multi_variant_build(self):
         """Test multi-variant builds with different memory configurations"""
         # Single linker script used for multiple board variants
