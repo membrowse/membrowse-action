@@ -110,10 +110,16 @@ jobs:
 
 If you use [Claude Code](https://claude.ai/code), you can automatically set up MemBrowse integration using the membrowse-integrate skill.
 
-First, add the MemBrowse plugin to Claude Code:
+First, add the MemBrowse marketplace to Claude Code:
 
 ```
-/plugin marketplace add membrowse@membrowse-action
+/plugin marketplace add membrowse/membrowse-action
+```
+
+Then install the plugin:
+
+```
+/plugin install membrowse@membrowse-marketplace
 ```
 
 Then run the skill in your project:
