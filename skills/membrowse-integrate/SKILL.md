@@ -352,7 +352,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
         with:
-          fetch-depth: 0
+          fetch-depth: 2
           # Only include submodules line if user confirmed submodules in Step 1
           # submodules: recursive
 
@@ -444,7 +444,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
         with:
-          fetch-depth: 0
+          fetch-depth: 2
           # Only include submodules line if user confirmed submodules in Step 1
           # submodules: recursive
 
@@ -532,7 +532,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
         with:
-          fetch-depth: 0
+          fetch-depth: 2
           # Only include submodules line if user confirmed submodules in Step 1
           # submodules: recursive
 
@@ -641,6 +641,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
         with:
+          # Onboard iterates through historical commits, so it needs full history
           fetch-depth: 0
           # Only include submodules line if user confirmed submodules in Step 1
           # submodules: recursive
@@ -769,7 +770,7 @@ Ensure the binary is compiled with debug symbols (`-g` flag, or `-DCMAKE_BUILD_T
 - Fork PRs do not have access to repository secrets. The report will still be generated and uploaded on push events, but fork PR runs will skip the upload. The `workflow_run` comment workflow handles this by posting comments from the base repo context.
 
 ### Git metadata missing
-Ensure `fetch-depth: 0` is set on the checkout step. Without full history, MemBrowse cannot detect branch and commit metadata correctly.
+Ensure `fetch-depth: 2` is set on the checkout step for report workflows (the parent commit is needed for diff metadata). The onboard workflow needs `fetch-depth: 0` since it iterates through historical commits. With too little history, MemBrowse cannot detect branch and commit metadata correctly.
 
 ### Unsupported binary format
 MemBrowse requires ELF binaries. If your build produces `.bin`, `.hex`, or other non-ELF formats, locate the intermediate ELF file (usually in the build directory before the final conversion step). For non-embedded projects, the output binary is typically already ELF — verify with `file path/to/binary` (should show "ELF").
