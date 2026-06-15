@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# pylint: disable=too-many-lines
 
 """
 test_memory_regions.py - Unit tests for memory_regions.py
