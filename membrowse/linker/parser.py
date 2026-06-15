@@ -267,6 +267,122 @@ class ScriptContentCleaner:  # pylint: disable=too-few-public-methods
         return result
 
 
+class _ArithmeticParser:  # pylint: disable=too-few-public-methods
+    """Recursive descent parser for safe integer arithmetic expressions.
+
+    Operator precedence (lowest to highest, matching C):
+    1. | (bitwise OR)
+    2. ^ (bitwise XOR)
+    3. & (bitwise AND)
+    4. << >> (bitshift)
+    5. + - (addition, subtraction)
+    6. * / (multiplication, division)
+    7. unary +/-/~, parentheses
+    """
+
+    def __init__(self, expr: str):
+        self._expr = expr
+        self._pos = 0
+
+    def parse(self) -> int:
+        """Parse the full expression and ensure no trailing characters."""
+        result = self._parse_or()
+        if self._pos < len(self._expr):
+            raise ValueError(
+                f"Unexpected character at position {self._pos}: "
+                f"{self._expr[self._pos]}")
+        return result
+
+    def _peek(self, length: int = 1) -> str:
+        """Return up to ``length`` characters at the current position."""
+        return self._expr[self._pos:self._pos + length]
+
+    def _parse_number(self) -> int:
+        start = self._pos
+        while self._pos < len(self._expr) and self._expr[self._pos].isdigit():
+            self._pos += 1
+        if start == self._pos:
+            raise ValueError(f"Expected number at position {self._pos}")
+        return int(self._expr[start:self._pos])
+
+    def _parse_factor(self) -> int:
+        char = self._peek()
+        if char == "(":
+            self._pos += 1  # Skip '('
+            result = self._parse_or()
+            if self._peek() != ")":
+                raise ValueError("Missing closing parenthesis")
+            self._pos += 1  # Skip ')'
+            return result
+        if char == "-":
+            self._pos += 1  # Skip '-'
+            return -self._parse_factor()
+        if char == "+":
+            self._pos += 1  # Skip '+'
+            return self._parse_factor()
+        if char == "~":
+            self._pos += 1  # Skip '~'
+            return ~self._parse_factor()
+        return self._parse_number()
+
+    def _parse_term(self) -> int:
+        result = self._parse_factor()
+        while self._peek() in ("*", "/"):
+            op = self._peek()
+            self._pos += 1
+            right = self._parse_factor()
+            if op == "*":
+                result *= right
+            elif right == 0:
+                raise ArithmeticError("Division by zero")
+            else:
+                result //= right  # Integer division
+        return result
+
+    def _parse_addition(self) -> int:
+        result = self._parse_term()
+        while self._peek() in ("+", "-"):
+            op = self._peek()
+            self._pos += 1
+            right = self._parse_term()
+            result = result + right if op == "+" else result - right
+        return result
+
+    def _parse_shift(self) -> int:
+        """Parse bitshift operators (<< and >>)."""
+        result = self._parse_addition()
+        while self._peek(2) in ("<<", ">>"):
+            op = self._peek(2)
+            self._pos += 2
+            right = self._parse_addition()
+            result = result << right if op == "<<" else result >> right
+        return result
+
+    def _parse_and(self) -> int:
+        """Parse bitwise AND (&), but not && which never appears here."""
+        result = self._parse_shift()
+        while self._peek() == "&" and self._peek(2) != "&&":
+            self._pos += 1  # Skip '&'
+            result &= self._parse_shift()
+        return result
+
+    def _parse_xor(self) -> int:
+        """Parse bitwise XOR (^)."""
+        result = self._parse_and()
+        while self._peek() == "^":
+            self._pos += 1  # Skip '^'
+            result ^= self._parse_and()
+        return result
+
+    def _parse_or(self) -> int:
+        """Parse bitwise OR (|), but not || which never appears here."""
+        result = self._parse_xor()
+        while self._peek() == "|" and self._peek(2) != "||":
+            self._pos += 1  # Skip '|'
+            result |= self._parse_xor()
+        return result
+
+
 class ExpressionEvaluator:
     """Evaluates linker script expressions and variables"""
 
@@ -736,96 +852,18 @@ class ExpressionEvaluator:
 
     def _safe_arithmetic_eval(self, expr: str) -> int:
         """Safely evaluate arithmetic expressions without using eval"""
-        # Only allow safe arithmetic characters (including << and >> for bitshift)
-        if not re.match(r"^[0-9+\-*/<>() \t]+$", expr):
+        # Only allow safe arithmetic characters (<< >> bitshift and & | ^ ~
+        # bitwise ops — ESP-IDF memory.ld sizes segments with the alignment
+        # idiom (x + 7) & ~7).
+        if not re.match(r"^[0-9+\-*/<>()&|^~ \t]+$", expr):
             raise ValueError(f"Invalid characters in expression: {expr}")
 
         # Use a simple recursive descent parser for arithmetic
         return self._parse_expression(expr.replace(" ", "").replace("\t", ""))
 
     def _parse_expression(self, expr: str) -> int:
-        """Parse arithmetic expression using recursive descent
-
-        Operator precedence (lowest to highest):
-        1. << >> (bitshift)
-        2. + - (addition, subtraction)
-        3. * / (multiplication, division)
-        4. unary +/-, parentheses
-        """
-        index = [0]  # Use list to allow modification in nested functions
-
-        def parse_number():
-            start = index[0]
-            while index[0] < len(expr) and expr[index[0]].isdigit():
-                index[0] += 1
-            if start == index[0]:
-                raise ValueError(f"Expected number at position {index[0]}")
-            return int(expr[start:index[0]])
-
-        def parse_factor():
-            if index[0] < len(expr) and expr[index[0]] == "(":
-                index[0] += 1  # Skip '('
-                result = parse_shift()
-                if index[0] >= len(expr) or expr[index[0]] != ")":
-                    raise ValueError("Missing closing parenthesis")
-                index[0] += 1  # Skip ')'
-                return result
-            if index[0] < len(expr) and expr[index[0]] == "-":
-                index[0] += 1  # Skip '-'
-                return -parse_factor()
-            if index[0] < len(expr) and expr[index[0]] == "+":
-                index[0] += 1  # Skip '+'
-                return parse_factor()
-            return parse_number()
-
-        def parse_term():
-            result = parse_factor()
-            while index[0] < len(expr) and expr[index[0]] in "*/":
-                op = expr[index[0]]
-                index[0] += 1
-                right = parse_factor()
-                if op == "*":
-                    result *= right
-                else:  # op == "/"
-                    if right == 0:
-                        raise ArithmeticError("Division by zero")
-                    result //= right  # Integer division
-            return result
-
-        def parse_expr():
-            result = parse_term()
-            while index[0] < len(expr) and expr[index[0]] in "+-":
-                op = expr[index[0]]
-                index[0] += 1
-                right = parse_term()
-                if op == "+":
-                    result += right
-                else:  # op == "-"
-                    result -= right
-            return result
-
-        def parse_shift():
-            """Parse bitshift operators (<< and >>)"""
-            result = parse_expr()
-            while index[0] < len(expr) - 1:
-                # Check for << or >>
-                if expr[index[0]:index[0] + 2] == "<<":
-                    index[0] += 2  # Skip '<<'
-                    right = parse_expr()
-                    result = result << right
-                elif expr[index[0]:index[0] + 2] == ">>":
-                    index[0] += 2  # Skip '>>'
-                    right = parse_expr()
-                    result = result >> right
-                else:
-                    break
-            return result
-
-        result = parse_shift()
-        if index[0] < len(expr):
-            raise ValueError(
-                f"Unexpected character at position {index[0]}: {expr[index[0]]}")
-        return result
+        """Parse arithmetic expression using recursive descent"""
+        return _ArithmeticParser(expr).parse()
 
     def _resolve_size_suffixes(self, expr: str) -> str:
         """Resolve size suffixes (K, M, G) in expressions"""
