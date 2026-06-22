@@ -11,7 +11,7 @@ from typing import Dict, Any, Optional
 from ..utils.git import detect_git_metadata, detect_github_metadata
 from ..utils.budget_alerts import iter_budget_alerts
 from ..utils.formatter import format_report_human_readable
-from ..utils.github import is_fork_pr
+from ..utils.github import is_pull_request_event
 from ..linker.parser import LinkerScriptParser
 from ..core.generator import ReportGenerator
 from ..core.models import MemoryRegion
@@ -250,16 +250,20 @@ def _validate_upload_arguments(
     if not target_name:
         return False, "--target-name is required when using --upload"
 
-    # In GitHub mode, allow tokenless for fork PRs
-    if is_github_mode and not api_key and is_fork_pr():
-        logger.info("Fork PR detected without API key - will use tokenless upload")
+    # In GitHub mode, allow tokenless for any PR (fork or same-repo). Same-repo
+    # PRs only land here without a key for secret-less actors like Dependabot.
+    if is_github_mode and not api_key and is_pull_request_event():
+        logger.info("PR detected without API key - will use tokenless upload")
         return True, ""
 
     # Otherwise API key is required
     if not api_key:
         error_msg = "--api-key is required when using --upload"
         if is_github_mode:
-            error_msg += ". For fork PRs to public repositories, api_key can be omitted."
+            error_msg += (
+                ". For PRs to public repositories (including fork and "
+                "Dependabot PRs), api_key can be omitted."
+            )
         return False, error_msg
 
     return True, ""

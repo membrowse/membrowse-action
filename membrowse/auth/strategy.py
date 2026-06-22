@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, Optional, Any
 
-from ..utils.github import is_fork_pr, get_fork_pr_context, ForkPRContext
+from ..utils.github import is_pull_request_event, get_fork_pr_context, ForkPRContext
 
 logger = logging.getLogger(__name__)
 
@@ -96,27 +96,29 @@ def determine_auth_strategy(
             api_key=api_key
         )
 
-    # If auto-detect enabled and we're in fork PR, use tokenless
-    if auto_detect_fork and is_fork_pr():
-        logger.debug("Fork PR detected, using tokenless upload mode")
+    # If auto-detect enabled and we're in a PR (fork or same-repo), use
+    # tokenless. Same-repo PRs reach here only when no key is available --
+    # e.g. Dependabot PRs, which run from an in-repo branch but without secrets.
+    if auto_detect_fork and is_pull_request_event():
+        logger.debug("PR detected without API key, using tokenless upload mode")
         try:
             fork_context = get_fork_pr_context()
             github_context = _fork_context_to_dict(fork_context)
-            logger.debug("Fork PR context: %s", github_context)
+            logger.debug("Tokenless PR context: %s", github_context)
             return AuthContext(
                 auth_type=AuthType.GITHUB_TOKENLESS,
                 github_context=github_context
             )
         except ValueError as e:
             raise ValueError(
-                f"Failed to extract fork PR context for tokenless upload: {e}"
+                f"Failed to extract PR context for tokenless upload: {e}"
             ) from e
 
     # No valid authentication available
     error_msg = "--api-key is required when using --upload"
     if auto_detect_fork:
         error_msg += (
-            ". For fork PRs to public repositories, "
-            "api_key can be omitted to use tokenless upload."
+            ". For PRs to public repositories (including fork and Dependabot "
+            "PRs), api_key can be omitted to use tokenless upload."
         )
     raise ValueError(error_msg)

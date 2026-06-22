@@ -48,6 +48,7 @@ def make_pr_event_data(**kwargs):
         base_ref: Name of the base branch (default: 'main')
         pr_number: Pull request number (default: 123)
         pr_author: Login of the PR author (default: 'contributor')
+        base_private: Whether the base repo is private (default: False)
 
     Returns:
         Dictionary containing the pull request event data
@@ -60,7 +61,8 @@ def make_pr_event_data(**kwargs):
         'head_ref': 'feature',
         'base_ref': 'main',
         'pr_number': 123,
-        'pr_author': 'contributor'
+        'pr_author': 'contributor',
+        'base_private': False
     }
     config = {**defaults, **kwargs}
 
@@ -74,7 +76,10 @@ def make_pr_event_data(**kwargs):
                 'ref': config['head_ref']
             },
             'base': {
-                'repo': {'full_name': config['base_repo']},
+                'repo': {
+                    'full_name': config['base_repo'],
+                    'private': config['base_private']
+                },
                 'sha': config['base_sha'],
                 'ref': config['base_ref']
             }

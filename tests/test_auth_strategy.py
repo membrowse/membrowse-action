@@ -154,20 +154,31 @@ class TestDetermineAuthStrategy:
             assert context.github_context is not None
             assert context.github_context['pr_number'] == 42
 
-    def test_raises_when_no_api_key_and_not_fork_pr(self):
-        """Test that ValueError is raised when no API key and not a fork PR."""
+    def test_tokenless_for_same_repo_pr_without_api_key(self):
+        """Test tokenless auth for a same-repo PR without API key (e.g. Dependabot).
+
+        Dependabot PRs run from an in-repo branch (head repo == base repo) but
+        without Actions secrets, so the key is empty and they must use tokenless
+        to keep the commit chain intact.
+        """
         event_data = make_pr_event_data(
             head_repo='owner/repo',
-            base_repo='owner/repo'
+            base_repo='owner/repo',
+            pr_number=77
         )
 
         with github_event_context(event_data):
-            with pytest.raises(ValueError) as exc_info:
-                determine_auth_strategy(
-                    api_key=None,
-                    auto_detect_fork=True
-                )
-            assert '--api-key is required' in str(exc_info.value)
+            context = determine_auth_strategy(
+                api_key=None,
+                auto_detect_fork=True
+            )
+
+            assert context.auth_type == AuthType.GITHUB_TOKENLESS
+            assert context.api_key is None
+            assert context.github_context is not None
+            assert context.github_context['pr_number'] == 77
+            assert context.github_context['repository'] == 'owner/repo'
+            assert context.github_context['fork_repository'] == 'owner/repo'
 
     def test_raises_when_no_api_key_and_auto_detect_disabled(self):
         """Test that ValueError is raised when no API key and auto-detect disabled."""
@@ -178,8 +189,8 @@ class TestDetermineAuthStrategy:
             )
         assert '--api-key is required' in str(exc_info.value)
 
-    def test_error_message_mentions_fork_pr_when_github_mode(self):
-        """Test that error message mentions fork PR support when in GitHub mode."""
+    def test_error_message_mentions_tokenless_when_github_mode(self):
+        """Test that error message mentions tokenless PR support when in GitHub mode."""
         with patch.dict('os.environ', {
             'GITHUB_EVENT_NAME': 'push',  # Not a PR
         }):
@@ -188,6 +199,7 @@ class TestDetermineAuthStrategy:
                     api_key=None,
                     auto_detect_fork=True
                 )
-            error_msg = str(exc_info.value)
+            error_msg = str(exc_info.value).lower()
             assert '--api-key is required' in error_msg
-            assert 'fork prs' in error_msg.lower()
+            assert 'tokenless' in error_msg
+            assert 'dependabot' in error_msg

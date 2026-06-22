@@ -91,21 +91,80 @@ def is_fork_pr() -> bool:
         return False
 
 
+def is_pull_request_event() -> bool:
+    """
+    Detect whether we're running in a GitHub Actions pull_request event with a
+    usable PR payload targeting a *public* repository (fork *or* same-repo).
+
+    Tokenless uploads are gated on this rather than is_fork_pr() so that
+    same-repo PRs that nonetheless lack secret access can still upload and keep
+    the commit chain intact. The motivating case is Dependabot: GitHub runs its
+    PRs from an in-repo branch (so it is not a fork) but withholds Actions
+    secrets, leaving the API key empty. The backend independently re-validates
+    that the PR exists and that the SHA is in its commit history, so this only
+    decides whether to *attempt* a tokenless upload.
+
+    Tokenless is only offered for public base repositories, matching the
+    user-facing messaging. Detection is fail-closed: if the base repo's
+    `private` flag is missing or not explicitly False, tokenless is not enabled
+    and the caller falls back to requiring an API key.
+
+    Returns:
+        True if a pull_request event targeting a public repo with head+base
+        repo context is present. False on any error, for graceful degradation.
+    """
+    event_name = os.environ.get('GITHUB_EVENT_NAME', '')
+    if event_name != 'pull_request':
+        logger.debug("Not a pull request event (event_name=%s)", event_name)
+        return False
+
+    event_data = _read_github_event()
+    if not event_data:
+        logger.debug("Cannot read GitHub event payload")
+        return False
+
+    try:
+        pr_data = event_data.get('pull_request', {})
+        head_repo = pr_data.get('head', {}).get('repo')
+        base_repo = pr_data.get('base', {}).get('repo')
+
+        # Need both repo objects (head.repo is null if a fork was deleted) and
+        # their full names to build a tokenless context the backend can verify.
+        if not head_repo or not base_repo:
+            logger.debug("head_repo or base_repo is null")
+            return False
+
+        # Require usable full names and a public base repo. Tokenless is only
+        # offered for public repos; fail closed when `private` is missing or
+        # truthy so private repos fall back to API-key auth.
+        return (
+            bool(head_repo.get('full_name'))
+            and bool(base_repo.get('full_name'))
+            and base_repo.get('private') is False
+        )
+
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        logger.debug("Failed to detect pull request event: %s", e)
+        return False
+
+
 def get_fork_pr_context() -> ForkPRContext:
     """
     Extract GitHub PR context for tokenless upload authentication.
+
+    Works for both fork and same-repo (e.g. Dependabot) pull requests.
 
     Returns:
         ForkPRContext with required fields for tokenless upload
 
     Raises:
-        ValueError: If not in fork PR context or required fields missing
+        ValueError: If not in PR context or required fields missing
     """
     # Reuse helper function to read event file
     event_data = _read_github_event()
     if not event_data:
         raise ValueError(
-            "Cannot extract fork PR context: GITHUB_EVENT_PATH not found or invalid. "
+            "Cannot extract PR context: GITHUB_EVENT_PATH not found or invalid. "
             "This feature only works in GitHub Actions pull_request events."
         )
 
@@ -113,7 +172,7 @@ def get_fork_pr_context() -> ForkPRContext:
     pr_data = event_data.get('pull_request')
     if not pr_data:
         raise ValueError(
-            "Cannot extract fork PR context: No pull_request data in event payload"
+            "Cannot extract PR context: No pull_request data in event payload"
         )
 
     # Extract repository data (note: head.repo can be None if fork was deleted)
@@ -124,7 +183,7 @@ def get_fork_pr_context() -> ForkPRContext:
     # Handle case where fork repository was deleted
     if not base_repo:
         raise ValueError(
-            "Cannot extract fork PR context: base_repo is null in event payload"
+            "Cannot extract PR context: base_repo is null in event payload"
         )
 
     base_repo_full_name = base_repo.get('full_name')
@@ -146,7 +205,7 @@ def get_fork_pr_context() -> ForkPRContext:
     missing = [k for k, v in required_fields.items() if not v]
     if missing:
         raise ValueError(
-            f"Cannot extract fork PR context: Missing required fields: {', '.join(missing)}"
+            f"Cannot extract PR context: Missing required fields: {', '.join(missing)}"
         )
 
     # Log warning if fork repo is missing (deleted fork)
