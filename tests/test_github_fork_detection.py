@@ -106,6 +106,29 @@ class TestIsPullRequestEvent:
             'pull_request': {
                 'number': 1,
                 'head': {'repo': None, 'sha': 'abc', 'ref': 'b'},
+                'base': {'repo': {'full_name': 'owner/repo', 'private': False},
+                         'sha': 'def', 'ref': 'main'}
+            }
+        }
+        with github_event_context(event_data):
+            assert is_pull_request_event() is False
+
+    def test_returns_false_for_private_base_repo(self):
+        """Tokenless is only for public repos, so private base repos are excluded."""
+        event_data = make_pr_event_data(
+            head_repo='owner/repo',
+            base_repo='owner/repo',
+            base_private=True
+        )
+        with github_event_context(event_data):
+            assert is_pull_request_event() is False
+
+    def test_returns_false_when_privacy_unknown(self):
+        """Fail closed when the base repo's `private` flag is absent."""
+        event_data = {
+            'pull_request': {
+                'number': 1,
+                'head': {'repo': {'full_name': 'owner/repo'}, 'sha': 'abc', 'ref': 'b'},
                 'base': {'repo': {'full_name': 'owner/repo'}, 'sha': 'def', 'ref': 'main'}
             }
         }
