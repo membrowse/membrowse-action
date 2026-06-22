@@ -5,7 +5,9 @@ import tempfile
 from unittest.mock import patch
 import pytest
 
-from membrowse.utils.github import is_fork_pr, get_fork_pr_context
+from membrowse.utils.github import (
+    is_fork_pr, is_pull_request_event, get_fork_pr_context
+)
 from tests.conftest import github_event_context, make_pr_event_data
 
 
@@ -61,6 +63,54 @@ class TestIsForkPR:
                 assert is_fork_pr() is False
         finally:
             os.unlink(event_path)
+
+
+class TestIsPullRequestEvent:
+    """Test the broader PR detection used to gate tokenless uploads."""
+
+    def test_returns_false_for_non_pr_event(self):
+        """Push events are not PRs."""
+        with patch.dict('os.environ', {'GITHUB_EVENT_NAME': 'push'}):
+            assert is_pull_request_event() is False
+
+    def test_returns_false_when_event_path_missing(self):
+        """No event payload means no usable PR context."""
+        with patch.dict('os.environ', {
+            'GITHUB_EVENT_NAME': 'pull_request',
+            'GITHUB_EVENT_PATH': ''
+        }):
+            assert is_pull_request_event() is False
+
+    def test_returns_true_for_fork_pr(self):
+        """Fork PRs are eligible for tokenless upload."""
+        event_data = make_pr_event_data(
+            head_repo='contributor/repo',
+            base_repo='owner/repo'
+        )
+        with github_event_context(event_data):
+            assert is_pull_request_event() is True
+
+    def test_returns_true_for_same_repo_pr(self):
+        """Same-repo PRs (e.g. Dependabot) are also eligible, unlike is_fork_pr."""
+        event_data = make_pr_event_data(
+            head_repo='owner/repo',
+            base_repo='owner/repo'
+        )
+        with github_event_context(event_data):
+            assert is_fork_pr() is False
+            assert is_pull_request_event() is True
+
+    def test_returns_false_when_head_repo_deleted(self):
+        """A null head.repo (deleted fork) has no usable context."""
+        event_data = {
+            'pull_request': {
+                'number': 1,
+                'head': {'repo': None, 'sha': 'abc', 'ref': 'b'},
+                'base': {'repo': {'full_name': 'owner/repo'}, 'sha': 'def', 'ref': 'main'}
+            }
+        }
+        with github_event_context(event_data):
+            assert is_pull_request_event() is False
 
 
 class TestGetForkPRContext:

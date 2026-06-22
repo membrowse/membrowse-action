@@ -91,6 +91,51 @@ def is_fork_pr() -> bool:
         return False
 
 
+def is_pull_request_event() -> bool:
+    """
+    Detect whether we're running in a GitHub Actions pull_request event with a
+    usable PR payload (fork *or* same-repo).
+
+    Tokenless uploads are gated on this rather than is_fork_pr() so that
+    same-repo PRs that nonetheless lack secret access can still upload and keep
+    the commit chain intact. The motivating case is Dependabot: GitHub runs its
+    PRs from an in-repo branch (so it is not a fork) but withholds Actions
+    secrets, leaving the API key empty. The backend independently re-validates
+    that the PR exists and that the SHA is in its commit history, so this only
+    decides whether to *attempt* a tokenless upload.
+
+    Returns:
+        True if a pull_request event with head+base repo context is present.
+        False on any error, for graceful degradation.
+    """
+    event_name = os.environ.get('GITHUB_EVENT_NAME', '')
+    if event_name != 'pull_request':
+        logger.debug("Not a pull request event (event_name=%s)", event_name)
+        return False
+
+    event_data = _read_github_event()
+    if not event_data:
+        logger.debug("Cannot read GitHub event payload")
+        return False
+
+    try:
+        pr_data = event_data.get('pull_request', {})
+        head_repo = pr_data.get('head', {}).get('repo')
+        base_repo = pr_data.get('base', {}).get('repo')
+
+        # Need both repo objects (head.repo is null if a fork was deleted) and
+        # their full names to build a tokenless context the backend can verify.
+        if not head_repo or not base_repo:
+            logger.debug("head_repo or base_repo is null")
+            return False
+
+        return bool(head_repo.get('full_name')) and bool(base_repo.get('full_name'))
+
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        logger.debug("Failed to detect pull request event: %s", e)
+        return False
+
+
 def get_fork_pr_context() -> ForkPRContext:
     """
     Extract GitHub PR context for tokenless upload authentication.
