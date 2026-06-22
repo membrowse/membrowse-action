@@ -232,37 +232,48 @@ class MemoryMapper:
                 flash_orphans.append(seg)
 
         inferred: Dict[str, MemoryRegion] = {}
-
         for base_label, segs, region_type in [
             ('Flash (inferred)', flash_orphans, 'FLASH'),
             ('RAM (inferred)', ram_orphans, 'RAM'),
         ]:
-            if not segs:
-                continue
-            # Disambiguate names when more than one orphan of the same type
-            # exists, so each gets a stable, unique key.
-            disambiguate = len(segs) > 1
-            for seg in segs:
-                start = seg['virt_addr']
-                size = seg['mem_size']
-                end = start + size
-                if disambiguate:
-                    label = f"{base_label[:-1]} @0x{start:x})"
-                else:
-                    label = base_label
-                logger.warning(
-                    "Inferred %s region at 0x%x-0x%x (size 0x%x) from ELF "
-                    "LOAD segments. For accurate results, provide linker "
-                    "script definitions or use --def to supply missing "
-                    "symbol values.",
-                    label, start, end, size)
-                inferred[label] = MemoryRegion(
-                    address=start,
-                    limit_size=size,
-                    type=region_type,
-                )
+            inferred.update(
+                MemoryMapper._inferred_regions_for_orphans(
+                    base_label, segs, region_type)
+            )
 
         return inferred
+
+    @staticmethod
+    def _inferred_regions_for_orphans(
+            base_label: str,
+            segs: List[Dict],
+            region_type: str
+    ) -> Dict[str, MemoryRegion]:
+        """Build inferred regions for one set of same-type orphan segments."""
+        # Disambiguate names when more than one orphan of the same type exists,
+        # so each gets a stable, unique key.
+        disambiguate = len(segs) > 1
+        regions: Dict[str, MemoryRegion] = {}
+        for seg in segs:
+            start = seg['virt_addr']
+            size = seg['mem_size']
+            end = start + size
+            if disambiguate:
+                label = f"{base_label[:-1]} @0x{start:x})"
+            else:
+                label = base_label
+            logger.warning(
+                "Inferred %s region at 0x%x-0x%x (size 0x%x) from ELF "
+                "LOAD segments. For accurate results, provide linker "
+                "script definitions or use --def to supply missing "
+                "symbol values.",
+                label, start, end, size)
+            regions[label] = MemoryRegion(
+                address=start,
+                limit_size=size,
+                type=region_type,
+            )
+        return regions
 
     @staticmethod
     def calculate_utilization(memory_regions: Dict[str, MemoryRegion]) -> None:

@@ -165,7 +165,7 @@ class MapFileResolver:
         idx = bisect.bisect_right(self._range_starts, address)
         if idx == 0:
             return ('', '')
-        start, end, archive, obj = self._ranges[idx - 1]
+        _start, end, archive, obj = self._ranges[idx - 1]
         if address < end:
             return (archive, obj)
         return ('', '')

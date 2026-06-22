@@ -134,16 +134,14 @@ def is_pull_request_event() -> bool:
             logger.debug("head_repo or base_repo is null")
             return False
 
-        if not (bool(head_repo.get('full_name')) and bool(base_repo.get('full_name'))):
-            return False
-
-        # Tokenless is only for public base repos. Fail closed when `private`
-        # is missing or truthy so private repos fall back to API-key auth.
-        if base_repo.get('private') is not False:
-            logger.debug("Base repo is private or privacy unknown; tokenless not eligible")
-            return False
-
-        return True
+        # Require usable full names and a public base repo. Tokenless is only
+        # offered for public repos; fail closed when `private` is missing or
+        # truthy so private repos fall back to API-key auth.
+        return (
+            bool(head_repo.get('full_name'))
+            and bool(base_repo.get('full_name'))
+            and base_repo.get('private') is False
+        )
 
     except Exception as e:  # pylint: disable=broad-exception-caught
         logger.debug("Failed to detect pull request event: %s", e)
