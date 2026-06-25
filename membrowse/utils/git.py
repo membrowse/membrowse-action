@@ -1,11 +1,23 @@
 """Git metadata detection utilities."""
 
 import os
+import re
 import subprocess
 import json
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional, Dict, Any
+
+# GitHub's sentinel 'before' SHA for branch creation / first push (not a commit).
+_ZERO_SHA = '0' * 40
+
+# Matches a full 40-character hex git SHA-1.
+_FULL_SHA1_RE = re.compile(r'[0-9a-f]{40}')
+
+
+def _is_full_sha1(value: str) -> bool:
+    """Return True if value is a 40-character hex git SHA-1."""
+    return bool(_FULL_SHA1_RE.fullmatch((value or '').strip().lower()))
 
 
 @dataclass
@@ -343,8 +355,18 @@ def detect_github_metadata() -> Dict[str, Any]:
     if branch_name:
         metadata['branch_name'] = branch_name
 
-    # For PR events, use base_sha (target branch tip) as base_commit_hash
-    if event_name == 'pull_request' and base_sha:
+    # Use the event's base_sha as the parent instead of the git parent (HEAD~1):
+    #   * pull_request -> pr.base.sha (the PR target tip)
+    #   * push         -> event 'before' (the branch tip prior to this push)
+    # For push this matters on multi-commit pushes: GitHub fires a single event
+    # for the tip, so the tip's git parent is an intermediate commit that never
+    # built. Basing on 'before' (the previous built tip) bridges over those
+    # unbuilt intermediates and keeps the report chain intact. The all-zero
+    # 'before' (branch creation / first push) is not a real commit, so skip it
+    # and let the git parent stand. Guard against malformed event payloads by
+    # only accepting a well-formed 40-hex SHA.
+    if event_name in ('pull_request', 'push') and _is_full_sha1(base_sha) \
+            and base_sha != _ZERO_SHA:
         metadata['base_commit_hash'] = base_sha
 
     # Add PR-specific metadata

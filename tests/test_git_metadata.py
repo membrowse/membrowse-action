@@ -77,7 +77,7 @@ class TestPullRequestMetadata:
                     'ref': 'feature-branch'
                 },
                 'base': {
-                    'sha': 'base-commit-sha-456',
+                    'sha': 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0',
                     'ref': 'main'
                 }
             }
@@ -126,7 +126,8 @@ class TestPullRequestMetadata:
                     assert metadata['commit_hash'] == 'real-commit-sha-123'
                     assert metadata['commit_message'] == 'added very cool buffer'
                     # For PR events: base is target branch tip
-                    assert metadata['base_commit_hash'] == 'base-commit-sha-456'
+                    assert metadata['base_commit_hash'] == \
+                        'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0'
                     assert metadata['branch_name'] == 'feature-branch'
                     assert metadata['pr_number'] == '456'
                     assert metadata['pr_name'] == 'Implement cool feature'
@@ -136,10 +137,12 @@ class TestPullRequestMetadata:
             # Clean up temp file
             os.unlink(event_path)
 
-    def test_detect_github_metadata_push_event_uses_github_sha(self):
-        """Test that push events still use GITHUB_SHA as before."""
+    def test_detect_github_metadata_push_event_uses_event_before(self):
+        """Push events base on the event's 'before' (previous branch tip),
+        not the git parent (HEAD~1). This bridges over unbuilt intermediate
+        commits of a multi-commit push so the report chain stays intact."""
         push_event = {
-            'before': 'parent-commit-sha',
+            'before': 'c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0',
             'after': 'push-commit-sha'
         }
 
@@ -183,8 +186,159 @@ class TestPullRequestMetadata:
                     # Verify push events use GITHUB_SHA
                     assert metadata['commit_hash'] == 'push-commit-sha'
                     assert metadata['commit_message'] == 'Push commit message'
-                    # For push events: base is HEAD~1
-                    assert metadata['base_commit_hash'] == 'actual-parent-sha-777'
+                    # For push events: base is the event 'before', not HEAD~1
+                    assert metadata['base_commit_hash'] == \
+                        'c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0'
         finally:
             # Clean up temp file
+            os.unlink(event_path)
+
+    def test_detect_github_metadata_push_event_falls_back_to_git_parent(self):
+        """When a push event has no usable 'before' (e.g. branch creation),
+        fall back to the git parent (HEAD~1)."""
+        push_event = {
+            'before': '',
+            'after': 'push-commit-sha'
+        }
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+            json.dump(push_event, f)
+            event_path = f.name
+
+        try:
+            with patch.dict(os.environ, {
+                'GITHUB_EVENT_NAME': 'push',
+                'GITHUB_SHA': 'push-commit-sha',
+                'GITHUB_EVENT_PATH': event_path
+            }):
+                with patch('membrowse.utils.git.run_git_command') as mock_git:
+                    def git_side_effect(cmd):
+                        responses = {
+                            "['log', '-1', '--pretty=format:%B', 'push-commit-sha']":
+                                'Push commit message',
+                            "['log', '-1', '--pretty=format:%cI', 'push-commit-sha']":
+                                '2025-01-10T12:00:00Z',
+                            "['log', '-1', '--pretty=format:%an', 'push-commit-sha']":
+                                'Push Author',
+                            "['log', '-1', '--pretty=format:%ae', 'push-commit-sha']":
+                                'push@example.com',
+                            "['config', '--get', 'remote.origin.url']":
+                                'https://github.com/user/repo.git',
+                            "['rev-parse', 'HEAD~1']":
+                                'actual-parent-sha-777'
+                        }
+                        cmd_str = str(cmd)
+                        if cmd_str in responses:
+                            return responses[cmd_str]
+                        if 'symbolic-ref' in cmd or 'for-each-ref' in cmd:
+                            return 'main'
+                        return None
+
+                    mock_git.side_effect = git_side_effect
+
+                    metadata = detect_github_metadata()
+
+                    # No 'before' -> fall back to HEAD~1
+                    assert metadata['base_commit_hash'] == 'actual-parent-sha-777'
+        finally:
+            os.unlink(event_path)
+
+    def test_detect_github_metadata_push_event_ignores_zero_before(self):
+        """Branch creation / first push sends an all-zero 'before'; it is not a
+        real commit, so fall back to the git parent (HEAD~1)."""
+        push_event = {
+            'before': '0' * 40,
+            'after': 'push-commit-sha'
+        }
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+            json.dump(push_event, f)
+            event_path = f.name
+
+        try:
+            with patch.dict(os.environ, {
+                'GITHUB_EVENT_NAME': 'push',
+                'GITHUB_SHA': 'push-commit-sha',
+                'GITHUB_EVENT_PATH': event_path
+            }):
+                with patch('membrowse.utils.git.run_git_command') as mock_git:
+                    def git_side_effect(cmd):
+                        responses = {
+                            "['log', '-1', '--pretty=format:%B', 'push-commit-sha']":
+                                'Push commit message',
+                            "['log', '-1', '--pretty=format:%cI', 'push-commit-sha']":
+                                '2025-01-10T12:00:00Z',
+                            "['log', '-1', '--pretty=format:%an', 'push-commit-sha']":
+                                'Push Author',
+                            "['log', '-1', '--pretty=format:%ae', 'push-commit-sha']":
+                                'push@example.com',
+                            "['config', '--get', 'remote.origin.url']":
+                                'https://github.com/user/repo.git',
+                            "['rev-parse', 'HEAD~1']":
+                                'actual-parent-sha-777'
+                        }
+                        cmd_str = str(cmd)
+                        if cmd_str in responses:
+                            return responses[cmd_str]
+                        if 'symbolic-ref' in cmd or 'for-each-ref' in cmd:
+                            return 'main'
+                        return None
+
+                    mock_git.side_effect = git_side_effect
+
+                    metadata = detect_github_metadata()
+
+                    # All-zero 'before' -> fall back to HEAD~1
+                    assert metadata['base_commit_hash'] == 'actual-parent-sha-777'
+        finally:
+            os.unlink(event_path)
+
+    def test_detect_github_metadata_push_event_ignores_malformed_before(self):
+        """A malformed/non-SHA 'before' from a custom event payload must not be
+        trusted; fall back to the git parent (HEAD~1)."""
+        push_event = {
+            'before': 'not-a-real-sha',
+            'after': 'push-commit-sha'
+        }
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+            json.dump(push_event, f)
+            event_path = f.name
+
+        try:
+            with patch.dict(os.environ, {
+                'GITHUB_EVENT_NAME': 'push',
+                'GITHUB_SHA': 'push-commit-sha',
+                'GITHUB_EVENT_PATH': event_path
+            }):
+                with patch('membrowse.utils.git.run_git_command') as mock_git:
+                    def git_side_effect(cmd):
+                        responses = {
+                            "['log', '-1', '--pretty=format:%B', 'push-commit-sha']":
+                                'Push commit message',
+                            "['log', '-1', '--pretty=format:%cI', 'push-commit-sha']":
+                                '2025-01-10T12:00:00Z',
+                            "['log', '-1', '--pretty=format:%an', 'push-commit-sha']":
+                                'Push Author',
+                            "['log', '-1', '--pretty=format:%ae', 'push-commit-sha']":
+                                'push@example.com',
+                            "['config', '--get', 'remote.origin.url']":
+                                'https://github.com/user/repo.git',
+                            "['rev-parse', 'HEAD~1']":
+                                'actual-parent-sha-777'
+                        }
+                        cmd_str = str(cmd)
+                        if cmd_str in responses:
+                            return responses[cmd_str]
+                        if 'symbolic-ref' in cmd or 'for-each-ref' in cmd:
+                            return 'main'
+                        return None
+
+                    mock_git.side_effect = git_side_effect
+
+                    metadata = detect_github_metadata()
+
+                    # Malformed 'before' -> fall back to HEAD~1
+                    assert metadata['base_commit_hash'] == 'actual-parent-sha-777'
+        finally:
             os.unlink(event_path)
