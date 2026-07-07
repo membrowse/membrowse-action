@@ -1,30 +1,115 @@
-# MemBrowse
+<p align="center">
+  <img src="membrowse-logo.svg" alt="MemBrowse logo" width="80" height="80" />
+</p>
 
-[![PyPI version](https://badge.fury.io/py/membrowse.svg)](https://badge.fury.io/py/membrowse)
-[![Python Versions](https://img.shields.io/pypi/pyversions/membrowse.svg)](https://pypi.org/project/membrowse/)
-[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
-[![Downloads](https://pepy.tech/badge/membrowse)](https://pepy.tech/project/membrowse)
+<h1 align="center">MemBrowse</h1>
 
-A tool for analyzing binary size and memory footprint of embedded firmware. MemBrowse extracts detailed memory information from ELF files and linker scripts, providing symbol-level analysis with source file mapping for multiple architectures. Use it standalone for local analysis or integrate with [MemBrowse](https://membrowse.com) for historical analysis and CI integration.
+<p align="center">
+  <a href="https://badge.fury.io/py/membrowse"><img src="https://badge.fury.io/py/membrowse.svg" alt="PyPI version"></a>
+  <a href="https://pypi.org/project/membrowse/"><img src="https://img.shields.io/pypi/pyversions/membrowse.svg" alt="Python Versions"></a>
+  <a href="https://www.gnu.org/licenses/gpl-3.0"><img src="https://img.shields.io/badge/License-GPLv3-blue.svg" alt="License: GPL v3"></a>
+  <a href="https://pepy.tech/project/membrowse"><img src="https://pepy.tech/badge/membrowse" alt="Downloads"></a>
+  <a href="https://github.com/marketplace/actions/binary-size-memory-footprint-tracking"><img src="https://img.shields.io/badge/GitHub%20Marketplace-verified-2ea44f?logo=github" alt="GitHub Marketplace — verified creator"></a>
+  <a href="https://github.com/membrowse/membrowse-action"><img src="https://img.shields.io/github/stars/membrowse/membrowse-action?style=social" alt="GitHub stars"></a>
+</p>
+
+**Catch memory regressions before they ship.** MemBrowse tracks the flash and RAM footprint of your firmware on every commit, comments the memory diff on every pull request, and fails the build when you blow your budget.
+
+It extracts detailed memory information from ELF files and linker scripts — down to symbol-level analysis with source file mapping across multiple architectures. Use the CLI standalone for instant local analysis, or connect it to [MemBrowse](https://membrowse.com) for historical tracking, PR diffs, and CI gating.
+
+> **Get your free API key:** [Sign up](https://membrowse.com/signup) to unlock PR comments, historical tracking, and budget alerts. No account needed to use the CLI locally.
+
+📖 **Full documentation:** [docs.membrowse.com](https://docs.membrowse.com)
+
+<p align="center">
+  <img src="screenshots/demo.gif" alt="MemBrowse dashboard: targets overview, memory timeline, commit-to-commit diff, and CI budget gating" width="960">
+</p>
+
+## Firmware teams tracking memory with MemBrowse
+
+
+
+<table align="center">
+  <tr>
+    <td align="center" width="130">
+      <a href="https://flipperzero.one"><img src="logos/flipper.png" alt="Flipper Devices" height="56"></a><br>Flipper Devices
+    </td>
+    <td align="center" width="130">
+      <a href="https://www.wolfssl.com"><img src="logos/wolfssl.png" alt="wolfSSL" height="56"></a><br>wolfSSL
+    </td>
+    <td align="center" width="130">
+      <a href="https://nuttx.apache.org"><img src="logos/nuttx.png" alt="Apache NuttX" height="56"></a><br>Apache NuttX
+    </td>
+    <td align="center" width="130">
+      <a href="https://www.rt-thread.io"><img src="logos/rtthread.png" alt="RT-Thread" height="56"></a><br>RT-Thread
+    </td>
+    <td align="center" width="130">
+      <a href="https://docs.tinyusb.org"><img src="logos/tinyusb.png" alt="TinyUSB" height="56"></a><br>TinyUSB
+    </td>
+    <td align="center" width="130">
+      <a href="https://github.com/SuperTinyKernel-RTOS"><img src="logos/stk.png" alt="SuperTinyKernel" height="56"></a><br>SuperTinyKernel
+    </td>
+    <td align="center" width="130">
+      <a href="https://github.com/ventZl/cmrx"><img src="logos/cmrx.png" alt="CMRX" height="56"></a><br>CMRX
+    </td>
+  </tr>
+</table>
+
+<p align="center">…and more.</p>
 
 
 ## Features
 
-- **Architecture Agnostic**: Works with architectures that produce ELFs with DWARF debug format
-- **Source File Mapping**: Symbols are mapped to their definition source files
-- **Memory Region Extraction**: Memory region capacity and layout are extracted from GNU LD scripts, IAR ICF scripts, and SEGGER Embedded Studio `.emProject` project files
-- **Cloud Integration**: Upload reports to [MemBrowse](https://membrowse.com) for historical tracking, diffs, monitoring and CI gating 
+- **Architecture Agnostic**: Works with any toolchain that produces ELFs with DWARF debug info (ARM, Xtensa, RISC-V, and more)
+- **Source File Mapping**: Symbols are mapped back to their definition source files
+- **Memory Region Extraction**: Reads memory layout from GNU LD scripts, IAR ICF files, and SEGGER Embedded Studio `.emProject` files
+- **Cloud Integration**: Upload reports to [MemBrowse](https://membrowse.com) for historical tracking, PR diffs, monitoring, and CI gating
 
-## CI/CD Integration
+## Quick Start
 
-### GitHub Actions
+### Analyze your firmware locally (no account required)
 
-MemBrowse provides GitHub Actions for CI integration.
+```bash
+pip install membrowse
 
+membrowse report build/firmware.elf "src/linker.ld"
+```
 
-#### PR/Push Analysis
+**Example output:**
 
-Create a Github action for PR analysis that will call `membrowse/membrowse-action`:
+```
+ELF Metadata: build/firmware.elf  |  Arch: ARM  |  Machine: EM_ARM  |  Toolchain: gcc-10.3.1  |  Entry: 0x0802015d  |  Type: ET_EXEC
+==========================================================================================================================================================
+
+Region               Address Range                                Size                Used                Free  Utilization
+--------------------------------------------------------------------------------------------------------------------------------------------
+FLASH                0x08000000-0x08100000             1,048,576 bytes       365,192 bytes       683,384 bytes  [██████░░░░░░░░░░░░░░] 34.8%
+  └─ FLASH_START     0x08000000-0x08004000                16,384 bytes        14,708 bytes         1,676 bytes  [█████████████████░░░] 89.8%
+     • .isr_vector              392 bytes
+     • .isr_extratext        14,316 bytes
+  └─ FLASH_TEXT      0x08020000-0x08100000               917,504 bytes       350,484 bytes       567,020 bytes  [███████░░░░░░░░░░░░░] 38.2%
+     • .text                350,476 bytes
+RAM                  0x20000000-0x20020000               131,072 bytes        26,960 bytes       104,112 bytes  [████░░░░░░░░░░░░░░░░] 20.6%
+  • .bss                     8,476 bytes
+  • .heap                   16,384 bytes
+  • .stack                   2,048 bytes
+
+Top 20 Largest Symbols
+======================
+
+Name                                     Address                    Size  Type       Section              Source
+--------------------------------------------------------------------------------------------------------------------------------------------
+usb_device                               0x20000a30          5,444 bytes  OBJECT     .bss                 usb.c
+mp_qstr_const_pool                       0x08062b70          4,692 bytes  OBJECT     .text                qstr.c
+mp_execute_bytecode                      0x080392f9          4,208 bytes  FUNC       .text                vm.c
+...
+```
+
+See the [CLI reference](https://docs.membrowse.com) for JSON output, symbol filtering, uploading, and historical onboarding.
+
+### Track memory in CI (GitHub Actions)
+
+Add a workflow that analyzes each push/PR and comments the diff on pull requests:
 
 ```yaml
 name: Memory Analysis
@@ -42,9 +127,9 @@ jobs:
       - name: Analyze memory
         uses: membrowse/membrowse-action@v1
         with:
-          elf: build/firmware.elf # your elf
-          ld: "src/linker.ld" # your ld scripts
-          target_name: stm32f4 # the target name will be recognized by MemBrowse
+          elf: build/firmware.elf
+          ld: "src/linker.ld"
+          target_name: stm32f4
           api_key: ${{ secrets.MEMBROWSE_API_KEY }}
 
       - name: Post PR comment
@@ -53,237 +138,42 @@ jobs:
         with:
           api_key: ${{ secrets.MEMBROWSE_API_KEY }}
           commit: ${{ github.event.pull_request.head.sha }}
-          # Optional: use a custom Jinja2 template for the comment
-          # comment_template: .github/membrowse-comment.j2
 ```
 
-The comment action posts a memory report to the PR showing changes between the PR branch and the base branch. The report includes memory region utilization changes (e.g. FLASH, RAM), section-level deltas (e.g. `.text`, `.bss`, `.data`), and symbol-level changes — added, removed, modified, and moved symbols. If budget alerts are configured on [MemBrowse](https://membrowse.com), any exceeded budgets are highlighted in the comment.
+Add your MemBrowse API key as a repository secret named `MEMBROWSE_API_KEY` ([get one free](https://membrowse.com/signup)). The action is [published on the GitHub Marketplace](https://github.com/marketplace/actions/binary-size-memory-footprint-tracking) by a verified creator.
 
-You can customize the comment format by providing a Jinja2 template via the `comment_template` input. Your template receives a `targets` list (each with `regions`, `sections`, `symbols`, and `alerts`) and a top-level `has_alerts` boolean. See the [default template](membrowse/utils/templates/default_comment.j2) for reference.
+For historical onboarding, custom comment templates, overflow tracking (`limits`), and all action inputs, see [docs.membrowse.com](https://docs.membrowse.com).
 
-##### Tracking overflow past the real region size (optional `limits`)
+### Set it up with Claude Code
 
-By default, the linker refuses to produce an ELF when a region overflows, so there's nothing to analyze. If you want to keep building (and keep tracking memory growth) past that point, link against an **inflated** linker script whose `LENGTH` values are larger than the real target, and pass the **real** script as `limits`:
-
-```yaml
-      - name: Analyze memory
-        uses: membrowse/membrowse-action@v1
-        with:
-          elf: build/firmware.elf
-          ld: "src/linker.inflated.ld"   # used for linking + section attribution
-          limits: "src/linker.real.ld"   # real per-region LENGTH → utilization & overflow
-          target_name: stm32f4
-          api_key: ${{ secrets.MEMBROWSE_API_KEY }}
-```
-
-`limits` is **optional** — omit it when the binary fits the real layout (then `ld` is already the real limit). When supplied, section-to-region attribution still uses `ld` (so sections placed past the real end stay attributed to their region), and utilization / free / overflow are reported against each region's `LENGTH` from `limits`.
-
-#### Historical Onboarding
-
-For getting historical build data from day one upload the last N commits by
-Creating an Onboard Github action in your repo that will call `membrowse/membrowse-action/onboard-action`:
-
-```yaml
-name: Onboard to MemBrowse
-on: workflow_dispatch
-
-jobs:
-  onboard:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-
-      - name: Historical analysis
-        uses: membrowse/membrowse-action/onboard-action@v1
-        with:
-          num_commits: 100
-          build_script: "make clean && make" # your build commands
-          elf: build/firmware.elf # your elf file
-          ld: "components.ld memory.ld" #your ld scripts 
-          target_name: my-target # the target name will be recognized by MemBrowse
-          api_key: ${{ secrets.MEMBROWSE_API_KEY }}
-```
-
-### Claude Code Integration
-
-If you use [Claude Code](https://claude.ai/code), you can automatically set up MemBrowse integration using the membrowse-integrate skill.
-
-First, add the MemBrowse marketplace to Claude Code:
+If you use [Claude Code](https://claude.ai/code), install the MemBrowse plugin and let it wire everything up for you:
 
 ```
 /plugin marketplace add membrowse/membrowse-action
-```
-
-Then install the plugin:
-
-```
 /plugin install membrowse@membrowse-marketplace
-```
-
-Then run the skill in your project:
-
-```
 /membrowse-integrate
 ```
 
-This will:
-- Analyze your project's build system and targets
-- Verify builds and linker scripts work locally
-- Create `membrowse-targets.json` configuration
-- Set up GitHub Actions workflows for PR analysis and onboarding
-- Add a MemBrowse badge to your README
-
-## Local Installation
-
-### From PyPI
-
-```bash
-pip install membrowse
-```
-
-### For Development
-
-```bash
-# Clone and install in editable mode
-git clone https://github.com/membrowse/membrowse-action.git
-cd membrowse-action
-pip install -e .
-```
-
-## Quick Start
-
-### Analyze Your Firmware Locally
-
-The simplest way to analyze your firmware (local mode - no upload):
-
-```bash
-# Generate a human-readable report (default)
-membrowse report \
-  build/firmware.elf \
-  "src/linker.ld src/memory.ld"
-
-# Output JSON format instead
-membrowse report \
-  build/firmware.elf \
-  "src/linker.ld src/memory.ld" \
-  --json
-
-# Show all symbols (not just top 20)
-membrowse report \
-  build/firmware.elf \
-  "src/linker.ld src/memory.ld" \
-  --all-symbols
-
-# With verbose output to see progress messages
-membrowse -v INFO report \
-  build/firmware.elf \
-  "src/linker.ld src/memory.ld"
-```
-
-By default, this generates a **human-readable report** with memory regions, sections, and top symbols. Use `--json` to output structured JSON data instead. Use `-v INFO` or `-v DEBUG` before the subcommand to see progress messages (default is `WARNING` which only shows warnings and errors).
-
-**Example output:**
-
-```
-ELF Metadata: build/firmware.elf  |  Arch: ARM  |  Machine: EM_ARM  |  Toolchain: gcc-10.3.1  |  Entry: 0x0802015d  |  Type: ET_EXEC
-==========================================================================================================================================================
-
-Region               Address Range                                Size                Used                Free  Utilization
---------------------------------------------------------------------------------------------------------------------------------------------
-FLASH                0x08000000-0x08100000             1,048,576 bytes       365,192 bytes       683,384 bytes  [██████░░░░░░░░░░░░░░] 34.8%
-  └─ FLASH_START     0x08000000-0x08004000                16,384 bytes        14,708 bytes         1,676 bytes  [█████████████████░░░] 89.8%
-     • .isr_vector              392 bytes
-     • .isr_extratext        14,316 bytes
-  └─ FLASH_FS        0x08004000-0x08020000               114,688 bytes             0 bytes       114,688 bytes  [░░░░░░░░░░░░░░░░░░░░] 0.0%
-  └─ FLASH_TEXT      0x08020000-0x08100000               917,504 bytes       350,484 bytes       567,020 bytes  [███████░░░░░░░░░░░░░] 38.2%
-     • .text                350,476 bytes
-     • .ARM                       8 bytes
-RAM                  0x20000000-0x20020000               131,072 bytes        26,960 bytes       104,112 bytes  [████░░░░░░░░░░░░░░░░] 20.6%
-  • .data                       52 bytes
-  • .bss                     8,476 bytes
-  • .heap                   16,384 bytes
-  • .stack                   2,048 bytes
-
-Top 20 Largest Symbols
-======================
-
-Name                                     Address                    Size  Type       Section              Source
---------------------------------------------------------------------------------------------------------------------------------------------
-usb_device                               0x20000a30          5,444 bytes  OBJECT     .bss                 usb.c
-mp_qstr_const_pool                       0x08062b70          4,692 bytes  OBJECT     .text                qstr.c
-mp_execute_bytecode                      0x080392f9          4,208 bytes  FUNC       .text                vm.c
-fresh_pybcdc_inf                         0x0806ffaa          2,598 bytes  OBJECT     .text                factoryreset.c
-emit_inline_thumb_op                     0x0802ac25          2,476 bytes  FUNC       .text                emitinlinethumb.c
-mp_qstr_const_hashes                     0x08061b36          2,334 bytes  OBJECT     .text                qstr.c
-stm_module_globals_table                 0x08073478          2,096 bytes  OBJECT     .text                modstm.c
-stm32_help_text                          0x08072366          2,067 bytes  OBJECT     .text                help.c
-mp_lexer_to_next                         0x080229ed          1,768 bytes  FUNC       .text                lexer.c
-f_mkfs                                   0x080020ed          1,564 bytes  FUNC       .isr_extratext       ff.c
-...
-```
-
-### Upload Reports to MemBrowse Platform
-
-```bash
-# Upload mode - uploads report to MemBrowse platform (https://membrowse.com)
-membrowse report \
-  build/firmware.elf \
-  "src/linker.ld" \
-  --upload \
-  --target-name esp32 \
-  --api-key your-membrowse-api-key
-
-# GitHub Actions mode - auto-detects Git metadata from CI environment
-membrowse report \
-  build/firmware.elf \
-  "src/linker.ld" \
-  --upload \
-  --github \
-  --target-name esp32 \
-  --api-key your-membrowse-api-key
-```
-
-When uploading, MemBrowse will fail the build (exit code 1) if budget alerts are detected. Use `--dont-fail-on-alerts` to continue despite alerts.
-
-### Analyze Historical Commits (Onboarding)
-
-Analyzes memory footprints across multiple commits and uploads them to [MemBrowse](https://membrowse.com):
-
-```bash
-# Analyze and upload the last 50 commits
-membrowse onboard \
-  50 \
-  "make clean && make all" \
-  build/firmware.elf \
-  "STM32F746ZGTx_FLASH.ld" \
-  stm32f4 \
-  your-membrowse-api-key
-```
-
+This analyzes your build, verifies linker scripts, creates the config, and sets up the GitHub Actions workflows.
 
 ## Platform Support
 
-MemBrowse works with toolchains that produce ELF files. Supported memory layout sources:
+MemBrowse works with any toolchain that produces ELF files. Supported memory layout sources:
 
-- **GNU LD** linker scripts (`*.ld`, `*.cmd`) — including `INCLUDE`d sub-scripts
+- **GNU LD** linker scripts (`*.ld`, `*.cmd`), including `INCLUDE`d sub-scripts
 - **IAR EWARM ICF** files (`*.icf`)
-- **SEGGER Embedded Studio** project files (`*.emProject`) — regions are read from the
-  `linker_section_placements_segments` attribute. A `.emProject` can be used on its own
-  or alongside its companion `.icf`; cross-file region references resolve transparently.
+- **SEGGER Embedded Studio** project files (`*.emProject`)
 
-Format detection is content-based, so the file extension does not have to match.
+Format detection is content-based, so the file extension doesn't have to match.
 
-If you found that you're not getting optimal results please contact us: support@membrowse.com 
-We are actively working on improving MemBrowse.
+Not getting optimal results? Contact us at support@membrowse.com — we're actively improving MemBrowse.
+
+## Documentation & Support
+
+- **Docs**: [docs.membrowse.com](https://docs.membrowse.com)
+- **Issues**: https://github.com/membrowse/membrowse-action/issues
+- **Support**: support@membrowse.com
 
 ## License
 
 See [LICENSE](LICENSE) file for details.
-
-## Support
-
-- **Issues**: https://github.com/membrowse/membrowse-action/issues
-- **Documentation**: This README and inline code documentation
-- **MemBrowse Support**: support@membrowse.com
