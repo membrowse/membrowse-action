@@ -78,10 +78,6 @@ class ELFInfo:
     is_embedded: bool       # True for embedded targets
 
 
-class ELFParseError(Exception):
-    """Exception raised when ELF parsing fails"""
-
-
 class ELFParser:  # pylint: disable=too-few-public-methods
     """Parser for ELF file headers to extract architecture information"""
     # ELF machine type constants mapped to pyelftools constants

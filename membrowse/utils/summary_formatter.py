@@ -88,6 +88,44 @@ def render_jinja2_template(template_path: str, context: dict) -> str:
     return template.render(**context)
 
 
+def build_target_context(
+    *,
+    name: str,
+    comparison_url: Any,
+    changes: dict,
+    alerts: list[dict],
+    symbols: dict | None = None,
+) -> dict:
+    """Build one target's template context from its changes/alerts/symbols.
+
+    Shared by both context builders (summary mode and file mode). They differ
+    only in where the raw fields are dug out of; this owns the resulting
+    target-dict shape that the comment template depends on.
+
+    Args:
+        name: Target display name.
+        comparison_url: Link to the target's comparison/dashboard view.
+        changes: Per-target changes dict (``{'regions': ..., 'sections': ...}``).
+        alerts: Processed budget-alert list (see :func:`process_alerts`).
+        symbols: Added/removed/modified/moved symbol lists; defaults to empty.
+    """
+    regions = enrich_regions(changes.get('regions', {}))
+    sections, sections_by_region = enrich_sections(changes.get('sections', {}))
+    if symbols is None:
+        symbols = {'added': [], 'removed': [], 'modified': [], 'moved': []}
+    return {
+        'name': name,
+        'comparison_url': comparison_url,
+        'regions': regions,
+        'sections': sections,
+        'sections_by_region': sections_by_region,
+        'symbols': symbols,
+        'alerts': alerts,
+        'has_changes': bool(regions),
+        'has_alerts': bool(alerts),
+    }
+
+
 # ── Summary-specific context builder ────────────────────────────────
 
 def build_summary_template_context(summary_response: dict[str, Any]) -> dict[str, Any]:
@@ -114,20 +152,12 @@ def build_summary_template_context(summary_response: dict[str, Any]) -> dict[str
         if alerts:
             has_any_alerts = True
 
-        regions = enrich_regions(changes.get('regions', {}))
-        sections, sections_by_region = enrich_sections(changes.get('sections', {}))
-
-        targets.append({
-            'name': target_data.get('target_name', 'Unknown'),
-            'comparison_url': target_data.get('dashboard_url'),
-            'regions': regions,
-            'sections': sections,
-            'sections_by_region': sections_by_region,
-            'symbols': {'added': [], 'removed': [], 'modified': [], 'moved': []},
-            'alerts': alerts,
-            'has_changes': bool(regions),
-            'has_alerts': bool(alerts),
-        })
+        targets.append(build_target_context(
+            name=target_data.get('target_name', 'Unknown'),
+            comparison_url=target_data.get('dashboard_url'),
+            changes=changes,
+            alerts=alerts,
+        ))
 
     return {
         'targets': targets,

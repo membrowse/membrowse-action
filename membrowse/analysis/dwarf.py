@@ -73,7 +73,6 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
 
         # Track which symbols we've already found to enable early termination
         self.found_symbols = set()
-        self.target_symbol_count = len(symbol_addresses)
         # Precompute sorted symbol addresses for fast tolerance checking
         self.sorted_symbol_addresses = sorted(symbol_addresses)
         # Only keep actively used data structures
@@ -141,12 +140,6 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
             for cu in relevant_cus:
                 try:
                     self._process_cu(cu, dwarfinfo)
-                    # Early termination disabled for correctness - other
-                    # optimizations provide sufficient speedup
-                    # if len(self.found_symbols) >= min(self.target_symbol_count * 2, 1000):
-                    #     logger.debug("Early termination: found %d symbols (target: %d)",
-                    #                  len(self.found_symbols), self.target_symbol_count)
-                    #     break
                 except Exception as e:
                     logger.error(
                         "Failed to process CU at offset %d: %s", cu.cu_offset, e)

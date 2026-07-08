@@ -8,6 +8,8 @@ Parses map files generated via ``-Wl,-Map=output.map`` (GCC, Clang, Rust).
 import re
 from typing import List, Tuple
 
+from ._maprange import RangeAccumulator, resolve_archive_object
+
 
 # Match input section contribution lines (indented):
 #   .text          0x0000000008000010       0xac path/to/file.o
@@ -71,21 +73,12 @@ class MapFileParser:  # pylint: disable=too-few-public-methods
             ``start``. ``archive`` is "" for bare .o files. Zero-size and
             zero-address entries are skipped.
         """
-        ranges: List[Tuple[int, int, str, str]] = []
-        seen_starts = set()
+        acc = RangeAccumulator()
         pending_section = None
 
         def emit(address: int, size: int, file_field: str) -> None:
-            if address == 0 or size == 0:
-                return
-            if address in seen_starts:
-                # First occurrence wins (GNU LD lists in link order).
-                return
             archive, obj = self._parse_file_field(file_field.strip())
-            if not obj:
-                return
-            seen_starts.add(address)
-            ranges.append((address, address + size, archive, obj))
+            acc.add(address, size, archive, obj)
 
         for line in content.splitlines():
             # Try single-line format first (section + address + size + file)
@@ -118,8 +111,7 @@ class MapFileParser:  # pylint: disable=too-few-public-methods
                 pending_section = name_match.group(1)
                 continue
 
-        ranges.sort(key=lambda r: r[0])
-        return ranges
+        return acc.finalize()
 
     @staticmethod
     def _parse_file_field(field: str) -> Tuple[str, str]:
@@ -131,12 +123,4 @@ class MapFileParser:  # pylint: disable=too-few-public-methods
         """
         if not field or field == 'linker stubs' or field.startswith('*fill*'):
             return ('', '')
-
-        archive_match = _ARCHIVE_RE.match(field)
-        if archive_match:
-            return (archive_match.group(1), archive_match.group(2))
-
-        if field.endswith('.o') or field.endswith('.obj'):
-            return ('', field)
-
-        return ('', '')
+        return resolve_archive_object(field, _ARCHIVE_RE)

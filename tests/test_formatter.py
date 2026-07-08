@@ -1,7 +1,6 @@
 """Tests for the formatter utility module."""
 
 from membrowse.utils.formatter import (
-    _format_bytes,
     _format_address,
     _create_utilization_bar,
     _format_elf_metadata,
@@ -9,32 +8,6 @@ from membrowse.utils.formatter import (
     _format_top_symbols,
     format_report_human_readable
 )
-
-
-class TestFormatBytes:
-    """Test byte formatting."""
-
-    def test_format_bytes_small(self):
-        """Test formatting small byte values."""
-        assert _format_bytes(512) == "512 bytes"
-        assert _format_bytes(1023) == "1023 bytes"
-
-    def test_format_bytes_kilobytes(self):
-        """Test formatting kilobyte values."""
-        assert _format_bytes(1024) == "1.00 KB"
-        assert _format_bytes(2048) == "2.00 KB"
-        assert _format_bytes(1536) == "1.50 KB"
-
-    def test_format_bytes_megabytes(self):
-        """Test formatting megabyte values."""
-        assert _format_bytes(1024 * 1024) == "1.00 MB"
-        assert _format_bytes(1024 * 1024 * 2) == "2.00 MB"
-        assert _format_bytes(1024 * 1024 * 1.5) == "1.50 MB"
-
-    def test_format_bytes_gigabytes(self):
-        """Test formatting gigabyte values."""
-        assert _format_bytes(1024 * 1024 * 1024) == "1.00 GB"
-        assert _format_bytes(1024 * 1024 * 1024 * 2) == "2.00 GB"
 
 
 class TestFormatAddress:  # pylint: disable=too-few-public-methods

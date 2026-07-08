@@ -31,17 +31,9 @@ class SectionAnalysisError(ELFAnalysisError):
     """Exception raised when section analysis fails"""
 
 
-class MemoryRegionMappingError(ELFAnalysisError):
-    """Exception raised when memory region mapping fails"""
-
-
 class MapFileParseError(ELFAnalysisError):
     """Exception raised when a map file (GNU LD or IAR) cannot be parsed"""
 
 
 class AuthenticationError(Exception):
     """Base exception for authentication errors"""
-
-
-class ForkPRContextError(AuthenticationError):
-    """Exception raised when fork PR context cannot be determined"""

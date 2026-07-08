@@ -5,17 +5,6 @@ Human-readable formatting utilities for memory reports.
 from typing import Dict, List, Any
 
 
-def _format_bytes(num_bytes: int) -> str:
-    """Format bytes into human-readable format (KB, MB, etc.)."""
-    if num_bytes < 1024:
-        return f"{num_bytes} bytes"
-    if num_bytes < 1024 * 1024:
-        return f"{num_bytes / 1024:.2f} KB"
-    if num_bytes < 1024 * 1024 * 1024:
-        return f"{num_bytes / (1024 * 1024):.2f} MB"
-    return f"{num_bytes / (1024 * 1024 * 1024):.2f} GB"
-
-
 def _format_address(address: int) -> str:
     """Format address as hex string."""
     return f"0x{address:08x}"

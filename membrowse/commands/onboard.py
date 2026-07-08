@@ -10,41 +10,17 @@ from datetime import datetime
 from ..utils.git import (
     run_git_command, get_commit_metadata,
     git_checkout, git_submodule_update, git_clean,
+    _get_branch_name, _get_repo_name,
 )
-from ..api.client import MemBrowseClient
-from ..auth.strategy import determine_auth_strategy
-from .report import generate_report, upload_report, DEFAULT_API_URL, _parse_linker_definitions
+from ..api.client import MemBrowseClient, DEFAULT_API_URL
+from ..core.generator import make_empty_report
+from .report import generate_report, upload_report, _parse_linker_definitions
 
 # Set up logger
 logger = logging.getLogger(__name__)
 
 # Sentinel to distinguish "no override" from "override with None"
 _NO_OVERRIDE = object()
-
-
-def _create_empty_report(elf_path: str) -> dict:
-    """
-    Create a minimal empty report structure for failed builds.
-
-    Args:
-        elf_path: Path to the ELF file (used in report metadata)
-
-    Returns:
-        Empty report dictionary matching the structure of successful reports
-    """
-    return {
-        'file_path': elf_path,
-        'architecture': None,
-        'toolchain': None,
-        'entry_point': 0,
-        'file_type': 'unknown',
-        'machine': 'unknown',
-        'symbols': [],
-        'program_headers': [],
-        'memory_layout': {}
-    }
-
-
 
 
 def add_onboard_parser(subparsers) -> argparse.ArgumentParser:
@@ -282,13 +258,11 @@ def _get_repository_info():
     Returns:
         Tuple of (current_branch, original_head, repo_name) or (None, None, None) if not in git repo
     """
-    # Get current branch
-    current_branch = (
-        run_git_command(['symbolic-ref', '--short', 'HEAD']) or
-        run_git_command(['for-each-ref', '--points-at', 'HEAD',
-                        '--format=%(refname:short)', 'refs/heads/']) or
-        os.environ.get('GITHUB_REF_NAME', 'unknown')
-    )
+    # Get current branch (shared detection), with an onboard-only fallback to
+    # the GitHub Actions ref when git can't resolve a branch (detached HEAD).
+    current_branch = _get_branch_name('')
+    if current_branch == 'unknown':
+        current_branch = os.environ.get('GITHUB_REF_NAME', 'unknown')
     if current_branch == 'unknown':
         logger.warning(
             "Running from detached HEAD — branch will be reported as 'unknown'. "
@@ -303,15 +277,7 @@ def _get_repository_info():
     if not original_head:
         return None, None, None
 
-    # Get repository name
-    remote_url = run_git_command(['config', '--get', 'remote.origin.url'])
-    repo_name = 'unknown'
-    if remote_url:
-        parts = remote_url.rstrip('.git').split('/')
-        if parts:
-            repo_name = parts[-1]
-
-    return current_branch, original_head, repo_name
+    return current_branch, original_head, _get_repo_name()
 
 
 def _get_commit_list(num_commits: int, initial_commit: str = None):
@@ -393,31 +359,6 @@ def _commit_has_changes_in_dirs(commit: str, build_dirs: list[str]) -> bool:
     return False
 
 
-def _create_metadata_only_report(elf_path: str) -> dict:
-    """
-    Create a minimal report for commits with no build-relevant changes.
-
-    Contains only structural fields, no actual analysis.
-
-    Args:
-        elf_path: Path to the ELF file (used in report metadata)
-
-    Returns:
-        Minimal report dictionary for identical commits
-    """
-    return {
-        'file_path': elf_path,
-        'architecture': None,
-        'toolchain': None,
-        'entry_point': None,
-        'file_type': None,
-        'machine': None,
-        'symbols': [],
-        'program_headers': [],
-        'memory_layout': {}
-    }
-
-
 def _handle_build_failure(result, log_prefix, elf_path):
     """
     Handle build failure by logging output and creating empty report.
@@ -447,7 +388,7 @@ def _handle_build_failure(result, log_prefix, elf_path):
             for line in output_lines:
                 logger.error(line)
 
-    return _create_empty_report(elf_path)
+    return make_empty_report(elf_path, build_failed=True)
 
 
 def _extract_fingerprint(report: dict) -> tuple:
@@ -545,7 +486,7 @@ def _build_and_generate_report(commit, args, linker_variables):
             "(linker script parsing may have failed) - "
             "treating as failed build",
             log_prefix)
-        return _create_empty_report(args.elf_path), True
+        return make_empty_report(args.elf_path, build_failed=True), True
 
     return report, False
 
@@ -583,8 +524,7 @@ def _build_commit_info(commit, current_branch, repo_name, parent_sha_override=_N
 def _create_client(args, api_url=None):
     """Create a reusable MemBrowseClient from onboard args."""
     resolved_api_url = api_url if api_url is not None else args.api_url
-    auth_context = determine_auth_strategy(api_key=args.api_key)
-    return MemBrowseClient(auth_context, resolved_api_url)
+    return MemBrowseClient.from_api_key(args.api_key, resolved_api_url)
 
 
 def _upload_commit(  # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals
@@ -670,12 +610,12 @@ def _mark_identical_range(  # pylint: disable=too-many-arguments,too-many-positi
             continue
         commit = commits[i]
         if both_failed:
-            report = _create_empty_report(elf_path)
+            report = make_empty_report(elf_path, build_failed=True)
             commit_results[i] = (report, True, False)
             logger.debug("(%s): Marked as build failure (%d/%d)",
                          commit[:8], i + 1, len(commits))
         else:
-            report = _create_metadata_only_report(elf_path)
+            report = make_empty_report(elf_path)
             commit_results[i] = (report, False, True)
             logger.debug("(%s): Marked as identical (%d/%d)",
                          commit[:8], i + 1, len(commits))
@@ -744,7 +684,7 @@ def _binary_search_range(  # pylint: disable=too-many-arguments,too-many-positio
                 commit, args, linker_variables)
         except RuntimeError as e:
             logger.error("Checkout failed at midpoint %s: %s", commit[:8], e)
-            mid_report = _create_empty_report(args.elf_path)
+            mid_report = make_empty_report(args.elf_path, build_failed=True)
             build_failed = True
         except ValueError as e:
             logger.error("Report generation failed at midpoint %s: %s",
@@ -845,7 +785,7 @@ def _run_binary_search_onboard(  # pylint: disable=too-many-locals,too-many-stat
             if identical and flush_state['prev_build_failed']:
                 identical = False
                 build_failed = True
-                report = _create_empty_report(args.elf_path)
+                report = make_empty_report(args.elf_path, build_failed=True)
 
             if _upload_commit(report, commits[idx], args, current_branch,
                               repo_name, build_failed=build_failed,
@@ -1142,7 +1082,7 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
             # No changes in build directories - upload metadata-only with identical=True
             logger.debug("%s: No changes in build directories, marking as identical", log_prefix)
 
-            report = _create_metadata_only_report(args.elf_path)
+            report = make_empty_report(args.elf_path)
             if _upload_commit(report, commit, args, current_branch, repo_name,
                               identical=True, api_url=api_url, client=client):
                 logger.debug("%s: Identical report uploaded (commit %d of %d)",
