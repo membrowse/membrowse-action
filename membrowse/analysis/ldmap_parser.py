@@ -6,7 +6,7 @@ Parses map files generated via ``-Wl,-Map=output.map`` (GCC, Clang, Rust).
 """
 
 import re
-from typing import List, Tuple
+from typing import AbstractSet, List, Tuple
 
 
 # Match input section contribution lines (indented):
@@ -36,6 +36,12 @@ _CONTINUATION_RE = re.compile(
     r'(.+)$'                     # group 3: file/archive path
 )
 
+# Match an output section header, which starts in column 0 (input section
+# lines are indented):
+#   .text           0x0000000008000000     0x5480
+#   .debug_line     0x0000000000000000     0xbe47
+_OUTPUT_SECTION_RE = re.compile(r'^(\S+)')
+
 # Match archive(object) pattern: libfoo.a(bar.o) or libfoo.a(bar.cpp.obj).
 # CMake builds (especially on Windows hosts) emit objects with a .obj suffix.
 _ARCHIVE_RE = re.compile(r'^(.+\.a)\((.+\.(?:o|obj))\)$')
@@ -44,7 +50,9 @@ _ARCHIVE_RE = re.compile(r'^(.+\.a)\((.+\.(?:o|obj))\)$')
 class MapFileParser:  # pylint: disable=too-few-public-methods
     """Parse GNU LD map file content to extract address-to-object mappings."""
 
-    def parse(self, content: str) -> List[Tuple[int, int, str, str]]:
+    def parse(self, content: str,
+              skip_output_sections: AbstractSet[str] = frozenset()
+              ) -> List[Tuple[int, int, str, str]]:
         """Parse map file content into half-open address ranges.
 
         GNU LD emits one entry per linker INPUT section (e.g. ``.text.foo``
@@ -63,8 +71,15 @@ class MapFileParser:  # pylint: disable=too-few-public-methods
             .text.very_long_section_name                 (section name only)
                           0x08000000  0x10 file.o        (continuation)
 
+        Input sections of non-ALLOC output sections (``.debug_*``,
+        ``.comment``, ``.ARM.attributes``) carry file offsets, not
+        addresses, and overlap real address ranges. Name those output
+        sections in ``skip_output_sections`` to drop their input sections.
+
         Args:
             content: Full text content of a GNU LD map file.
+            skip_output_sections: Output section names whose input sections
+                are ignored, e.g. the ELF's non-``SHF_ALLOC`` sections.
 
         Returns:
             List of ``(start, end, archive, object_file)`` tuples sorted by
@@ -74,6 +89,7 @@ class MapFileParser:  # pylint: disable=too-few-public-methods
         ranges: List[Tuple[int, int, str, str]] = []
         seen_starts = set()
         pending_section = None
+        output_section = None
 
         def emit(address: int, size: int, file_field: str) -> None:
             if address == 0 or size == 0:
@@ -88,6 +104,14 @@ class MapFileParser:  # pylint: disable=too-few-public-methods
             ranges.append((address, address + size, archive, obj))
 
         for line in content.splitlines():
+            header = _OUTPUT_SECTION_RE.match(line)
+            if header:
+                output_section = header.group(1)
+                pending_section = None
+                continue
+            if output_section in skip_output_sections:
+                continue
+
             # Try single-line format first (section + address + size + file)
             match = _SECTION_CONTRIB_RE.match(line)
             if match:

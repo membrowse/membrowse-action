@@ -19,7 +19,7 @@ from ..analysis.dwarf import DWARFProcessor
 from ..analysis.sources import SourceFileResolver
 from ..analysis.symbols import SymbolExtractor
 from ..analysis.sections import SectionAnalyzer
-from ..analysis.mapfile import MapFileResolver
+from ..analysis.mapfile import MapFileResolver, non_alloc_output_sections
 from ..linker.elf_info import ELFParser, Architecture
 
 
@@ -118,7 +118,10 @@ class ELFAnalyzer:  # pylint: disable=too-many-instance-attributes
 
             # Initialize map file resolver (optional)
             if map_file_path:
-                self._map_resolver = MapFileResolver.from_file(map_file_path)
+                # Non-ALLOC sections list input sections at file offsets,
+                # which collide with real addresses in the map
+                self._map_resolver = MapFileResolver.from_file(
+                    map_file_path, non_alloc_output_sections(self.elffile))
             else:
                 self._map_resolver = MapFileResolver.null()
         except Exception:

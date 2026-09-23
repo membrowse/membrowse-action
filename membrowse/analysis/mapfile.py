@@ -13,12 +13,13 @@ The format is auto-detected by :meth:`MapFileResolver.from_file`.
 
 import bisect
 import logging
-from typing import Dict, List, Optional, Tuple
+from typing import AbstractSet, Dict, List, Optional, Tuple
 
 from ..core.exceptions import MapFileParseError
 from .ldmap_parser import MapFileParser
 from .iarmap_parser import IARMapFileParser
 from .lldmap_parser import LLDMapFileParser
+from .sections import SHF_ALLOC
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +29,24 @@ __all__ = [
     'IARMapFileParser',
     'LLDMapFileParser',
     'MapFileResolver',
+    'non_alloc_output_sections',
 ]
+
+
+def non_alloc_output_sections(elffile) -> set:
+    """Names of the ELF's non-``SHF_ALLOC`` sections as a GNU LD map lists
+    them, for :meth:`MapFileResolver.from_file`'s ``skip_output_sections``.
+
+    The map prints linker-script output names, so a ``.zdebug_*`` section
+    (``--compress-debug-sections=zlib-gnu``) is also listed as ``.debug_*``.
+    """
+    names = set()
+    for section in elffile.iter_sections():
+        if section.name and not section['sh_flags'] & SHF_ALLOC:
+            names.add(section.name)
+            if section.name.startswith('.zdebug'):
+                names.add('.debug' + section.name[len('.zdebug'):])
+    return names
 
 
 def _detect_map_format(content: str) -> str:
@@ -87,13 +105,17 @@ class MapFileResolver:
             [r[0] for r in ranges] if ranges else None)
 
     @classmethod
-    def from_file(cls, map_path: str) -> 'MapFileResolver':
+    def from_file(cls, map_path: str,
+                  skip_output_sections: AbstractSet[str] = frozenset()
+                  ) -> 'MapFileResolver':
         """Create a resolver by parsing a map file (GNU LD, LLD, or IAR).
 
         The format is auto-detected from the file content.
 
         Args:
             map_path: Path to the .map file.
+            skip_output_sections: GNU LD output section names whose input
+                sections are ignored (see :meth:`MapFileParser.parse`).
 
         Returns:
             MapFileResolver with parsed mappings.
@@ -116,7 +138,7 @@ class MapFileResolver:
             ranges = LLDMapFileParser().parse(content)
             logger.debug("Detected LLD map file format: %s", map_path)
         else:
-            ranges = MapFileParser().parse(content)
+            ranges = MapFileParser().parse(content, skip_output_sections)
             logger.debug("Detected GNU LD map file format: %s", map_path)
         count = len(ranges)
         resolver = cls(ranges=ranges)
