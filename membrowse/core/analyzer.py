@@ -19,7 +19,7 @@ from ..analysis.dwarf import DWARFProcessor
 from ..analysis.sources import SourceFileResolver
 from ..analysis.symbols import SymbolExtractor
 from ..analysis.sections import SectionAnalyzer
-from ..analysis.mapfile import MapFileResolver, non_alloc_output_sections
+from ..analysis.mapfile import MapFileResolver, OutputSectionFilter
 from ..linker.elf_info import ELFParser, Architecture
 
 
@@ -121,7 +121,9 @@ class ELFAnalyzer:  # pylint: disable=too-many-instance-attributes
                 # Non-ALLOC sections list input sections at file offsets,
                 # which collide with real addresses in the map
                 self._map_resolver = MapFileResolver.from_file(
-                    map_file_path, non_alloc_output_sections(self.elffile))
+                    map_file_path,
+                    OutputSectionFilter(
+                        self._section_analyzer.section_alloc_flags()))
             else:
                 self._map_resolver = MapFileResolver.null()
         except Exception:
@@ -221,7 +223,7 @@ class ELFAnalyzer:  # pylint: disable=too-many-instance-attributes
         (e.g. ``--skip-section``) should use this so non-loaded sections
         aren't mistaken for missing.
         """
-        return {s.name for s in self.elffile.iter_sections() if s.name}
+        return set(self._section_analyzer.section_alloc_flags())
 
     def get_symbols(self) -> List[Symbol]:
         """Extract symbols from the ELF file.
