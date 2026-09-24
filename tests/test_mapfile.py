@@ -7,8 +7,9 @@ from pathlib import Path
 
 from membrowse.analysis.mapfile import (
     MapFileParser, IARMapFileParser, LLDMapFileParser,
-    MapFileResolver, _detect_map_format
+    MapFileResolver, _detect_map_format, non_alloc_output_sections
 )
+from membrowse.analysis.sections import SHF_ALLOC
 from membrowse.core.exceptions import MapFileParseError
 
 
@@ -61,6 +62,32 @@ Linker script and memory map
 
 .debug_info     0x0000000000000000      0x2fc
  .debug_info    0x0000000000000000      0x2fc libfoo.a(bar.o)
+"""
+
+# Non-ALLOC output sections (.debug_*, .comment, .ARM.attributes) list their
+# input sections at file offsets, which overlap real addresses. Taken from a
+# TinyUSB frdm_kl25z build: usbh.o's .debug_line offset equals board_init's
+# Thumb symbol address (0x26b4 | 1).
+MAP_DEBUG_OFFSET_COLLIDES = """\
+Linker script and memory map
+
+.text           0x0000000000000000     0x5480
+ .text.board_init
+                0x00000000000026b4      0x13c build/family.o
+                0x00000000000026b4                board_init
+
+.ARM.attributes
+                0x0000000000000000       0x28
+ .ARM.attributes
+                0x0000000000000028       0x2c build/usbh.o
+
+.debug_line     0x0000000000000000     0xbe47
+ .debug_line    0x00000000000019e1      0xcd4 build/tusb_fifo.o
+ .debug_line    0x00000000000026b5     0x2ddd build/usbh.o
+
+.data_in_ram_with_a_long_output_section_name
+                0x0000000020000000       0x10
+ .data.counter  0x0000000020000000       0x10 build/main.o
 """
 
 MAP_WITH_COMMON = """\
@@ -282,6 +309,27 @@ Linker script and memory map
             resolver.resolve(0x080000ad), ('libapp.a', 'main.o'))
 
 
+class TestMapFileParserSkipOutputSections(unittest.TestCase):
+    """GNU LD input sections under skipped (non-ALLOC) output sections."""
+
+    def test_skipped_output_sections_do_not_steal_real_addresses(self):
+        """Input sections under a skipped (non-ALLOC) output section are
+        dropped, so a debug offset equal to a symbol address cannot win."""
+        ranges = MapFileParser().parse(
+            MAP_DEBUG_OFFSET_COLLIDES,
+            skip_output_sections={'.debug_line', '.ARM.attributes'})
+        self.assertEqual(ranges, [(0x26b4, 0x26b4 + 0x13c, '', 'build/family.o'),
+                                  (0x20000000, 0x20000010, '', 'build/main.o')])
+        self.assertEqual(
+            MapFileResolver(ranges=ranges).resolve(0x26b5), ('', 'build/family.o'))
+
+    def test_without_skip_set_debug_offsets_are_still_parsed(self):
+        """No skip set keeps the previous behaviour (the collision)."""
+        ranges = MapFileParser().parse(MAP_DEBUG_OFFSET_COLLIDES)
+        self.assertEqual(
+            MapFileResolver(ranges=ranges).resolve(0x26b5), ('', 'build/usbh.o'))
+
+
 class TestMapFileParserFileField(unittest.TestCase):
     """Unit tests for _parse_file_field static method."""
 
@@ -385,6 +433,15 @@ class TestMapFileResolver(unittest.TestCase):
             resolver.resolve(0x08000000),
             ('libstm32hal.a', 'stm32_startup.o')
         )
+
+    def test_from_file_skips_output_sections(self):
+        """from_file() forwards skip_output_sections to the GNU LD parser."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            map_path = Path(tmpdir) / 'debug.map'
+            map_path.write_text(MAP_DEBUG_OFFSET_COLLIDES, encoding='utf-8')
+            resolver = MapFileResolver.from_file(
+                str(map_path), skip_output_sections={'.debug_line'})
+        self.assertEqual(resolver.resolve(0x26b5), ('', 'build/family.o'))
 
     def test_from_file_missing_raises(self):
         """Missing map file raises MapFileParseError."""
@@ -534,6 +591,51 @@ IAR_MAP_EMPTY = """\
 *** MODULE SUMMARY
 ***
 """
+
+
+class _FakeSection:  # pylint: disable=too-few-public-methods
+    """Minimal pyelftools section: a name and sh_flags."""
+
+    def __init__(self, name, flags):
+        self.name = name
+        self._flags = flags
+
+    def __getitem__(self, key):
+        assert key == 'sh_flags'
+        return self._flags
+
+
+class _FakeELF:  # pylint: disable=too-few-public-methods
+    """Minimal pyelftools ELFFile: iter_sections() only."""
+
+    def __init__(self, sections):
+        self._sections = sections
+
+    def iter_sections(self):
+        """Yield the fake sections."""
+        return iter(self._sections)
+
+
+class TestNonAllocOutputSections(unittest.TestCase):
+    """non_alloc_output_sections() derives the skip set from the ELF."""
+
+    def test_non_alloc_sections_only(self):
+        """Only named non-SHF_ALLOC sections are skipped."""
+        elf = _FakeELF([_FakeSection('', 0),
+                        _FakeSection('.text', SHF_ALLOC),
+                        _FakeSection('.bss', SHF_ALLOC),
+                        _FakeSection('.debug_line', 0),
+                        _FakeSection('.ARM.attributes', 0)])
+        self.assertEqual(non_alloc_output_sections(elf),
+                         {'.debug_line', '.ARM.attributes'})
+
+    def test_compressed_debug_section_also_skips_map_name(self):
+        """zlib-gnu renames .debug_line to .zdebug_line in the ELF only."""
+        names = non_alloc_output_sections(_FakeELF([_FakeSection('.zdebug_line', 0)]))
+        self.assertEqual(names, {'.zdebug_line', '.debug_line'})
+        ranges = MapFileParser().parse(MAP_DEBUG_OFFSET_COLLIDES, names)
+        self.assertEqual(
+            MapFileResolver(ranges=ranges).resolve(0x26b5), ('', 'build/family.o'))
 
 
 class TestIARMapFileParser(unittest.TestCase):
