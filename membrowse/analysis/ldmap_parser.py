@@ -6,7 +6,9 @@ Parses map files generated via ``-Wl,-Map=output.map`` (GCC, Clang, Rust).
 """
 
 import re
-from typing import AbstractSet, List, Tuple
+from typing import List, Optional, Tuple
+
+from .mapfilter import OutputSectionFilter
 
 
 # Match input section contribution lines (indented):
@@ -37,21 +39,77 @@ _CONTINUATION_RE = re.compile(
 )
 
 # Match an output section header, which starts in column 0 (input section
-# lines are indented):
+# lines are indented). Other column-0 lines (LOAD, OUTPUT(...), memory
+# regions, common symbols, cross-reference entries) lack the
+# "name address size" shape and are not headers:
 #   .text           0x0000000008000000     0x5480
 #   .debug_line     0x0000000000000000     0xbe47
-_OUTPUT_SECTION_RE = re.compile(r'^(\S+)')
+#   .data           0x0000000020000000        0x4 load address 0x080002f4
+_OUTPUT_ADDRESS_SIZE = (
+    r'(0x[0-9a-fA-F]+)\s+'                    # address
+    r'0x[0-9a-fA-F]+'                          # size
+    r'(?:\s+load address\s+0x[0-9a-fA-F]+)?'   # LMA when it differs
+    r'\s*$'
+)
+_OUTPUT_SECTION_RE = re.compile(r'^([^\s*]\S*)\s+' + _OUTPUT_ADDRESS_SIZE)
+
+# GNU LD wraps long output section names like input section names; the
+# address and size then follow on an indented line without a file field
+# (a header with no address line at all is an empty section):
+#   .ARM.attributes
+#                   0x0000000000000000       0x2e
+_OUTPUT_NAME_ONLY_RE = re.compile(r'^(\.\S+)\s*$')
+_OUTPUT_ADDRESS_ONLY_RE = re.compile(r'^\s+' + _OUTPUT_ADDRESS_SIZE)
 
 # Match archive(object) pattern: libfoo.a(bar.o) or libfoo.a(bar.cpp.obj).
 # CMake builds (especially on Windows hosts) emit objects with a .obj suffix.
 _ARCHIVE_RE = re.compile(r'^(.+\.a)\((.+\.(?:o|obj))\)$')
 
 
+class _OutputSectionState:
+    """Track the current output section and whether its rows are dropped."""
+
+    def __init__(self, section_filter: Optional[OutputSectionFilter]):
+        self._filter = section_filter
+        self._name: Optional[str] = None
+        # True right after a wrapped header, whose address comes next.
+        self._expect_address = False
+        self.skip = False
+
+    def _enter(self, name: str, address: Optional[int]) -> None:
+        self._name = name
+        self.skip = (self._filter is not None
+                     and self._filter.skip(name, address))
+
+    def column0(self, line: str) -> None:
+        """Handle a column-0 line; only header-shaped ones change state."""
+        self._expect_address = False
+        header = _OUTPUT_SECTION_RE.match(line)
+        if header:
+            self._enter(header.group(1), int(header.group(2), 16))
+            return
+        name_only = _OUTPUT_NAME_ONLY_RE.match(line)
+        if name_only:
+            self._expect_address = True
+            self._enter(name_only.group(1), None)
+
+    def wrapped_address(self, line: str) -> bool:
+        """Consume the address line of a wrapped header; True if it was one."""
+        if not self._expect_address:
+            return False
+        self._expect_address = False
+        match = _OUTPUT_ADDRESS_ONLY_RE.match(line)
+        if not match:
+            return False
+        self._enter(self._name, int(match.group(1), 16))
+        return True
+
+
 class MapFileParser:  # pylint: disable=too-few-public-methods
     """Parse GNU LD map file content to extract address-to-object mappings."""
 
     def parse(self, content: str,
-              skip_output_sections: AbstractSet[str] = frozenset()
+              section_filter: Optional[OutputSectionFilter] = None
               ) -> List[Tuple[int, int, str, str]]:
         """Parse map file content into half-open address ranges.
 
@@ -73,13 +131,14 @@ class MapFileParser:  # pylint: disable=too-few-public-methods
 
         Input sections of non-ALLOC output sections (``.debug_*``,
         ``.comment``, ``.ARM.attributes``) carry file offsets, not
-        addresses, and overlap real address ranges. Name those output
-        sections in ``skip_output_sections`` to drop their input sections.
+        addresses, and overlap real address ranges. ``section_filter``
+        decides per output section (from its name and header address)
+        whether its input sections are dropped.
 
         Args:
             content: Full text content of a GNU LD map file.
-            skip_output_sections: Output section names whose input sections
-                are ignored, e.g. the ELF's non-``SHF_ALLOC`` sections.
+            section_filter: Filter for non-ALLOC output sections; None
+                keeps every input section.
 
         Returns:
             List of ``(start, end, archive, object_file)`` tuples sorted by
@@ -89,7 +148,7 @@ class MapFileParser:  # pylint: disable=too-few-public-methods
         ranges: List[Tuple[int, int, str, str]] = []
         seen_starts = set()
         pending_section = None
-        output_section = None
+        output = _OutputSectionState(section_filter)
 
         def emit(address: int, size: int, file_field: str) -> None:
             if address == 0 or size == 0:
@@ -104,12 +163,12 @@ class MapFileParser:  # pylint: disable=too-few-public-methods
             ranges.append((address, address + size, archive, obj))
 
         for line in content.splitlines():
-            header = _OUTPUT_SECTION_RE.match(line)
-            if header:
-                output_section = header.group(1)
+            if line and not line[0].isspace():
+                # Column-0 lines are never input sections.
                 pending_section = None
+                output.column0(line)
                 continue
-            if output_section in skip_output_sections:
+            if output.wrapped_address(line) or output.skip:
                 continue
 
             # Try single-line format first (section + address + size + file)

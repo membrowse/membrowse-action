@@ -8,7 +8,7 @@ categorization, and memory allocation tracking.
 
 import re
 import logging
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 from elftools.common.exceptions import ELFError
 import elftools.elf.constants
 from ..core.models import MemorySection
@@ -119,6 +119,20 @@ class SectionAnalyzer:  # pylint: disable=too-few-public-methods
                     self._toolchain = f'{name}-{version}'
                     return self._toolchain
         return None
+
+    def section_alloc_flags(self) -> Dict[str, bool]:
+        """Map every named section to whether it is ``SHF_ALLOC``.
+
+        Covers non-loaded sections too (``.debug_info``, ``.comment``),
+        unlike :meth:`analyze_sections`. Used to validate user-supplied
+        section names and to tell map file output sections that hold
+        addresses from those that hold file offsets.
+        """
+        flags: Dict[str, bool] = {}
+        for section in self.elffile.iter_sections():
+            if section.name:
+                flags[section.name] = bool(section['sh_flags'] & SHF_ALLOC)
+        return flags
 
     def analyze_sections(self) -> List[MemorySection]:
         """Extract section information.

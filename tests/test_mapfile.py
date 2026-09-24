@@ -7,9 +7,9 @@ from pathlib import Path
 
 from membrowse.analysis.mapfile import (
     MapFileParser, IARMapFileParser, LLDMapFileParser,
-    MapFileResolver, _detect_map_format, non_alloc_output_sections
+    MapFileResolver, _detect_map_format, OutputSectionFilter
 )
-from membrowse.analysis.sections import SHF_ALLOC
+from membrowse.analysis.sections import SHF_ALLOC, SectionAnalyzer
 from membrowse.core.exceptions import MapFileParseError
 
 
@@ -84,11 +84,17 @@ Linker script and memory map
 .debug_line     0x0000000000000000     0xbe47
  .debug_line    0x00000000000019e1      0xcd4 build/tusb_fifo.o
  .debug_line    0x00000000000026b5     0x2ddd build/usbh.o
+OUTPUT(build/firmware.elf elf32-littlearm)
+ .debug_line    0x00000000000026b6     0x2ddd build/msc.o
 
 .data_in_ram_with_a_long_output_section_name
                 0x0000000020000000       0x10
  .data.counter  0x0000000020000000       0x10 build/main.o
 """
+
+# The ELF that produced MAP_DEBUG_OFFSET_COLLIDES: flash at address 0.
+ELF_FLASH_AT_ZERO = {'.text': True, '.data_in_ram_with_a_long_output_section_name': True,
+                     '.ARM.attributes': False, '.debug_line': False}
 
 MAP_WITH_COMMON = """\
 Linker script and memory map
@@ -312,19 +318,59 @@ Linker script and memory map
 class TestMapFileParserSkipOutputSections(unittest.TestCase):
     """GNU LD input sections under skipped (non-ALLOC) output sections."""
 
+    EXPECTED = [(0x26b4, 0x26b4 + 0x13c, '', 'build/family.o'),
+                (0x20000000, 0x20000010, '', 'build/main.o')]
+
     def test_skipped_output_sections_do_not_steal_real_addresses(self):
         """Input sections under a skipped (non-ALLOC) output section are
-        dropped, so a debug offset equal to a symbol address cannot win."""
+        dropped, so a debug offset equal to a symbol address cannot win.
+        The ALLOC ``.text`` at address 0 (flash at 0) is kept."""
         ranges = MapFileParser().parse(
-            MAP_DEBUG_OFFSET_COLLIDES,
-            skip_output_sections={'.debug_line', '.ARM.attributes'})
-        self.assertEqual(ranges, [(0x26b4, 0x26b4 + 0x13c, '', 'build/family.o'),
-                                  (0x20000000, 0x20000010, '', 'build/main.o')])
+            MAP_DEBUG_OFFSET_COLLIDES, OutputSectionFilter(ELF_FLASH_AT_ZERO))
+        self.assertEqual(ranges, self.EXPECTED)
         self.assertEqual(
             MapFileResolver(ranges=ranges).resolve(0x26b5), ('', 'build/family.o'))
 
-    def test_without_skip_set_debug_offsets_are_still_parsed(self):
-        """No skip set keeps the previous behaviour (the collision)."""
+    def test_stripped_elf_still_skips_debug_sections(self):
+        """After ``strip --strip-debug`` the ELF no longer lists the debug
+        sections the map still has; the map's address 0 header decides."""
+        stripped = {name: alloc for name, alloc in ELF_FLASH_AT_ZERO.items()
+                    if alloc}
+        ranges = MapFileParser().parse(
+            MAP_DEBUG_OFFSET_COLLIDES, OutputSectionFilter(stripped))
+        self.assertEqual(ranges, self.EXPECTED)
+
+    def test_compressed_debug_sections_skipped_by_map_name(self):
+        """zlib-gnu renames .debug_line to .zdebug_line in the ELF only."""
+        elf = dict(ELF_FLASH_AT_ZERO)
+        elf['.zdebug_line'] = elf.pop('.debug_line')
+        ranges = MapFileParser().parse(
+            MAP_DEBUG_OFFSET_COLLIDES, OutputSectionFilter(elf))
+        self.assertEqual(ranges, self.EXPECTED)
+
+    def test_non_header_column0_line_keeps_skipping(self):
+        """``OUTPUT(...)`` after ``.debug_line`` is not an output section
+        header, so the debug rows after it stay skipped."""
+        ranges = MapFileParser().parse(
+            MAP_DEBUG_OFFSET_COLLIDES, OutputSectionFilter(ELF_FLASH_AT_ZERO))
+        self.assertNotIn(0x26b6, [r[0] for r in ranges])
+
+    def test_non_alloc_section_at_nonzero_address_skipped(self):
+        """A script may place ``.comment`` at the location counter; the ELF
+        flag wins over the map address."""
+        content = """\
+.text           0x0000000008000000     0x5480
+ .text.f        0x0000000008000000      0x100 build/f.o
+
+.comment        0x0000000008005480       0x33
+ .comment       0x0000000008005480       0x33 build/f.o
+"""
+        ranges = MapFileParser().parse(
+            content, OutputSectionFilter({'.text': True, '.comment': False}))
+        self.assertEqual(ranges, [(0x08000000, 0x08000100, '', 'build/f.o')])
+
+    def test_without_filter_debug_offsets_are_still_parsed(self):
+        """No filter keeps the previous behaviour (the collision)."""
         ranges = MapFileParser().parse(MAP_DEBUG_OFFSET_COLLIDES)
         self.assertEqual(
             MapFileResolver(ranges=ranges).resolve(0x26b5), ('', 'build/usbh.o'))
@@ -435,13 +481,22 @@ class TestMapFileResolver(unittest.TestCase):
         )
 
     def test_from_file_skips_output_sections(self):
-        """from_file() forwards skip_output_sections to the GNU LD parser."""
+        """from_file() forwards the section filter to the GNU LD parser."""
         with tempfile.TemporaryDirectory() as tmpdir:
             map_path = Path(tmpdir) / 'debug.map'
             map_path.write_text(MAP_DEBUG_OFFSET_COLLIDES, encoding='utf-8')
             resolver = MapFileResolver.from_file(
-                str(map_path), skip_output_sections={'.debug_line'})
+                str(map_path), OutputSectionFilter(ELF_FLASH_AT_ZERO))
         self.assertEqual(resolver.resolve(0x26b5), ('', 'build/family.o'))
+
+    def test_from_file_skips_lld_output_sections(self):
+        """from_file() forwards the section filter to the LLD parser."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            map_path = Path(tmpdir) / 'debug.map'
+            map_path.write_text(LLD_MAP_DEBUG_OFFSET_COLLIDES, encoding='utf-8')
+            resolver = MapFileResolver.from_file(
+                str(map_path), OutputSectionFilter({'.text': True}))
+        self.assertEqual(resolver.resolve(0xf0), ('', 'real.o'))
 
     def test_from_file_missing_raises(self):
         """Missing map file raises MapFileParseError."""
@@ -616,26 +671,30 @@ class _FakeELF:  # pylint: disable=too-few-public-methods
         return iter(self._sections)
 
 
-class TestNonAllocOutputSections(unittest.TestCase):
-    """non_alloc_output_sections() derives the skip set from the ELF."""
+class TestOutputSectionFilter(unittest.TestCase):
+    """OutputSectionFilter combines the ELF's flags with the map address."""
 
-    def test_non_alloc_sections_only(self):
-        """Only named non-SHF_ALLOC sections are skipped."""
+    def test_section_alloc_flags_from_elf(self):
+        """SectionAnalyzer reports every named section with its ALLOC flag."""
         elf = _FakeELF([_FakeSection('', 0),
                         _FakeSection('.text', SHF_ALLOC),
                         _FakeSection('.bss', SHF_ALLOC),
                         _FakeSection('.debug_line', 0),
                         _FakeSection('.ARM.attributes', 0)])
-        self.assertEqual(non_alloc_output_sections(elf),
-                         {'.debug_line', '.ARM.attributes'})
+        self.assertEqual(SectionAnalyzer(elf).section_alloc_flags(),
+                         {'.text': True, '.bss': True,
+                          '.debug_line': False, '.ARM.attributes': False})
 
-    def test_compressed_debug_section_also_skips_map_name(self):
-        """zlib-gnu renames .debug_line to .zdebug_line in the ELF only."""
-        names = non_alloc_output_sections(_FakeELF([_FakeSection('.zdebug_line', 0)]))
-        self.assertEqual(names, {'.zdebug_line', '.debug_line'})
-        ranges = MapFileParser().parse(MAP_DEBUG_OFFSET_COLLIDES, names)
-        self.assertEqual(
-            MapFileResolver(ranges=ranges).resolve(0x26b5), ('', 'build/family.o'))
+    def test_skip_rules(self):
+        """ELF flag wins when known; otherwise address 0 means non-ALLOC."""
+        flt = OutputSectionFilter({'.text': True, '.comment': False})
+        self.assertFalse(flt.skip('.text', 0))
+        self.assertFalse(flt.skip('.text', 0x08000000))
+        self.assertTrue(flt.skip('.comment', 0))
+        self.assertTrue(flt.skip('.comment', 0x08005480))
+        self.assertTrue(flt.skip('.debug_line', 0))
+        self.assertFalse(flt.skip('.orphan', 0x20000000))
+        self.assertFalse(flt.skip('.debug_macinfo', None))
 
 
 class TestIARMapFileParser(unittest.TestCase):
@@ -1027,6 +1086,20 @@ LLD_MAP_ZERO_ADDRESS = """\
             1000             1000       10     4         real.o:(.text)
 """
 
+# LLD prints non-ALLOC input sections at their offset within the output
+# section, so only the first .debug_abbrev row is at 0; the second (0xeb)
+# overlaps real.o's .text on a flash-at-0 target.
+LLD_MAP_DEBUG_OFFSET_COLLIDES = """\
+             VMA              LMA     Size Align Out     In      Symbol
+               0                0      200     4 .text
+              e0                0       20     4         real.o:(.text)
+               0                0      1e4     1 .debug_abbrev
+               0                0       eb     1         foo.o:(.debug_abbrev)
+              eb                0       f9     1         bar.o:(.debug_abbrev)
+            1000             1000       10     4 .data
+            1000             1000       10     4         real.o:(.data)
+"""
+
 LLD_MAP_EMPTY = """\
              VMA              LMA     Size Align Out     In      Symbol
 """
@@ -1049,6 +1122,19 @@ class TestLLDMapFileParser(unittest.TestCase):
 
     def _resolver(self, content):
         return MapFileResolver(ranges=self.parser.parse(content))
+
+    def test_non_alloc_output_sections_skipped(self):
+        """Debug input sections at offsets > 0 do not steal real addresses."""
+        ranges = self.parser.parse(LLD_MAP_DEBUG_OFFSET_COLLIDES,
+                                   OutputSectionFilter({'.text': True}))
+        self.assertEqual(ranges, [(0xe0, 0x100, '', 'real.o'),
+                                  (0x1000, 0x1010, '', 'real.o')])
+
+    def test_without_filter_debug_offsets_are_still_parsed(self):
+        """No filter keeps the previous behaviour (the collision)."""
+        self.assertEqual(
+            self._resolver(LLD_MAP_DEBUG_OFFSET_COLLIDES).resolve(0xf0),
+            ('', 'bar.o'))
 
     def test_bare_object_parsed(self):
         """Bare .o input section is parsed with empty archive."""
