@@ -58,7 +58,9 @@ _OUTPUT_SECTION_RE = re.compile(r'^([^\s*]\S*)\s+' + _OUTPUT_ADDRESS_SIZE)
 # (a header with no address line at all is an empty section):
 #   .ARM.attributes
 #                   0x0000000000000000       0x2e
-_OUTPUT_NAME_ONLY_RE = re.compile(r'^(\.\S+)\s*$')
+# Names need not start with '.' (Zephyr's ``_static_thread_data_area``);
+# '(' is excluded so a bare ``OUTPUT(zephyr.elf)`` is not taken as one.
+_OUTPUT_NAME_ONLY_RE = re.compile(r'^([^\s*(][^\s(]*)\s*$')
 _OUTPUT_ADDRESS_ONLY_RE = re.compile(r'^\s+' + _OUTPUT_ADDRESS_SIZE)
 
 # Match archive(object) pattern: libfoo.a(bar.o) or libfoo.a(bar.cpp.obj).

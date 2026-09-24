@@ -369,6 +369,36 @@ class TestMapFileParserSkipOutputSections(unittest.TestCase):
             content, OutputSectionFilter({'.text': True, '.comment': False}))
         self.assertEqual(ranges, [(0x08000000, 0x08000100, '', 'build/f.o')])
 
+    def test_wrapped_output_section_without_leading_dot(self):
+        """Zephyr names like ``_static_thread_data_area`` wrap without a
+        leading dot; they still end the skipped ``.comment`` before them."""
+        content = """\
+.comment        0x0000000000000000       0x33
+ .comment       0x0000000000000000       0x33 build/f.o
+
+_static_thread_data_area
+                0x0000000020000100       0x40
+ ._static_thread_data.static.t
+                0x0000000020000100       0x40 build/thread.o
+"""
+        ranges = MapFileParser().parse(content, OutputSectionFilter(
+            {'.comment': False, '_static_thread_data_area': True}))
+        self.assertEqual(
+            ranges, [(0x20000100, 0x20000140, '', 'build/thread.o')])
+
+    def test_bare_output_command_is_not_a_wrapped_header(self):
+        """``OUTPUT(zephyr.elf)`` with no format has no space, but is not
+        an output section name, so the debug rows after it stay skipped."""
+        content = """\
+.debug_line     0x0000000000000000     0xbe47
+ .debug_line    0x0000000000000000      0x100 build/f.o
+OUTPUT(zephyr.elf)
+ .debug_line    0x0000000000000100      0x100 build/g.o
+"""
+        ranges = MapFileParser().parse(
+            content, OutputSectionFilter({'.debug_line': False}))
+        self.assertEqual(ranges, [])
+
     def test_without_filter_debug_offsets_are_still_parsed(self):
         """No filter keeps the previous behaviour (the collision)."""
         ranges = MapFileParser().parse(MAP_DEBUG_OFFSET_COLLIDES)
