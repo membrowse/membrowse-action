@@ -75,17 +75,36 @@ outputs:
 runs:
   using: 'composite'
   steps:
+    - name: Check for existing Python
+      id: has-python
+      if: ${{ job.container.id == '' }}
+      shell: bash
+      run: |
+        if command -v python3 &>/dev/null || command -v python &>/dev/null; then
+          echo "found=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "found=false" >> "$GITHUB_OUTPUT"
+        fi
+
     - name: Set up Python
+      id: setup-python
       if: ${{ job.container.id == '' }}
       uses: actions/setup-python@v6
       with:
         python-version: '3.11'
+        # Leave the caller's Python on PATH so their build keeps the version
+        # they chose; only expose ours when there is no Python at all.
+        update-environment: ${{ steps.has-python.outputs.found != 'true' }}
 
     - name: Detect Python interpreter
       id: detect-python
       shell: bash
+      env:
+        SETUP_PYTHON_PATH: ${{ steps.setup-python.outputs.python-path }}
       run: |
-        if command -v python3 &>/dev/null; then
+        if [ -n "$SETUP_PYTHON_PATH" ]; then
+          PYTHON="$SETUP_PYTHON_PATH"
+        elif command -v python3 &>/dev/null; then
           PYTHON=python3
         elif command -v python &>/dev/null; then
           PYTHON=python
@@ -119,7 +138,7 @@ runs:
             exit 1
           fi
         fi
-        ${{ steps.detect-python.outputs.python }} -m pip install --force-reinstall --no-cache-dir "$INSTALL_PATH"
+        "${{ steps.detect-python.outputs.python }}" -m pip install --force-reinstall --no-cache-dir "$INSTALL_PATH"
 
     - name: Run memory analysis
       id: analysis
@@ -228,7 +247,7 @@ runs:
         # with a valid raw response written) while propagating the failure.
         REPORT_PATH="${RUNNER_TEMP}/membrowse_${INPUT_TARGET_NAME}.json"
         status=0
-        membrowse "${GLOBAL_ARGS[@]}" report "${ARGS[@]}" --output-raw-response > "$REPORT_PATH" || status=$?
+        "${{ steps.detect-python.outputs.python }}" -m membrowse "${GLOBAL_ARGS[@]}" report "${ARGS[@]}" --output-raw-response > "$REPORT_PATH" || status=$?
 
         if [ -s "$REPORT_PATH" ]; then
           echo "report_path=$REPORT_PATH" >> "$GITHUB_OUTPUT"
