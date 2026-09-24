@@ -40,6 +40,7 @@ Use the Glob tool to find build configuration files:
 - `**/*.mk`
 - `**/meson.build`
 - `**/Cargo.toml`
+- `**/platformio.ini`
 
 For embedded projects, also search for board/port directories:
 - `**/boards/`
@@ -119,6 +120,17 @@ When constructing `build_cmd`, check if the project's toolchain supports map fil
 
 If the toolchain doesn't support map file generation or there's no clean way to add the flag to the build command, leave `map_file` empty — MemBrowse will still work, just without library-level attribution.
 
+### Python Version for the Build
+
+Every generated workflow pins Python with `actions/setup-python` before the build runs (`PYTHON_VERSION` in the templates). Never leave it floating on the runner's default Python — the runner image changes over time, and build tools such as PlatformIO, pioarduino, ESP-IDF and Zephyr's `west` only support specific Python versions.
+
+Pick the version in this order:
+1. The version used by the project's existing CI workflows (`python-version:` in `.github/workflows/*.yml`)
+2. A version declared by the project (`.python-version`, `requires-python` in `pyproject.toml`, or the build tool's documented requirement)
+3. Otherwise `'3.13'` — supported by PlatformIO Core (3.9+) and pioarduino (3.10–3.14)
+
+Use one version for all targets. The MemBrowse actions install their own Python for the analysis and do not change the Python your build uses.
+
 ### Platform-Specific Setup Commands
 
 **x86/x64 Linux (non-embedded):**
@@ -143,6 +155,12 @@ sudo apt-get update && sudo apt-get install -y gcc-arm-none-eabi libnewlib-arm-n
 # Check project docs for specific toolchain
 sudo apt-get update && sudo apt-get install -y gcc-riscv64-unknown-elf
 ```
+
+**PlatformIO (including pioarduino):**
+```bash
+pip install --upgrade platformio
+```
+Build with `pio run -e <env>`; the ELF is written to `.pio/build/<env>/firmware.elf`. PlatformIO installs toolchains on first build, so no apt packages are usually needed.
 
 ## Step 4: Ask User to Confirm Targets
 
@@ -356,6 +374,11 @@ jobs:
           # Only include submodules line if user confirmed submodules in Step 1
           # submodules: recursive
 
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: 'PYTHON_VERSION'
+
       - name: Install packages
         run: |
           # TARGET_SETUP_CMD goes here
@@ -392,7 +415,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
 
-**Template substitutions:** Replace `TARGET_NAME`, `TARGET_SETUP_CMD`, `TARGET_BUILD_CMD`, `TARGET_ELF`, `TARGET_LD`, `TARGET_MAP_FILE`, and `TARGET_LINKER_VARS` with values from the single target in `membrowse-targets.json`. Since there's only one target, values are inlined directly.
+**Template substitutions:** Replace `TARGET_NAME`, `TARGET_SETUP_CMD`, `TARGET_BUILD_CMD`, `TARGET_ELF`, `TARGET_LD`, `TARGET_MAP_FILE`, and `TARGET_LINKER_VARS` with values from the single target in `membrowse-targets.json`. Since there's only one target, values are inlined directly. Replace `PYTHON_VERSION` in every template as described in [Python Version for the Build](#python-version-for-the-build).
 
 ---
 
@@ -447,6 +470,11 @@ jobs:
           fetch-depth: 2
           # Only include submodules line if user confirmed submodules in Step 1
           # submodules: recursive
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: 'PYTHON_VERSION'
 
       - name: Install packages
         run: ${{ matrix.setup_cmd }}
@@ -535,6 +563,11 @@ jobs:
           fetch-depth: 2
           # Only include submodules line if user confirmed submodules in Step 1
           # submodules: recursive
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: 'PYTHON_VERSION'
 
       - name: Install packages
         run: ${{ matrix.setup_cmd }}
@@ -645,6 +678,11 @@ jobs:
           fetch-depth: 0
           # Only include submodules line if user confirmed submodules in Step 1
           # submodules: recursive
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: 'PYTHON_VERSION'
 
       - name: Install packages
         run: ${{ matrix.setup_cmd }}
@@ -777,6 +815,7 @@ MemBrowse requires ELF binaries. If your build produces `.bin`, `.hex`, or other
 
 ### Builds fail in CI
 - Ensure all dependencies are in `setup_cmd`
+- If the build tool rejects the Python version (common with PlatformIO/pioarduino and ESP-IDF), change `python-version` in the `Set up Python` step of the report and onboard workflows
 - Check if submodules need `submodules: recursive` on the checkout step
 - Verify paths are relative to repository root
 
