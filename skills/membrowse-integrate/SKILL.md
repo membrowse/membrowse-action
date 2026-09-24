@@ -158,8 +158,10 @@ sudo apt-get update && sudo apt-get install -y gcc-riscv64-unknown-elf
 
 **PlatformIO (including pioarduino):**
 ```bash
-pip install --upgrade platformio
+pip install platformio==6.1.19
 ```
+Always pin PlatformIO Core to an exact version — never `pip install -U platformio` or an unpinned `pip install platformio`. New Core releases can break existing platforms: PlatformIO Core 6.2.0 breaks pioarduino and other ESP-IDF-based builds at link time with `ModuleNotFoundError: No module named 'SCons.Tool.FortranCommon'`. Use the version the project's existing CI pins; otherwise use the version that built successfully in Step 5 (`pio --version`), or `6.1.19`.
+
 Build with `pio run -e <env>`; the ELF is written to `.pio/build/<env>/firmware.elf`. PlatformIO installs toolchains on first build, so no apt packages are usually needed.
 
 ## Step 4: Ask User to Confirm Targets
@@ -816,6 +818,7 @@ MemBrowse requires ELF binaries. If your build produces `.bin`, `.hex`, or other
 ### Builds fail in CI
 - Ensure all dependencies are in `setup_cmd`
 - If the build tool rejects the Python version (common with PlatformIO/pioarduino and ESP-IDF), change `python-version` in the `Set up Python` step of the report and onboard workflows
+- `No module named 'SCons.Tool.FortranCommon'` in a PlatformIO build: PlatformIO Core is too new for the platform. Pin an exact Core version in `setup_cmd` (e.g. `pip install platformio==6.1.19`)
 - Check if submodules need `submodules: recursive` on the checkout step
 - Verify paths are relative to repository root
 
