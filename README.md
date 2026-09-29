@@ -32,6 +32,9 @@ It extracts detailed memory information from ELF files and linker scripts — do
 <table align="center">
   <tr>
     <td align="center" width="130">
+      <a href="https://www.adafruit.com"><img src="logos/adafruit.png" alt="Adafruit" height="56"></a><br>Adafruit
+    </td>
+    <td align="center" width="130">
       <a href="https://flipperzero.one"><img src="logos/flipper.png" alt="Flipper Devices" height="56"></a><br>Flipper Devices
     </td>
     <td align="center" width="130">
@@ -40,6 +43,8 @@ It extracts detailed memory information from ELF files and linker scripts — do
     <td align="center" width="130">
       <a href="https://nuttx.apache.org"><img src="logos/nuttx.png" alt="Apache NuttX" height="56"></a><br>Apache NuttX
     </td>
+  </tr>
+  <tr>
     <td align="center" width="130">
       <a href="https://www.rt-thread.io"><img src="logos/rtthread.png" alt="RT-Thread" height="56"></a><br>RT-Thread
     </td>
