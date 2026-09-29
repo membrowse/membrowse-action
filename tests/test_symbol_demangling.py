@@ -194,6 +194,70 @@ class TestSymbolDemangling(unittest.TestCase):  # pylint: disable=too-many-publi
         demangled = self.extractor._demangle_symbol_name(mangled)
         self.assertEqual(demangled, "foo().constprop.0")
 
+    def test_demangle_cpp_with_dollar_separated_suffix(self):
+        """Test GCC '$'-separated suffix used on targets without dots in labels"""
+        mangled = ("_ZN8graphics13DebugRendererL14drawWiFiStatus"
+                   "EP11OLEDDisplayssRi$constprop$0")
+        demangled = self.extractor._demangle_symbol_name(mangled)
+        self.assertEqual(
+            demangled,
+            "graphics::DebugRenderer::drawWiFiStatus(OLEDDisplay*, short, short, int&)"
+            "$constprop$0")
+
+    def test_demangle_cpp_with_chained_suffixes(self):
+        """Test demangling C++ symbol with chained clone suffixes"""
+        mangled = "_Z3addii.isra.0.constprop.0"
+        demangled = self.extractor._demangle_symbol_name(mangled)
+        self.assertEqual(demangled, "add(int, int).isra.0.constprop.0")
+
+    def test_demangle_cpp_sfinae_expression_with_suffixes(self):
+        """Test ``X...E`` template-arg expressions plus chained '$' suffixes"""
+        mangled = (
+            "_ZNSt8functionIFviEEaSIRS_IFvmEEEENSt9enable_ifIXsrNS1_9_Callable"
+            "IT_NS6_IXntsrSt7is_sameINSt9remove_cvINSt16remove_referenceIS8_E4type"
+            "EE4typeES1_E5valueESt5decayIS8_EE4type4typeESt15__invoke_resultIRSL_"
+            "JiEEEE5valueERS1_E4typeEOS8_$constprop$0$isra$0")
+        demangled = self.extractor._demangle_symbol_name(mangled)
+        self.assertTrue(demangled.startswith(
+            "std::enable_if<std::function<void (int)>::_Callable<"
+            "std::function<void (unsigned long)>&, std::enable_if<!std::is_same<"))
+        self.assertTrue(demangled.endswith(
+            " std::function<void (int)>::operator=<std::function<void (unsigned long)>&>"
+            "(std::function<void (unsigned long)>&)$constprop$0$isra$0"))
+
+    def test_demangle_cpp_binary_expression_template_arg(self):
+        """Test a binary-operator expression as a template argument"""
+        demangled = self.extractor._demangle_symbol_name("_Z3fooIXplLi1ELi2EEEvv")
+        self.assertEqual(demangled, "void foo<(int)1 + (int)2>()")
+
+    def test_demangle_cpp_decltype_return(self):
+        """Test a decltype return type with a call on a function parameter"""
+        demangled = self.extractor._demangle_symbol_name("_Z1fIiEDTcl1gfp_EET_")
+        self.assertEqual(demangled, "decltype(g({parm#1})) f<int>(int)")
+
+    def test_demangle_cpp_forwarding_reference_collapses(self):
+        """Test that ``T&&`` with ``T = int&`` collapses to ``int&``"""
+        demangled = self.extractor._demangle_symbol_name("_Z1fIRiEvOT_")
+        self.assertEqual(demangled, "void f<int&>(int&)")
+
+    def test_demangle_cpp_std_function_template_substitutions(self):
+        """Test that a std:: function template-id is not a substitution candidate"""
+        mangled = (
+            "_ZSt4swapI10_mbstate_tENSt9enable_ifIXsrSt6__and_IISt6__not_I"
+            "St15__is_tuple_likeIT_EESt21is_move_constructibleIS5_ESt18"
+            "is_move_assignableIS5_EEE5valueEvE4typeERS5_SF_")
+        demangled = self.extractor._demangle_symbol_name(mangled)
+        self.assertIn("std::is_move_constructible<_mbstate_t>", demangled)
+        self.assertTrue(demangled.endswith(
+            "std::swap<_mbstate_t>(_mbstate_t&, _mbstate_t&)"))
+
+    def test_demangle_cpp_std_abbreviation_prefix_substitutions(self):
+        """Test that a leading ``Sb`` in a nested name is not a substitution candidate"""
+        demangled = self.extractor._demangle_symbol_name(
+            "_ZNSbIwSt11char_traitsIwESaIwEE12_Alloc_hiderC1EPwRKS1_")
+        self.assertTrue(demangled.endswith(
+            "::_Alloc_hider::{ctor}(wchar_t*, std::allocator<wchar_t> const&)"))
+
     def test_demangle_cpp_with_isra_suffix(self):
         """Test demangling C++ symbol with GCC .isra.N suffix"""
         mangled = "_Z3addii.isra.0"
