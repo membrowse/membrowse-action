@@ -21,8 +21,11 @@ from . import _cpp_demangle  # pylint: disable=unused-import  # import installs 
 # These are added by optimizations like partial inlining (.part), constant
 # propagation (.constprop), interprocedural SRA (.isra), cold path splitting
 # (.cold), and LTO (.lto_priv). They must be stripped before demangling.
+# GCC uses '$' instead of '.' as the separator on targets that disallow dots
+# in labels (e.g. "foo$constprop$0"), and clones of clones chain suffixes
+# (e.g. "foo.isra.0.constprop.0"), so match one or more of either form.
 _COMPILER_SUFFIX_RE = re.compile(
-    r'(\.(part|constprop|isra|cold|lto_priv|llvm)\.\d+|\.(cold))$'
+    r'(?:[.$](?:part|constprop|isra|cold|lto_priv|llvm)[.$]\d+|[.$]cold)+$'
 )
 
 # Trailing v0 disambiguator like "[7d1f2a]" appended to Rust path segments
