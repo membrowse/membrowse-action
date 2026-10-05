@@ -176,7 +176,7 @@ def _get_repo_name() -> str:
     if not remote_url:
         return 'unknown'
 
-    parts = remote_url.rstrip('.git').split('/')
+    parts = remote_url.removesuffix('.git').split('/')
     return parts[-1] if parts else 'unknown'
 
 
