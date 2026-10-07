@@ -499,7 +499,7 @@ class TestCommitsBuildLoop:
     @patch('membrowse.commands.onboard._resolve_and_validate_commits')
     @patch('membrowse.commands.onboard.os.path.exists', return_value=True)
     def test_checkout_failure_stops_onboard(
-        self, _mock_exists, mock_resolve, mock_repo, mock_subprocess,
+        self, _mock_exists, mock_resolve, mock_repo, _mock_subprocess,
         mock_checkout, _mock_submodule, _mock_clean,
         _mock_metadata, mock_generate, mock_upload,
     ):
