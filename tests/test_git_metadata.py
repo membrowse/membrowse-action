@@ -4,7 +4,10 @@ import json
 import os
 import tempfile
 from unittest.mock import patch
-from membrowse.utils.git import detect_github_metadata, _parse_pull_request_event
+from membrowse.utils.git import (
+    detect_github_metadata, detect_git_metadata, get_ancestry,
+    ANCESTRY_DEPTH, _parse_pull_request_event)
+from membrowse.commands.onboard import _build_commit_info  # pylint: disable=protected-access
 
 
 class TestPullRequestMetadata:
@@ -349,10 +352,11 @@ class TestAncestry:
 
     @staticmethod
     def _sha(n):
+        """Sha."""
         return f'{n:040x}'
 
     def test_local_rev_list_is_first_parent_and_capped(self):
-        from membrowse.utils.git import get_ancestry, ANCESTRY_DEPTH
+        """Test local rev list is first parent and capped."""
         seen = []
 
         def git_side_effect(cmd):
@@ -374,7 +378,6 @@ class TestAncestry:
     def test_shallow_clone_deepens_then_rev_lists_again(self):
         """actions/checkout at fetch-depth 2 yields exactly two entries; that
         is a truncated line, not a short repository, and must deepen."""
-        from membrowse.utils.git import get_ancestry
         calls = []
 
         def git_side_effect(cmd):
@@ -402,7 +405,6 @@ class TestAncestry:
     def test_full_clone_with_short_history_never_fetches(self):
         """A repository with fewer than ANCESTRY_DEPTH commits is complete as
         it is; a non-shallow checkout is final however short the line."""
-        from membrowse.utils.git import get_ancestry
         calls = []
 
         def git_side_effect(cmd):
@@ -420,7 +422,7 @@ class TestAncestry:
         assert calls == ['rev-list', 'rev-parse']
 
     def test_full_depth_line_is_final_without_a_shallow_check(self):
-        from membrowse.utils.git import get_ancestry, ANCESTRY_DEPTH
+        """Test full depth line is final without a shallow check."""
         calls = []
 
         def git_side_effect(cmd):
@@ -434,7 +436,7 @@ class TestAncestry:
         assert calls == ['rev-list']
 
     def test_fetch_failure_falls_back_to_github_api(self):
-        from membrowse.utils.git import get_ancestry
+        """Test fetch failure falls back to github api."""
         # Commits listing is NOT first-parent only: 3 is a second parent of 2
         # and must be skipped by following parents[0].
         commits = [
@@ -444,10 +446,12 @@ class TestAncestry:
             {'sha': self._sha(4), 'parents': []},
         ]
 
-        class Resp:
+        class Resp:  # pylint: disable=too-few-public-methods
+            """A canned requests response."""
             status_code = 200
 
             def json(self):
+                """The commits listing."""
                 return commits
 
         def git_side_effect(cmd):
@@ -467,7 +471,7 @@ class TestAncestry:
         assert get.call_args[1]['params']['sha'] == self._sha(1)
 
     def test_every_fallback_failing_still_returns_what_is_local(self):
-        from membrowse.utils.git import get_ancestry
+        """Test every fallback failing still returns what is local."""
 
         def git_side_effect(cmd):
             if cmd[0] == 'rev-list':
@@ -481,20 +485,19 @@ class TestAncestry:
             assert get_ancestry(self._sha(1)) == [self._sha(1)]
 
         with patch('membrowse.utils.git.run_git_command', return_value=None):
-            assert get_ancestry(self._sha(1)) == []
-            assert get_ancestry('') == []
+            assert not get_ancestry(self._sha(1))
+            assert not get_ancestry('')
 
     def test_non_sha_start_never_fetches(self):
         """Tests and odd checkouts pass logical names; no network for those."""
-        from membrowse.utils.git import get_ancestry
         calls = []
         with patch('membrowse.utils.git.run_git_command',
                    side_effect=lambda cmd: calls.append(cmd[0])):
-            assert get_ancestry('not-a-sha') == []
+            assert not get_ancestry('not-a-sha')
         assert 'fetch' not in calls
 
     def test_fetch_can_be_disabled(self):
-        from membrowse.utils.git import get_ancestry
+        """Test fetch can be disabled."""
         calls = []
         with patch('membrowse.utils.git.run_git_command',
                    side_effect=lambda cmd: calls.append(cmd[0]) or self._sha(1)):
@@ -502,15 +505,15 @@ class TestAncestry:
         assert calls == ['rev-list']
 
     def test_malformed_rev_list_output_is_dropped(self):
-        from membrowse.utils.git import get_ancestry
+        """Test malformed rev list output is dropped."""
         with patch('membrowse.utils.git.run_git_command',
                    return_value=f'{self._sha(1)}\nfatal: bad object'):
-            assert get_ancestry(self._sha(1), fetch=False) == []
+            assert not get_ancestry(self._sha(1), fetch=False)
 
     def test_exceptions_never_escape(self):
-        from membrowse.utils.git import get_ancestry
+        """Test exceptions never escape."""
         with patch('membrowse.utils.git.run_git_command', side_effect=RuntimeError('boom')):
-            assert get_ancestry(self._sha(1)) == []
+            assert not get_ancestry(self._sha(1))
 
 
 class TestAncestryInMetadata:
@@ -518,9 +521,11 @@ class TestAncestryInMetadata:
 
     @staticmethod
     def _sha(n):
+        """Sha."""
         return f'{n:040x}'
 
     def _run(self, event_name, event, env, git_side_effect):
+        """Run."""
         with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
             json.dump(event, f)
             event_path = f.name
@@ -537,6 +542,7 @@ class TestAncestryInMetadata:
             os.unlink(event_path)
 
     def _git(self, lines_by_start):
+        """Git."""
         def side_effect(cmd):
             if cmd[0] == 'rev-list':
                 return lines_by_start.get(cmd[-1])
@@ -546,6 +552,7 @@ class TestAncestryInMetadata:
         return side_effect
 
     def test_push_event_starts_at_the_reported_commit(self):
+        """Test push event starts at the reported commit."""
         head, before, older = self._sha(10), self._sha(9), self._sha(8)
         metadata = self._run(
             'push', {'before': before, 'after': head}, {'GITHUB_SHA': head},
@@ -574,6 +581,7 @@ class TestAncestryInMetadata:
         assert metadata['ancestry'] == [head, prev, base]
 
     def test_no_ancestry_key_when_nothing_was_learned(self):
+        """Test no ancestry key when nothing was learned."""
         head = self._sha(30)
         metadata = self._run(
             'push', {'before': '', 'after': head}, {'GITHUB_SHA': head},
@@ -598,6 +606,7 @@ class TestAncestryInMetadata:
         assert metadata['ancestry'] == [head, base, older]
 
     def test_workflow_run_without_pr_keeps_git_parent(self):
+        """Test workflow run without pr keeps git parent."""
         head, parent = self._sha(50), self._sha(49)
         event = {'workflow_run': {'head_sha': head, 'head_branch': 'master',
                                   'pull_requests': []}}
@@ -623,10 +632,11 @@ class TestOnboardBackfill:
 
     @staticmethod
     def _sha(n):
+        """Sha."""
         return f'{n:040x}'
 
     def test_onboard_commit_info_carries_backfill_and_local_ancestry(self):
-        from membrowse.commands.onboard import _build_commit_info
+        """Test onboard commit info carries backfill and local ancestry."""
         head, parent = self._sha(60), self._sha(59)
         meta = {'commit_sha': head, 'parent_sha': parent, 'commit_message': 'm',
                 'commit_timestamp': '2025-01-01T00:00:00Z', 'author_name': 'a',
@@ -649,6 +659,6 @@ class TestOnboardBackfill:
         assert calls == ['rev-list'], "a full clone never deepens or calls the API"
 
     def test_report_detection_never_sets_backfill(self):
-        from membrowse.utils.git import detect_git_metadata
+        """Test report detection never sets backfill."""
         with patch('membrowse.utils.git.run_git_command', return_value=None):
             assert 'backfill' not in detect_git_metadata()

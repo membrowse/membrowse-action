@@ -150,6 +150,17 @@ def _github_api_ancestry(start_sha: str) -> List[str]:
     if not repo or not token:
         return []
 
+    first_parent = _github_api_first_parents(repo, token, start_sha)
+    line: List[str] = []
+    current: Optional[str] = start_sha.lower()
+    while current and current in first_parent and len(line) < ANCESTRY_DEPTH:
+        line.append(current)
+        current = first_parent[current]
+    return line
+
+
+def _github_api_first_parents(repo: str, token: str, start_sha: str) -> Dict[str, Optional[str]]:
+    """sha -> first parent for up to two pages of the commits listing."""
     api = os.environ.get('GITHUB_API_URL', 'https://api.github.com').rstrip('/')
     headers = {
         'Authorization': f'Bearer {token}',
@@ -165,10 +176,10 @@ def _github_api_ancestry(start_sha: str) -> List[str]:
                 headers=headers, timeout=_ANCESTRY_HTTP_TIMEOUT)
         except requests.RequestException as exc:
             logger.debug("Ancestry API request failed: %s", exc)
-            return []
+            return {}
         if resp.status_code != 200:
             logger.debug("Ancestry API returned %s", resp.status_code)
-            return []
+            return {}
         commits = resp.json()
         if not isinstance(commits, list) or not commits:
             break
@@ -180,13 +191,7 @@ def _github_api_ancestry(start_sha: str) -> List[str]:
                 first_parent[sha] = parent if _is_full_sha1(parent or '') else None
         if len(commits) < 100:
             break
-
-    line: List[str] = []
-    current: Optional[str] = start_sha.lower()
-    while current and current in first_parent and len(line) < ANCESTRY_DEPTH:
-        line.append(current)
-        current = first_parent[current]
-    return line
+    return first_parent
 
 
 def get_ancestry(start_sha: str, fetch: bool = True) -> List[str]:
@@ -560,15 +565,7 @@ def detect_github_metadata() -> Dict[str, Any]:
             and base_sha != _ZERO_SHA:
         metadata['base_commit_hash'] = base_sha
 
-    # First-parent ancestry for the core's commit graph, always from the
-    # commit the upload reports. On a push that line passes through 'before',
-    # so a multi-commit push's intermediates land in the graph; on a PR it is
-    # the PR branch, which is what lets the core tell a re-run of an older PR
-    # commit from a new one and hold the PR head. The base branch's own line
-    # reaches the graph through the base branch's pushes.
-    ancestry = get_ancestry(commit_sha or metadata.get('commit_hash') or '')
-    if ancestry:
-        metadata['ancestry'] = ancestry
+    _attach_ancestry(metadata, commit_sha)
 
     # Add PR-specific metadata
     if pr_number:
@@ -581,6 +578,20 @@ def detect_github_metadata() -> Dict[str, Any]:
         metadata['pr_author_email'] = pr_author_email
 
     return metadata
+
+
+def _attach_ancestry(metadata: Dict[str, Any], commit_sha: str) -> None:
+    """Add the first-parent ancestry for the core's commit graph.
+
+    Always from the commit the upload reports. On a push that line passes
+    through 'before', so a multi-commit push's intermediates land in the
+    graph; on a PR it is the PR branch, which is what lets the core tell a
+    re-run of an older PR commit from a new one and hold the PR head. The base
+    branch's own line reaches the graph through the base branch's pushes.
+    """
+    ancestry = get_ancestry(commit_sha or metadata.get('commit_hash') or '')
+    if ancestry:
+        metadata['ancestry'] = ancestry
 
 
 def get_commit_metadata(commit_sha: str) -> Dict[str, Any]:
