@@ -365,21 +365,28 @@ class TestAncestry:
             line = get_ancestry(self._sha(1))
 
         assert line == [self._sha(1), self._sha(2), self._sha(3)]
-        assert seen == [['rev-list', '--first-parent',
-                         f'--max-count={ANCESTRY_DEPTH}', self._sha(1)]]
+        assert seen[0] == ['rev-list', '--first-parent',
+                           f'--max-count={ANCESTRY_DEPTH}', self._sha(1)]
+        # Not shallow (rev-parse yields nothing): the short line is final.
+        assert 'fetch' not in [cmd[0] for cmd in seen]
         assert ANCESTRY_DEPTH == 200
 
     def test_shallow_clone_deepens_then_rev_lists_again(self):
+        """actions/checkout at fetch-depth 2 yields exactly two entries; that
+        is a truncated line, not a short repository, and must deepen."""
         from membrowse.utils.git import get_ancestry
         calls = []
 
         def git_side_effect(cmd):
             calls.append(cmd[0])
             if cmd[0] == 'rev-list':
-                # One commit before the fetch, the full line after it.
+                # Two commits before the fetch, the full line after it.
                 if 'fetch' in calls:
                     return '\n'.join(self._sha(i) for i in range(1, 6))
-                return self._sha(1)
+                return '\n'.join([self._sha(1), self._sha(2)])
+            if cmd[0] == 'rev-parse' and '--is-shallow-repository' in cmd:
+                # Shallow until the fetch; the deepened history is complete.
+                return 'false' if 'fetch' in calls else 'true'
             if cmd[0] == 'fetch':
                 assert '--filter=tree:0' in cmd and '--depth=200' in cmd
                 assert cmd[-2:] == ['origin', self._sha(1)]
@@ -389,8 +396,42 @@ class TestAncestry:
         with patch('membrowse.utils.git.run_git_command', side_effect=git_side_effect):
             line = get_ancestry(self._sha(1))
 
-        assert calls == ['rev-list', 'fetch', 'rev-list']
+        assert calls == ['rev-list', 'rev-parse', 'fetch', 'rev-list', 'rev-parse']
         assert len(line) == 5
+
+    def test_full_clone_with_short_history_never_fetches(self):
+        """A repository with fewer than ANCESTRY_DEPTH commits is complete as
+        it is; a non-shallow checkout is final however short the line."""
+        from membrowse.utils.git import get_ancestry
+        calls = []
+
+        def git_side_effect(cmd):
+            calls.append(cmd[0])
+            if cmd[0] == 'rev-list':
+                return '\n'.join([self._sha(1), self._sha(2), self._sha(3)])
+            if cmd[0] == 'rev-parse':
+                return 'false'
+            return None
+
+        with patch('membrowse.utils.git.run_git_command', side_effect=git_side_effect):
+            line = get_ancestry(self._sha(1))
+
+        assert line == [self._sha(1), self._sha(2), self._sha(3)]
+        assert calls == ['rev-list', 'rev-parse']
+
+    def test_full_depth_line_is_final_without_a_shallow_check(self):
+        from membrowse.utils.git import get_ancestry, ANCESTRY_DEPTH
+        calls = []
+
+        def git_side_effect(cmd):
+            calls.append(cmd[0])
+            if cmd[0] == 'rev-list':
+                return '\n'.join(self._sha(i) for i in range(1, ANCESTRY_DEPTH + 1))
+            return None
+
+        with patch('membrowse.utils.git.run_git_command', side_effect=git_side_effect):
+            assert len(get_ancestry(self._sha(1))) == ANCESTRY_DEPTH
+        assert calls == ['rev-list']
 
     def test_fetch_failure_falls_back_to_github_api(self):
         from membrowse.utils.git import get_ancestry
@@ -412,6 +453,8 @@ class TestAncestry:
         def git_side_effect(cmd):
             if cmd[0] == 'rev-list':
                 return self._sha(1)
+            if cmd[0] == 'rev-parse':
+                return 'true'
             return None  # fetch fails
 
         with patch.dict(os.environ, {'GITHUB_REPOSITORY': 'o/r', 'GITHUB_TOKEN': 't'}), \
@@ -429,6 +472,8 @@ class TestAncestry:
         def git_side_effect(cmd):
             if cmd[0] == 'rev-list':
                 return self._sha(1)
+            if cmd[0] == 'rev-parse':
+                return 'true'
             return None
 
         with patch.dict(os.environ, {'GITHUB_REPOSITORY': '', 'GITHUB_TOKEN': ''}), \
@@ -446,7 +491,7 @@ class TestAncestry:
         with patch('membrowse.utils.git.run_git_command',
                    side_effect=lambda cmd: calls.append(cmd[0])):
             assert get_ancestry('not-a-sha') == []
-        assert calls == ['rev-list']
+        assert 'fetch' not in calls
 
     def test_fetch_can_be_disabled(self):
         from membrowse.utils.git import get_ancestry

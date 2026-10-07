@@ -111,6 +111,16 @@ def _rev_list_first_parent(start_sha: str) -> List[str]:
     return line
 
 
+def _is_shallow_repository() -> bool:
+    """True when the checkout is shallow, so a short rev-list may be truncated.
+
+    A CI checkout at fetch-depth 2 yields exactly two entries, which is not
+    "the whole history" but is not one entry either; only shallowness tells
+    the two apart from a genuinely short repository.
+    """
+    return (run_git_command(['rev-parse', '--is-shallow-repository']) or '').strip() == 'true'
+
+
 def _deepen_history(start_sha: str) -> bool:
     """Fetch up to ANCESTRY_DEPTH commits leading to start_sha, objects only.
 
@@ -187,28 +197,32 @@ def get_ancestry(start_sha: str, fetch: bool = True) -> List[str]:
     debug: ancestry collection must never fail an upload. Returns whatever was
     learned, possibly just start_sha, possibly nothing.
 
-    Fallback order, each step only when the previous produced fewer than two
-    entries: local `git rev-list`; a commit-only deepening fetch (skipped when
-    fetch=False, e.g. onboard's full clone, or when start_sha is not a full
-    SHA); the GitHub REST API; give up.
+    Fallback order: local `git rev-list`, which is final when it yields the
+    full depth or the repository is not shallow (a short line from a full
+    clone IS the whole history); otherwise a commit-only deepening fetch
+    (skipped when fetch=False, e.g. onboard's full clone, or when start_sha is
+    not a full SHA); otherwise the GitHub REST API; otherwise give up. A CI
+    checkout at fetch-depth 1 or 2 is the common case and must deepen.
     """
     if not start_sha:
         return []
     try:
         line = _rev_list_first_parent(start_sha)
-        if len(line) >= 2:
+        if len(line) >= ANCESTRY_DEPTH:
             return line
 
-        if fetch and _is_full_sha1(start_sha):
+        if fetch and _is_full_sha1(start_sha) and _is_shallow_repository():
             if _deepen_history(start_sha):
-                line = _rev_list_first_parent(start_sha) or line
-                if len(line) >= 2:
+                deeper = _rev_list_first_parent(start_sha)
+                if len(deeper) > len(line):
+                    line = deeper
+                if len(line) >= ANCESTRY_DEPTH or not _is_shallow_repository():
                     return line
             else:
                 logger.debug("Could not deepen history for %s", start_sha)
 
             api_line = _github_api_ancestry(start_sha)
-            if len(api_line) >= 2:
+            if len(api_line) > len(line):
                 return api_line
 
         if len(line) < 2:
