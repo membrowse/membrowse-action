@@ -308,6 +308,23 @@ def _parse_push_event(event_data: Dict[str, Any]) -> tuple:
     return base_sha, branch_name, '', '', '', '', ''
 
 
+def _push_was_forced(event_name: str, event_path: str) -> bool:
+    """True when a push event force-updated the ref (GitHub's `forced`).
+
+    The core holds a branch head on a commit already in its history, since
+    that is what a CI re-run of an old commit looks like; a forced push says
+    the branch really was reset to that commit. A re-run replays the original
+    push payload, so it never reports forced for a normal push.
+    """
+    if event_name != 'push' or not event_path or not os.path.exists(event_path):
+        return False
+    try:
+        with open(event_path, 'r', encoding='utf-8') as f:
+            return bool(json.load(f).get('forced'))
+    except Exception:  # pylint: disable=broad-exception-caught
+        return False
+
+
 def _parse_github_event(event_name: str, event_path: str) -> tuple:
     """Parse GitHub event payload."""
     base_sha, branch_name, pr_number, head_sha, pr_name = '', '', '', '', ''
@@ -566,6 +583,8 @@ def detect_github_metadata() -> Dict[str, Any]:
         metadata['base_commit_hash'] = base_sha
 
     _attach_ancestry(metadata, commit_sha)
+    if _push_was_forced(event_name, event_path):
+        metadata['forced'] = True
 
     # Add PR-specific metadata
     if pr_number:

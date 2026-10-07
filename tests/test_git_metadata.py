@@ -580,6 +580,22 @@ class TestAncestryInMetadata:
         assert metadata['base_commit_hash'] == base
         assert metadata['ancestry'] == [head, prev, base]
 
+    def test_forced_push_is_reported(self):
+        """A force-push to an ancestor must move the head; the event says so."""
+        head, before = self._sha(70), self._sha(71)
+        metadata = self._run(
+            'push', {'before': before, 'after': head, 'forced': True},
+            {'GITHUB_SHA': head}, self._git({head: head}))
+        assert metadata['forced'] is True
+
+    def test_normal_push_carries_no_forced_flag(self):
+        """Absent, not false: old cores ignore unknown keys either way."""
+        head, before = self._sha(72), self._sha(73)
+        metadata = self._run(
+            'push', {'before': before, 'after': head, 'forced': False},
+            {'GITHUB_SHA': head}, self._git({head: head}))
+        assert 'forced' not in metadata
+
     def test_no_ancestry_key_when_nothing_was_learned(self):
         """Test no ancestry key when nothing was learned."""
         head = self._sha(30)
