@@ -560,16 +560,13 @@ def detect_github_metadata() -> Dict[str, Any]:
             and base_sha != _ZERO_SHA:
         metadata['base_commit_hash'] = base_sha
 
-    # First-parent ancestry for the core's commit graph. A PR upload is based
-    # on the target branch tip, so its line must walk the target branch, not
-    # the PR branch: start at the PR base. Everything else starts at the
-    # commit the upload reports (which passes through 'before' on a normal
-    # push, so a multi-commit push's intermediates land in the graph too).
-    if pr_number and _is_full_sha1(base_sha):
-        ancestry_start = base_sha
-    else:
-        ancestry_start = commit_sha or metadata.get('commit_hash') or ''
-    ancestry = get_ancestry(ancestry_start)
+    # First-parent ancestry for the core's commit graph, always from the
+    # commit the upload reports. On a push that line passes through 'before',
+    # so a multi-commit push's intermediates land in the graph; on a PR it is
+    # the PR branch, which is what lets the core tell a re-run of an older PR
+    # commit from a new one and hold the PR head. The base branch's own line
+    # reaches the graph through the base branch's pushes.
+    ancestry = get_ancestry(commit_sha or metadata.get('commit_hash') or '')
     if ancestry:
         metadata['ancestry'] = ancestry
 

@@ -556,21 +556,22 @@ class TestAncestryInMetadata:
         assert metadata['ancestry'] == [head, before, older]
         assert 'backfill' not in metadata
 
-    def test_pull_request_event_starts_at_the_base(self):
-        head, base, older = self._sha(20), self._sha(19), self._sha(18)
+    def test_pull_request_event_starts_at_the_pr_head(self):
+        """The line is the PR branch: it relates the PR's own commits, so the
+        core can hold the PR head on a re-run of an older one. The declared
+        parent stays the PR base."""
+        head, prev, base = self._sha(20), self._sha(19), self._sha(18)
         event = {'pull_request': {
             'number': 5, 'title': 'x',
             'head': {'sha': head, 'ref': 'feature'},
             'base': {'sha': base, 'ref': 'main'}}}
         metadata = self._run(
             'pull_request', event, {'GITHUB_SHA': self._sha(99)},
-            self._git({base: '\n'.join([base, older]),
-                       head: '\n'.join([head, base, older])}))
+            self._git({head: '\n'.join([head, prev, base])}))
 
         assert metadata['commit_hash'] == head
         assert metadata['base_commit_hash'] == base
-        assert metadata['ancestry'] == [base, older], \
-            "A PR line walks the target branch, not the PR branch"
+        assert metadata['ancestry'] == [head, prev, base]
 
     def test_no_ancestry_key_when_nothing_was_learned(self):
         head = self._sha(30)
@@ -588,13 +589,13 @@ class TestAncestryInMetadata:
             'pull_requests': [{'number': 77, 'base': {'sha': base}}]}}
         metadata = self._run(
             'workflow_run', event, {'GITHUB_SHA': self._sha(99)},
-            self._git({base: '\n'.join([base, older])}))
+            self._git({head: '\n'.join([head, base, older])}))
 
         assert metadata['commit_hash'] == head
         assert metadata['branch_name'] == 'feature'
         assert metadata['pr_number'] == '77'
         assert metadata['base_commit_hash'] == base
-        assert metadata['ancestry'] == [base, older]
+        assert metadata['ancestry'] == [head, base, older]
 
     def test_workflow_run_without_pr_keeps_git_parent(self):
         head, parent = self._sha(50), self._sha(49)
