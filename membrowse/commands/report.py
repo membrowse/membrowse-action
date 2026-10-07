@@ -47,6 +47,16 @@ def print_upload_response(response_data: dict) -> str:
     if success:
         logger.debug("Report uploaded successfully to MemBrowse")
 
+        # The declared parent had no report for this target and the core
+        # linked the upload to the nearest ancestor that does.
+        bridged = (response_data.get('data') or {}).get('bridged')
+        if bridged:
+            logger.info(
+                "Linked past %s untracked commit(s): declared parent %s has no "
+                "report for this target, compared against %s instead",
+                bridged.get('skipped'), bridged.get('declared_parent'),
+                bridged.get('effective_parent'))
+
         # Display comparison link if available and capture URL
         comparison_url = _display_comparison_link(response_data)
     else:
