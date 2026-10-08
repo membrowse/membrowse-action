@@ -8,7 +8,7 @@ import logging
 from datetime import datetime
 
 from ..utils.git import (
-    run_git_command, get_commit_metadata,
+    run_git_command, get_commit_metadata, get_ancestry,
     git_checkout, git_submodule_update, git_clean,
 )
 from ..api.client import MemBrowseClient
@@ -564,7 +564,7 @@ def _build_commit_info(commit, current_branch, repo_name, parent_sha_override=_N
         Dict with Git metadata for upload_report
     """
     metadata = get_commit_metadata(commit)
-    return {
+    commit_info = {
         'commit_hash': metadata['commit_sha'],
         'base_commit_hash': (parent_sha_override
                               if parent_sha_override is not _NO_OVERRIDE
@@ -576,8 +576,19 @@ def _build_commit_info(commit, current_branch, repo_name, parent_sha_override=_N
         'author_name': metadata.get('author_name'),
         'author_email': metadata.get('author_email'),
         'tags': metadata.get('tags', []),
-        'pr_number': None
+        'pr_number': None,
+        # Onboarding replays history. The core never lets a backfilled
+        # commit move a branch head unless the graph proves it descends from
+        # the current one - so re-onboarding older history behind a live CI
+        # head leaves the head alone, while initial onboarding (no head yet,
+        # each commit a proven descendant of the last) still ends on the tip.
+        'backfill': True,
     }
+    # Full clone: the line is already local, so never deepen or hit the API.
+    ancestry = get_ancestry(metadata['commit_sha'], fetch=False)
+    if ancestry:
+        commit_info['ancestry'] = ancestry
+    return commit_info
 
 
 def _create_client(args, api_url=None):

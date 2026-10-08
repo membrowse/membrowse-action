@@ -14,6 +14,7 @@ Tests for fallback behaviors in ``membrowse.commands.report``:
 import os
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 # pylint: disable=wrong-import-position
@@ -183,3 +184,69 @@ class TestEmptyRegionsFallback(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestUploadResponseBridged(unittest.TestCase):
+    """``print_upload_response`` and the core's ``data.bridged``."""
+
+    def test_bridged_dict_is_reported_and_other_shapes_are_ignored(self):
+        """Only a dict carries the link details; a flag or list from a newer
+        core must not raise after an upload that was accepted."""
+        # pylint: disable=import-outside-toplevel
+        from membrowse.commands.report import print_upload_response
+
+        bridged = {'skipped': 2, 'declared_parent': 'a' * 40,
+                   'effective_parent': 'b' * 40}
+        with self.assertLogs('membrowse.commands.report', level='INFO') as logs:
+            print_upload_response({'success': True, 'data': {'bridged': bridged}})
+        self.assertTrue(any('Linked past 2 untracked commit(s)' in m for m in logs.output))
+
+        for other in (True, [1], 'yes', 1):
+            print_upload_response({'success': True, 'data': {'bridged': other}})
+
+
+class TestCommitOverride(unittest.TestCase):
+    """--commit-sha wins over detection; what rides along must match it."""
+
+    @staticmethod
+    def _sha(n):
+        """Sha."""
+        return f'{n:040x}'
+
+    def test_matching_ancestry_is_kept_untouched(self):
+        """Test matching ancestry is kept untouched."""
+        # pylint: disable=import-outside-toplevel
+        from membrowse.commands.report import _reconcile_commit_override
+        info = {'commit_hash': self._sha(1).upper(), 'forced': True,
+                'ancestry': [self._sha(1), self._sha(2)]}
+        with patch('membrowse.commands.report.get_ancestry') as get:
+            _reconcile_commit_override(info)
+        get.assert_not_called()
+        self.assertEqual(info['ancestry'], [self._sha(1), self._sha(2)])
+        self.assertTrue(info['forced'])
+
+    def test_override_recollects_ancestry_and_drops_forced(self):
+        """Detection walked from HEAD; the upload reports another commit."""
+        # pylint: disable=import-outside-toplevel
+        from membrowse.commands.report import _reconcile_commit_override
+        info = {'commit_hash': self._sha(5), 'forced': True,
+                'ancestry': [self._sha(1), self._sha(2)]}
+        with patch('membrowse.commands.report.get_ancestry',
+                   return_value=[self._sha(5), self._sha(4)]) as get:
+            _reconcile_commit_override(info)
+        get.assert_called_once_with(self._sha(5))
+        self.assertEqual(info['ancestry'], [self._sha(5), self._sha(4)])
+        self.assertNotIn('forced', info)
+
+        info = {'commit_hash': self._sha(5), 'ancestry': [self._sha(1)]}
+        with patch('membrowse.commands.report.get_ancestry', return_value=[]):
+            _reconcile_commit_override(info)
+        self.assertNotIn('ancestry', info)
+
+    def test_nothing_to_reconcile_without_ancestry(self):
+        """Test nothing to reconcile without ancestry."""
+        # pylint: disable=import-outside-toplevel
+        from membrowse.commands.report import _reconcile_commit_override
+        info = {'commit_hash': self._sha(5)}
+        _reconcile_commit_override(info)
+        self.assertEqual(info, {'commit_hash': self._sha(5)})

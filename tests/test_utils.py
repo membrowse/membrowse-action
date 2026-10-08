@@ -81,8 +81,7 @@ def _is_hierarchical_overlap(  # pylint: disable=too-many-locals,too-many-return
         64 * 1024
     )  # 64KB allowance for linker script calculation errors
     child_mostly_contained = (
-        child_region["address"] >= parent_region["address"]
-        and child_region["address"] <= parent_region["end_address"]
+        parent_region["address"] <= child_region["address"] <= parent_region["end_address"]
         and child_region["end_address"]
         <= parent_region["end_address"] + max_overhang_bytes
     )

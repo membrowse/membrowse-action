@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# pylint: disable=too-many-lines
 
 """
 test_iar_linker_script.py - Tests for IAR linker configuration file (.icf) parsing.

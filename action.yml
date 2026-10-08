@@ -158,6 +158,11 @@ runs:
         INPUT_MAP_FILE: ${{ inputs.map_file }}
         INPUT_LIMITS: ${{ inputs.limits }}
         INPUT_SKIP_SECTIONS: ${{ inputs.skip_sections }}
+        # Lets the CLI read first-parent ancestry through the REST API when the
+        # checkout cannot fetch (persist-credentials: false). Read-only; the
+        # user's workflow does not change. An explicit GITHUB_TOKEN in the
+        # caller's env wins.
+        GITHUB_TOKEN: ${{ env.GITHUB_TOKEN || github.token }}
       run: |
         set -o pipefail
 

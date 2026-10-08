@@ -8,7 +8,7 @@ import logging
 from importlib.metadata import version
 from typing import Dict, Any, Optional
 
-from ..utils.git import detect_git_metadata, detect_github_metadata
+from ..utils.git import detect_git_metadata, detect_github_metadata, get_ancestry
 from ..utils.budget_alerts import iter_budget_alerts
 from ..utils.formatter import format_report_human_readable
 from ..utils.github import is_pull_request_event
@@ -46,6 +46,16 @@ def print_upload_response(response_data: dict) -> str:
 
     if success:
         logger.debug("Report uploaded successfully to MemBrowse")
+
+        # The declared parent had no report for this target and the core
+        # linked the upload to the nearest ancestor that does.
+        bridged = (response_data.get('data') or {}).get('bridged')
+        if isinstance(bridged, dict):
+            logger.info(
+                "Linked past %s untracked commit(s): declared parent %s has no "
+                "report for this target, compared against %s instead",
+                bridged.get('skipped'), bridged.get('declared_parent'),
+                bridged.get('effective_parent'))
 
         # Display comparison link if available and capture URL
         comparison_url = _display_comparison_link(response_data)
@@ -194,8 +204,8 @@ def _display_comparison_link(response_data: dict) -> str:
         return None
 
     # Extract comparison URL directly from API response
-    data = response_data.get('data', {})
-    comparison_url = data.get('comparison_url')
+    data = response_data.get('data') or {}
+    comparison_url = data.get('comparison_url') if isinstance(data, dict) else None
 
     # Display URL if available
     if comparison_url:
@@ -1122,9 +1132,35 @@ def run_report(args: argparse.Namespace) -> int:
         # Update commit_info with detected metadata (only if not already set)
         commit_info = {k: commit_info.get(k) or v for k, v in detected_metadata.items()}
 
+    _reconcile_commit_override(commit_info)
+
     # Explicit --parent-sha none: set to JSON null so the API sees "no parent"
     if explicit_no_parent:
         commit_info['parent_commit_hash'] = None
 
     # Upload report and handle alerts
     return _handle_upload_and_alerts(report, args, commit_info)
+
+
+def _reconcile_commit_override(commit_info: Dict[str, Any]) -> None:
+    """Keep the ancestry and the forced flag about the commit being reported.
+
+    An explicit --commit-sha wins over detection, but detection collected
+    the ancestry line for the commit it found (git HEAD, or the event's
+    head), and `forced` describes the push of that commit. The core rejects
+    an ancestry that does not start at the reported commit, so collect it
+    again from the override; the forced flag cannot be re-derived and is
+    dropped, which the core treats as an ordinary upload.
+    """
+    commit = (commit_info.get('commit_hash') or '').strip().lower()
+    ancestry = commit_info.get('ancestry')
+    if not ancestry or ancestry[0] == commit:
+        return
+    logger.debug("Reported commit %s differs from the detected %s; "
+                 "collecting ancestry from the reported commit", commit, ancestry[0])
+    commit_info.pop('forced', None)
+    fresh = get_ancestry(commit)
+    if fresh:
+        commit_info['ancestry'] = fresh
+    else:
+        del commit_info['ancestry']

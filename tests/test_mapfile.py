@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# pylint: disable=too-many-lines
 """Tests for map file parsers (GNU LD and IAR)."""
 
 import unittest
