@@ -169,9 +169,56 @@ class ScriptContentCleaner:  # pylint: disable=too-few-public-methods
             r"#[a-zA-Z_][a-zA-Z0-9_]*\b.*$", "", content, flags=re.MULTILINE
         )
 
+        # Remove ASSERT(...) statements. Their conditions contain comparison
+        # operators (==, >=, ...) that the variable-assignment scan would
+        # otherwise mistake for assignments.
+        content = ScriptContentCleaner._strip_assert_statements(content)
+
         # Normalize whitespace
         content = re.sub(r"\s+", " ", content)
         return content
+
+    @staticmethod
+    def _strip_assert_statements(content: str) -> str:
+        """Remove ``ASSERT ( ... ) ;`` statements using a balanced-paren scan.
+
+        The condition can nest parentheses arbitrarily, so a regex cannot
+        find the closing one reliably.
+        """
+        result = []
+        pos = 0
+        for match in re.finditer(r"\bASSERT\s*\(", content):
+            if match.start() < pos:
+                continue  # inside a previously stripped ASSERT
+            result.append(content[pos:match.start()])
+            depth = 1
+            i = match.end()
+            while i < len(content) and depth:
+                ch = content[i]
+                if ch == '"':
+                    # Skip string literal (may contain parentheses)
+                    i = content.find('"', i + 1)
+                    if i == -1:
+                        i = len(content)
+                        break
+                elif ch == "(":
+                    depth += 1
+                elif ch == ")":
+                    depth -= 1
+                i += 1
+            if depth:
+                # Unbalanced: keep remainder untouched
+                logger.warning("Unbalanced ASSERT statement in linker script")
+                pos = match.start()
+                break
+            # Consume optional trailing semicolon
+            rest = re.match(r"\s*;", content[i:])
+            if rest:
+                i += rest.end()
+            result.append(" ")
+            pos = i
+        result.append(content[pos:])
+        return "".join(result)
 
     @staticmethod
     def _remove_preprocessor_blocks(content: str) -> str:
@@ -912,7 +959,9 @@ class VariableExtractor:  # pylint: disable=too-few-public-methods
         content = ScriptContentCleaner.strip_sections_content(content)
 
         # Find variable assignments: var_name = value;
-        var_pattern = r"([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([^;]+);"
+        # The '=' must be neither preceded by =, !, <, > nor followed by '='
+        # so that ==, !=, <=, >= comparisons are never treated as assignments.
+        var_pattern = r"([A-Za-z_][A-Za-z0-9_]*)\s*(?<![=!<>])=(?!=)\s*([^;]+);"
 
         # First pass: extract simple variables and store complex ones
         simple_vars = {}
