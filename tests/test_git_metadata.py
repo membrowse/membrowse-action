@@ -29,16 +29,16 @@ class TestPullRequestMetadata:
             }
         }
 
-        (base_sha, branch_name, pr_number, head_sha, pr_name,
-         pr_author_name, pr_author_email) = _parse_pull_request_event(event_data)
+        event = _parse_pull_request_event(event_data)
 
-        assert base_sha == '789ghi012jkl'
-        assert branch_name == 'feature-branch'
-        assert pr_number == '123'
-        assert head_sha == 'abc123def456'
-        assert pr_name == ''  # No title in this test data
-        assert pr_author_name == ''  # No user in this test data
-        assert pr_author_email == ''
+        assert event.base_sha == '789ghi012jkl'
+        assert event.branch_name == 'feature-branch'
+        assert event.pr_number == '123'
+        assert event.head_sha == 'abc123def456'
+        assert event.pr_name == ''  # No title in this test data
+        assert event.pr_author_name == ''  # No user in this test data
+        assert event.pr_author_email == ''
+        assert event.forced is False
 
     def test_parse_pull_request_event_extracts_pr_name(self):
         """Test that _parse_pull_request_event extracts the PR name/title."""
@@ -57,16 +57,15 @@ class TestPullRequestMetadata:
             }
         }
 
-        (base_sha, branch_name, pr_number, head_sha, pr_name,
-         pr_author_name, pr_author_email) = _parse_pull_request_event(event_data)
+        event = _parse_pull_request_event(event_data)
 
-        assert base_sha == 'main456def'
-        assert branch_name == 'feature-branch'
-        assert pr_number == '456'
-        assert head_sha == 'feature123abc'
-        assert pr_name == 'Add awesome feature'
-        assert pr_author_name == ''  # No user in this test data
-        assert pr_author_email == ''
+        assert event.base_sha == 'main456def'
+        assert event.branch_name == 'feature-branch'
+        assert event.pr_number == '456'
+        assert event.head_sha == 'feature123abc'
+        assert event.pr_name == 'Add awesome feature'
+        assert event.pr_author_name == ''  # No user in this test data
+        assert event.pr_author_email == ''
 
     def test_detect_github_metadata_uses_pr_head_sha(self):
         """Test that detect_github_metadata uses PR head SHA instead of merge commit."""
@@ -99,7 +98,7 @@ class TestPullRequestMetadata:
             }):
                 # Mock git commands to return commit details
                 with patch('membrowse.utils.git.run_git_command') as mock_git:
-                    def git_side_effect(cmd):
+                    def git_side_effect(cmd, **_):
                         responses = {
                             "['log', '-1', '--pretty=format:%B', 'real-commit-sha-123']":
                                 'added very cool buffer',
@@ -160,7 +159,7 @@ class TestPullRequestMetadata:
                 'GITHUB_EVENT_PATH': event_path
             }):
                 with patch('membrowse.utils.git.run_git_command') as mock_git:
-                    def git_side_effect(cmd):
+                    def git_side_effect(cmd, **_):
                         responses = {
                             "['log', '-1', '--pretty=format:%B', 'push-commit-sha']":
                                 'Push commit message',
@@ -215,7 +214,7 @@ class TestPullRequestMetadata:
                 'GITHUB_EVENT_PATH': event_path
             }):
                 with patch('membrowse.utils.git.run_git_command') as mock_git:
-                    def git_side_effect(cmd):
+                    def git_side_effect(cmd, **_):
                         responses = {
                             "['log', '-1', '--pretty=format:%B', 'push-commit-sha']":
                                 'Push commit message',
@@ -265,7 +264,7 @@ class TestPullRequestMetadata:
                 'GITHUB_EVENT_PATH': event_path
             }):
                 with patch('membrowse.utils.git.run_git_command') as mock_git:
-                    def git_side_effect(cmd):
+                    def git_side_effect(cmd, **_):
                         responses = {
                             "['log', '-1', '--pretty=format:%B', 'push-commit-sha']":
                                 'Push commit message',
@@ -315,7 +314,7 @@ class TestPullRequestMetadata:
                 'GITHUB_EVENT_PATH': event_path
             }):
                 with patch('membrowse.utils.git.run_git_command') as mock_git:
-                    def git_side_effect(cmd):
+                    def git_side_effect(cmd, **_):
                         responses = {
                             "['log', '-1', '--pretty=format:%B', 'push-commit-sha']":
                                 'Push commit message',
@@ -359,7 +358,7 @@ class TestAncestry:
         """Test local rev list is first parent and capped."""
         seen = []
 
-        def git_side_effect(cmd):
+        def git_side_effect(cmd, **_):
             seen.append(cmd)
             if cmd[0] == 'rev-list':
                 return '\n'.join(self._sha(i) for i in range(1, 4))
@@ -380,7 +379,7 @@ class TestAncestry:
         is a truncated line, not a short repository, and must deepen."""
         calls = []
 
-        def git_side_effect(cmd):
+        def git_side_effect(cmd, **_):
             calls.append(cmd[0])
             if cmd[0] == 'rev-list':
                 # Two commits before the fetch, the full line after it.
@@ -391,7 +390,39 @@ class TestAncestry:
                 # Shallow until the fetch; the deepened history is complete.
                 return 'false' if 'fetch' in calls else 'true'
             if cmd[0] == 'fetch':
-                assert '--filter=tree:0' in cmd and '--depth=200' in cmd
+                assert '--depth=200' in cmd
+                assert cmd[-2:] == ['origin', self._sha(1)]
+                return ''
+            return None
+
+        with patch('membrowse.utils.git.run_git_command', side_effect=git_side_effect) as git:
+            line = get_ancestry(self._sha(1))
+
+        assert calls == ['rev-list', 'rev-parse', 'fetch', 'rev-list', 'rev-parse']
+        assert len(line) == 5
+        fetch = next(c for c in git.call_args_list if c[0][0][0] == 'fetch')
+        # No object filter: it would register origin as a promisor remote and
+        # degrade every later fetch in a reused workspace into lazy fetches.
+        assert not any(arg.startswith('--filter') for arg in fetch[0][0])
+        # Bounded and never prompting: a hung remote must not stall the upload.
+        assert fetch[1]['timeout'] > 0
+        assert fetch[1]['env'] == {'GIT_TERMINAL_PROMPT': '0'}
+
+    def test_full_clone_missing_the_commit_fetches_it_without_depth(self):
+        """A workflow_run job on a full default-branch checkout reports a
+        feature-branch head it never fetched: rev-list yields nothing, the
+        repository is not shallow, and the commit must still be fetched - but
+        plainly, since `--depth` would turn the full clone shallow."""
+        calls = []
+
+        def git_side_effect(cmd, **_):
+            calls.append(cmd[0])
+            if cmd[0] == 'rev-list':
+                return '\n'.join([self._sha(1), self._sha(2)]) if 'fetch' in calls else None
+            if cmd[0] == 'rev-parse':
+                return 'false'
+            if cmd[0] == 'fetch':
+                assert not any(arg.startswith('--depth') for arg in cmd)
                 assert cmd[-2:] == ['origin', self._sha(1)]
                 return ''
             return None
@@ -399,15 +430,40 @@ class TestAncestry:
         with patch('membrowse.utils.git.run_git_command', side_effect=git_side_effect):
             line = get_ancestry(self._sha(1))
 
+        assert line == [self._sha(1), self._sha(2)]
         assert calls == ['rev-list', 'rev-parse', 'fetch', 'rev-list', 'rev-parse']
-        assert len(line) == 5
+
+    def test_full_clone_missing_the_commit_falls_back_to_the_api(self):
+        """The API fallback is not reserved for shallow checkouts."""
+        commits = [
+            {'sha': self._sha(1), 'parents': [{'sha': self._sha(2)}]},
+            {'sha': self._sha(2), 'parents': []},
+        ]
+
+        class Resp:  # pylint: disable=too-few-public-methods
+            """A canned requests response."""
+            status_code = 200
+
+            def json(self):
+                """The commits listing."""
+                return commits
+
+        def git_side_effect(cmd, **_):
+            if cmd[0] == 'rev-parse':
+                return 'false'
+            return None  # the commit is not local and the fetch fails
+
+        with patch.dict(os.environ, {'GITHUB_REPOSITORY': 'o/r', 'GITHUB_TOKEN': 't'}), \
+                patch('membrowse.utils.git.run_git_command', side_effect=git_side_effect), \
+                patch('membrowse.utils.git.requests.get', return_value=Resp()):
+            assert get_ancestry(self._sha(1)) == [self._sha(1), self._sha(2)]
 
     def test_full_clone_with_short_history_never_fetches(self):
         """A repository with fewer than ANCESTRY_DEPTH commits is complete as
         it is; a non-shallow checkout is final however short the line."""
         calls = []
 
-        def git_side_effect(cmd):
+        def git_side_effect(cmd, **_):
             calls.append(cmd[0])
             if cmd[0] == 'rev-list':
                 return '\n'.join([self._sha(1), self._sha(2), self._sha(3)])
@@ -425,7 +481,7 @@ class TestAncestry:
         """Test full depth line is final without a shallow check."""
         calls = []
 
-        def git_side_effect(cmd):
+        def git_side_effect(cmd, **_):
             calls.append(cmd[0])
             if cmd[0] == 'rev-list':
                 return '\n'.join(self._sha(i) for i in range(1, ANCESTRY_DEPTH + 1))
@@ -454,14 +510,15 @@ class TestAncestry:
                 """The commits listing."""
                 return commits
 
-        def git_side_effect(cmd):
+        def git_side_effect(cmd, **_):
             if cmd[0] == 'rev-list':
                 return self._sha(1)
             if cmd[0] == 'rev-parse':
                 return 'true'
             return None  # fetch fails
 
-        with patch.dict(os.environ, {'GITHUB_REPOSITORY': 'o/r', 'GITHUB_TOKEN': 't'}), \
+        with patch.dict(os.environ, {'GITHUB_REPOSITORY': 'o/r', 'GITHUB_TOKEN': 't',
+                                     'GITHUB_API_URL': '', 'GITHUB_SERVER_URL': ''}), \
                 patch('membrowse.utils.git.run_git_command', side_effect=git_side_effect), \
                 patch('membrowse.utils.git.requests.get', return_value=Resp()) as get:
             line = get_ancestry(self._sha(1))
@@ -469,11 +526,52 @@ class TestAncestry:
         assert line == [self._sha(1), self._sha(2), self._sha(4)]
         assert get.call_args[0][0] == 'https://api.github.com/repos/o/r/commits'
         assert get.call_args[1]['params']['sha'] == self._sha(1)
+        assert get.call_args[1]['headers']['Authorization'] == 'Bearer t'
+
+        # Same token lookup and host resolution as the comment backend: a
+        # MEMBROWSE_VCS_TOKEN alone suffices, and an Enterprise host is honored.
+        with patch.dict(os.environ, {'GITHUB_REPOSITORY': 'o/r', 'GITHUB_TOKEN': '',
+                                     'GH_TOKEN': '', 'MEMBROWSE_VCS_TOKEN': 'vcs',
+                                     'GITHUB_API_URL': '',
+                                     'GITHUB_SERVER_URL': 'https://ghe.example.com'}), \
+                patch('membrowse.utils.git.run_git_command', side_effect=git_side_effect), \
+                patch('membrowse.utils.git.requests.get', return_value=Resp()) as get:
+            assert get_ancestry(self._sha(1)) == [self._sha(1), self._sha(2), self._sha(4)]
+        assert get.call_args[0][0] == 'https://ghe.example.com/api/v3/repos/o/r/commits'
+        assert get.call_args[1]['headers']['Authorization'] == 'Bearer vcs'
+
+    def test_api_fallback_blowing_up_keeps_the_local_line(self):
+        """A proxy's HTML 200 page is not JSON; what rev-list found survives."""
+
+        class Resp:  # pylint: disable=too-few-public-methods
+            """A canned non-JSON response."""
+            status_code = 200
+
+            def json(self):
+                """Not JSON."""
+                raise ValueError('Expecting value')
+
+        def git_side_effect(cmd, **_):
+            if cmd[0] == 'rev-list':
+                return '\n'.join([self._sha(1), self._sha(2)])
+            if cmd[0] == 'rev-parse':
+                return 'true'
+            return None
+
+        with patch.dict(os.environ, {'GITHUB_REPOSITORY': 'o/r', 'GITHUB_TOKEN': 't'}), \
+                patch('membrowse.utils.git.run_git_command', side_effect=git_side_effect), \
+                patch('membrowse.utils.git.requests.get', return_value=Resp()):
+            assert get_ancestry(self._sha(1)) == [self._sha(1), self._sha(2)]
+
+        with patch.dict(os.environ, {'GITHUB_REPOSITORY': 'o/r', 'GITHUB_TOKEN': 't'}), \
+                patch('membrowse.utils.git.run_git_command', side_effect=git_side_effect), \
+                patch('membrowse.utils.git.requests.get', side_effect=RuntimeError('boom')):
+            assert get_ancestry(self._sha(1)) == [self._sha(1), self._sha(2)]
 
     def test_every_fallback_failing_still_returns_what_is_local(self):
         """Test every fallback failing still returns what is local."""
 
-        def git_side_effect(cmd):
+        def git_side_effect(cmd, **_):
             if cmd[0] == 'rev-list':
                 return self._sha(1)
             if cmd[0] == 'rev-parse':
@@ -484,7 +582,8 @@ class TestAncestry:
                 patch('membrowse.utils.git.run_git_command', side_effect=git_side_effect):
             assert get_ancestry(self._sha(1)) == [self._sha(1)]
 
-        with patch('membrowse.utils.git.run_git_command', return_value=None):
+        with patch.dict(os.environ, {'GITHUB_REPOSITORY': '', 'GITHUB_TOKEN': ''}), \
+                patch('membrowse.utils.git.run_git_command', return_value=None):
             assert not get_ancestry(self._sha(1))
             assert not get_ancestry('')
 
@@ -543,7 +642,7 @@ class TestAncestryInMetadata:
 
     def _git(self, lines_by_start):
         """Git."""
-        def side_effect(cmd):
+        def side_effect(cmd, **_):
             if cmd[0] == 'rev-list':
                 return lines_by_start.get(cmd[-1])
             if 'symbolic-ref' in cmd or 'for-each-ref' in cmd:
@@ -621,14 +720,18 @@ class TestAncestryInMetadata:
         assert metadata['base_commit_hash'] == base
         assert metadata['ancestry'] == [head, base, older]
 
-    def test_workflow_run_without_pr_keeps_git_parent(self):
-        """Test workflow run without pr keeps git parent."""
-        head, parent = self._sha(50), self._sha(49)
+    def test_workflow_run_without_pr_bases_on_the_heads_own_parent(self):
+        """pull_requests is empty for fork PRs and push-triggered runs. The
+        documented workflow_run pattern checks out the default branch, so
+        HEAD~1 is the parent of the wrong commit; the base is head_sha's."""
+        head, parent, unrelated = self._sha(50), self._sha(49), self._sha(48)
         event = {'workflow_run': {'head_sha': head, 'head_branch': 'master',
                                   'pull_requests': []}}
 
-        def side_effect(cmd):
+        def side_effect(cmd, **_):
             if cmd == ['rev-parse', 'HEAD~1']:
+                return unrelated
+            if cmd == ['rev-parse', f'{head}~1']:
                 return parent
             if cmd[0] == 'rev-list' and cmd[-1] == head:
                 return '\n'.join([head, parent])
@@ -641,6 +744,63 @@ class TestAncestryInMetadata:
         assert metadata['pr_number'] is None
         assert metadata['base_commit_hash'] == parent
         assert metadata['ancestry'] == [head, parent]
+
+    def test_workflow_run_head_that_never_became_local_has_no_git_base(self):
+        """Unreachable head: the ancestry line (from the API) names the parent;
+        with nothing at all, no base beats the checked-out branch's parent."""
+        head, parent, unrelated = self._sha(52), self._sha(51), self._sha(53)
+        event = {'workflow_run': {'head_sha': head, 'head_branch': 'topic',
+                                  'pull_requests': []}}
+
+        def side_effect(cmd, **_):
+            if cmd == ['rev-parse', 'HEAD~1']:
+                return unrelated
+            if 'symbolic-ref' in cmd or 'for-each-ref' in cmd:
+                return 'main'
+            return None
+
+        with patch('membrowse.utils.git._github_api_ancestry', return_value=[head, parent]):
+            metadata = self._run('workflow_run', event, {'GITHUB_SHA': self._sha(99)},
+                                 side_effect)
+        assert metadata['base_commit_hash'] == parent
+
+        metadata = self._run('workflow_run', event, {'GITHUB_SHA': self._sha(99)}, side_effect)
+        assert metadata['base_commit_hash'] is None
+        assert 'ancestry' not in metadata
+
+    def test_commit_details_are_read_after_the_deepening_fetch(self):
+        """A pull_request checkout at fetch-depth 1 holds only the merge ref;
+        the PR head only becomes local through the ancestry fetch, so the
+        message, timestamp and author must be read after it, not before."""
+        head, prev, base = self._sha(60), self._sha(59), self._sha(58)
+        event = {'pull_request': {
+            'number': 6, 'title': 'x',
+            'head': {'sha': head, 'ref': 'feature'},
+            'base': {'sha': base, 'ref': 'main'}}}
+        calls = []
+
+        def side_effect(cmd, **_):
+            calls.append(cmd[0])
+            fetched = 'fetch' in calls
+            if cmd[0] == 'log' and cmd[-1] == head:
+                return {'%B': 'subject', '%cI': '2026-01-01T00:00:00Z',
+                        '%an': 'Ada', '%ae': 'ada@x.io'}[cmd[2][len('--pretty=format:'):]] \
+                    if fetched else None
+            if cmd[0] == 'rev-list' and cmd[-1] == head:
+                return '\n'.join([head, prev, base]) if fetched else None
+            if cmd == ['rev-parse', '--is-shallow-repository']:
+                return 'false' if fetched else 'true'
+            if cmd[0] == 'fetch':
+                return ''
+            if 'symbolic-ref' in cmd or 'for-each-ref' in cmd:
+                return 'main'
+            return None
+
+        metadata = self._run('pull_request', event, {'GITHUB_SHA': self._sha(99)}, side_effect)
+        assert metadata['commit_message'] == 'subject'
+        assert metadata['commit_timestamp'] == '2026-01-01T00:00:00Z'
+        assert metadata['author_name'] == 'Ada'
+        assert metadata['ancestry'] == [head, prev, base]
 
 
 class TestOnboardBackfill:
@@ -659,7 +819,7 @@ class TestOnboardBackfill:
                 'author_email': 'a@x', 'tags': []}
         calls = []
 
-        def side_effect(cmd):
+        def side_effect(cmd, **_):
             calls.append(cmd[0])
             if cmd[0] == 'rev-list':
                 return '\n'.join([head, parent])

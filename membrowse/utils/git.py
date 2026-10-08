@@ -8,8 +8,11 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional, Dict, Any, List
+from urllib.parse import urlparse
 
 import requests
+
+from membrowse.utils import github_rest
 
 logger = logging.getLogger(__name__)
 
@@ -25,8 +28,10 @@ _FULL_SHA1_RE = re.compile(r'[0-9a-f]{40}')
 # of JSON; symbols dwarf it. Must not exceed the core's cap of the same value.
 ANCESTRY_DEPTH = 200
 
-# Timeout for the GitHub REST fallback; the whole ancestry step is best-effort.
+# Timeouts for the ancestry fallbacks; the whole ancestry step is best-effort
+# and must never stall an upload behind a hung remote or a credential prompt.
 _ANCESTRY_HTTP_TIMEOUT = 15
+_ANCESTRY_FETCH_TIMEOUT = 120
 
 
 def _is_full_sha1(value: str) -> bool:
@@ -43,14 +48,20 @@ class GitContext:
     repo_name: str
 
 
-def run_git_command(command: list) -> Optional[str]:
-    """Run a git command and return stdout, or None on error."""
+def run_git_command(command: list, timeout: Optional[float] = None,
+                    env: Optional[Dict[str, str]] = None) -> Optional[str]:
+    """Run a git command and return stdout, or None on error or timeout.
+
+    env adds to (or overrides) the inherited environment for this call only.
+    """
     try:
         result = subprocess.run(
             ['git'] + command,
             capture_output=True,
             text=True,
-            check=False
+            check=False,
+            timeout=timeout,
+            env={**os.environ, **env} if env else None,
         )
         if result.returncode == 0:
             return result.stdout.strip()
@@ -121,20 +132,28 @@ def _is_shallow_repository() -> bool:
     return (run_git_command(['rev-parse', '--is-shallow-repository']) or '').strip() == 'true'
 
 
-def _deepen_history(start_sha: str) -> bool:
-    """Fetch up to ANCESTRY_DEPTH commits leading to start_sha, objects only.
+def _deepen_history(start_sha: str, shallow: bool) -> bool:
+    """Fetch the commits leading to start_sha so `git rev-list` can walk them.
 
     actions/checkout defaults to fetch-depth 1, so `git rev-list` alone yields
-    one commit. `--filter=tree:0` downloads commit objects only - tens of
-    kilobytes even on a large repository - and the checkout's persisted
-    credentials cover private repositories. Note that a filtered fetch turns
-    the checkout into a partial clone, so a LATER git step that needs trees or
-    blobs the filter skipped will lazy-fetch them; the upload is the last step
-    in every known workflow.
+    one commit; a shallow checkout deepens to ANCESTRY_DEPTH. A full clone
+    that merely lacks the commit (a workflow_run job on the default branch
+    reporting a feature-branch head) fetches it outright, since `--depth`
+    would turn the full clone shallow. The checkout's persisted credentials
+    cover private repositories.
+
+    No object filter: a filtered fetch registers origin as a promisor remote
+    and git then applies the filter to every later fetch in that checkout, so
+    a reused runner workspace would lazy-fetch trees and blobs one at a time
+    from then on. The unfiltered cost is a few hundred commits of deltas
+    against objects already local. Bounded, and never prompts for credentials.
     """
-    result = run_git_command(
-        ['fetch', '--no-tags', '--filter=tree:0', f'--depth={ANCESTRY_DEPTH}',
-         'origin', start_sha])
+    command = ['fetch', '--no-tags']
+    if shallow:
+        command.append(f'--depth={ANCESTRY_DEPTH}')
+    command += ['origin', start_sha]
+    result = run_git_command(command, timeout=_ANCESTRY_FETCH_TIMEOUT,
+                             env={'GIT_TERMINAL_PROMPT': '0'})
     return result is not None
 
 
@@ -146,11 +165,13 @@ def _github_api_ancestry(start_sha: str) -> List[str]:
     each commit's `parents` by following the first parent through the pages.
     """
     repo = os.environ.get('GITHUB_REPOSITORY', '')
-    token = os.environ.get('GITHUB_TOKEN') or os.environ.get('GH_TOKEN') or ''
+    token = github_rest.get_token()
     if not repo or not token:
         return []
 
-    first_parent = _github_api_first_parents(repo, token, start_sha)
+    host = urlparse(os.environ.get('GITHUB_SERVER_URL', '')).hostname or ''
+    first_parent = _github_api_first_parents(
+        github_rest.api_base(host), repo, token, start_sha)
     line: List[str] = []
     current: Optional[str] = start_sha.lower()
     while current and current in first_parent and len(line) < ANCESTRY_DEPTH:
@@ -159,14 +180,10 @@ def _github_api_ancestry(start_sha: str) -> List[str]:
     return line
 
 
-def _github_api_first_parents(repo: str, token: str, start_sha: str) -> Dict[str, Optional[str]]:
+def _github_api_first_parents(
+        api: str, repo: str, token: str, start_sha: str) -> Dict[str, Optional[str]]:
     """sha -> first parent for up to two pages of the commits listing."""
-    api = os.environ.get('GITHUB_API_URL', 'https://api.github.com').rstrip('/')
-    headers = {
-        'Authorization': f'Bearer {token}',
-        'Accept': 'application/vnd.github+json',
-        'X-GitHub-Api-Version': '2022-11-28',
-    }
+    headers = github_rest.auth_headers(token)
     first_parent: Dict[str, Optional[str]] = {}
     for page in (1, 2):
         try:
@@ -174,16 +191,18 @@ def _github_api_first_parents(repo: str, token: str, start_sha: str) -> Dict[str
                 f'{api}/repos/{repo}/commits',
                 params={'sha': start_sha, 'per_page': 100, 'page': page},
                 headers=headers, timeout=_ANCESTRY_HTTP_TIMEOUT)
-        except requests.RequestException as exc:
+            if resp.status_code != 200:
+                logger.debug("Ancestry API returned %s", resp.status_code)
+                return {}
+            commits = resp.json()
+        except (requests.RequestException, ValueError) as exc:
             logger.debug("Ancestry API request failed: %s", exc)
             return {}
-        if resp.status_code != 200:
-            logger.debug("Ancestry API returned %s", resp.status_code)
-            return {}
-        commits = resp.json()
         if not isinstance(commits, list) or not commits:
             break
         for commit in commits:
+            if not isinstance(commit, dict):
+                continue
             sha = str(commit.get('sha', '')).lower()
             parents = commit.get('parents') or []
             parent = str(parents[0].get('sha', '')).lower() if parents else None
@@ -203,11 +222,12 @@ def get_ancestry(start_sha: str, fetch: bool = True) -> List[str]:
     learned, possibly just start_sha, possibly nothing.
 
     Fallback order: local `git rev-list`, which is final when it yields the
-    full depth or the repository is not shallow (a short line from a full
-    clone IS the whole history); otherwise a commit-only deepening fetch
-    (skipped when fetch=False, e.g. onboard's full clone, or when start_sha is
-    not a full SHA); otherwise the GitHub REST API; otherwise give up. A CI
-    checkout at fetch-depth 1 or 2 is the common case and must deepen.
+    full depth, or anything at all from a non-shallow repository (a short
+    line from a full clone IS the whole history); otherwise a fetch (skipped
+    when fetch=False, e.g. onboard's full clone, or when start_sha is not a
+    full SHA); otherwise the GitHub REST API; otherwise whatever is local. A
+    CI checkout at fetch-depth 1 or 2 is the common case and must deepen; a
+    full clone that lacks the reported commit altogether must fetch it.
     """
     if not start_sha:
         return []
@@ -215,27 +235,39 @@ def get_ancestry(start_sha: str, fetch: bool = True) -> List[str]:
         line = _rev_list_first_parent(start_sha)
         if len(line) >= ANCESTRY_DEPTH:
             return line
-
-        if fetch and _is_full_sha1(start_sha) and _is_shallow_repository():
-            if _deepen_history(start_sha):
-                deeper = _rev_list_first_parent(start_sha)
-                if len(deeper) > len(line):
-                    line = deeper
-                if len(line) >= ANCESTRY_DEPTH or not _is_shallow_repository():
-                    return line
-            else:
-                logger.debug("Could not deepen history for %s", start_sha)
-
-            api_line = _github_api_ancestry(start_sha)
-            if len(api_line) > len(line):
-                return api_line
-
+        if fetch and _is_full_sha1(start_sha):
+            line = _extend_ancestry(start_sha, line)
         if len(line) < 2:
             logger.debug("Ancestry for %s limited to %d entries", start_sha, len(line))
         return line
     except Exception as exc:  # pylint: disable=broad-exception-caught
         logger.debug("Ancestry collection failed for %s: %s", start_sha, exc)
         return []
+
+
+def _extend_ancestry(start_sha: str, line: List[str]) -> List[str]:
+    """Lengthen a truncated local line by fetching, then via the GitHub API.
+
+    Never returns less than `line`: a fallback that blows up must not throw
+    away what `git rev-list` already produced.
+    """
+    shallow = _is_shallow_repository()
+    if line and not shallow:
+        return line
+    if _deepen_history(start_sha, shallow):
+        deeper = _rev_list_first_parent(start_sha)
+        if len(deeper) > len(line):
+            line = deeper
+        if len(line) >= ANCESTRY_DEPTH or (line and not _is_shallow_repository()):
+            return line
+    else:
+        logger.debug("Could not fetch history for %s", start_sha)
+    try:
+        api_line = _github_api_ancestry(start_sha)
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        logger.debug("Ancestry API fallback failed for %s: %s", start_sha, exc)
+        return line
+    return api_line if len(api_line) > len(line) else line
 
 
 def get_commit_tags(commit_sha: str) -> list:
@@ -256,24 +288,44 @@ def get_commit_tags(commit_sha: str) -> list:
     return [tag.strip() for tag in result.splitlines() if tag.strip()]
 
 
-def _parse_pull_request_event(event_data: Dict[str, Any]) -> tuple:
+@dataclass
+class GitHubEvent:  # pylint: disable=too-many-instance-attributes
+    """What a GitHub event payload says about the commit being reported.
+
+    Every field is optional; an empty value means "not in this event" and
+    the git-derived value stands.
+    """
+    base_sha: str = ''
+    branch_name: str = ''
+    pr_number: str = ''
+    head_sha: str = ''
+    pr_name: str = ''
+    pr_author_name: str = ''
+    pr_author_email: str = ''
+    # push only: the ref was force-updated (GitHub's `forced`). The core holds
+    # a branch head on a commit already in its history, since that is what a
+    # CI re-run of an old commit looks like; a forced push says the branch
+    # really was reset to that commit. A re-run replays the original push
+    # payload, so it never reports forced for a normal push.
+    forced: bool = False
+
+
+def _parse_pull_request_event(event_data: Dict[str, Any]) -> GitHubEvent:
     """Extract metadata from pull request event."""
     pr = event_data.get('pull_request', {})
-    base_sha = pr.get('base', {}).get('sha', '')
-    branch_name = pr.get('head', {}).get('ref', '')
-    pr_number = str(pr.get('number', ''))
-    head_sha = pr.get('head', {}).get('sha', '')
-    pr_name = pr.get('title', '')
-    # PR author info (user who opened the PR)
-    pr_user = pr.get('user', {})
-    pr_author_name = pr_user.get('login', '')
-    # Note: GitHub API doesn't expose email for privacy, use login as fallback
-    pr_author_email = ''
-    return (base_sha, branch_name, pr_number, head_sha, pr_name,
-            pr_author_name, pr_author_email)
+    return GitHubEvent(
+        base_sha=pr.get('base', {}).get('sha', ''),
+        branch_name=pr.get('head', {}).get('ref', ''),
+        pr_number=str(pr.get('number', '')),
+        head_sha=pr.get('head', {}).get('sha', ''),
+        pr_name=pr.get('title', ''),
+        # PR author (user who opened the PR). GitHub does not expose the
+        # email for privacy; the login stands in.
+        pr_author_name=pr.get('user', {}).get('login', ''),
+    )
 
 
-def _parse_workflow_run_event(event_data: Dict[str, Any]) -> tuple:
+def _parse_workflow_run_event(event_data: Dict[str, Any]) -> GitHubEvent:
     """Extract metadata from a workflow_run event.
 
     On workflow_run, GITHUB_SHA is the DEFAULT branch's last commit, not the
@@ -283,75 +335,50 @@ def _parse_workflow_run_event(event_data: Dict[str, Any]) -> tuple:
     the PR number and base.
     """
     run = event_data.get('workflow_run', {}) or {}
-    head_sha = run.get('head_sha', '') or ''
-    branch_name = run.get('head_branch', '') or ''
+    event = GitHubEvent(
+        head_sha=run.get('head_sha', '') or '',
+        branch_name=run.get('head_branch', '') or '',
+    )
     pull_requests = run.get('pull_requests') or []
-    base_sha, pr_number = '', ''
     if pull_requests:
         pr = pull_requests[0] or {}
-        pr_number = str(pr.get('number', '') or '')
-        base_sha = (pr.get('base') or {}).get('sha', '') or ''
-    return base_sha, branch_name, pr_number, head_sha, '', '', ''
+        event.pr_number = str(pr.get('number', '') or '')
+        event.base_sha = (pr.get('base') or {}).get('sha', '') or ''
+    return event
 
 
-def _parse_push_event(event_data: Dict[str, Any]) -> tuple:
-    """Extract metadata from push event."""
-    base_sha = event_data.get('before', '')
-    # Try to get branch from git, fall back to env var
-    branch_name = (
-        run_git_command(['symbolic-ref', '--short', 'HEAD']) or
-        run_git_command(['for-each-ref', '--points-at', 'HEAD',
-                         '--format=%(refname:short)', 'refs/heads/']) or
-        os.environ.get('GITHUB_REF_NAME', 'unknown')
+def _parse_push_event(event_data: Dict[str, Any]) -> GitHubEvent:
+    """Extract metadata from push event (no PR fields on a push)."""
+    return GitHubEvent(
+        base_sha=event_data.get('before', ''),
+        # Try to get branch from git, fall back to env var
+        branch_name=(
+            run_git_command(['symbolic-ref', '--short', 'HEAD']) or
+            run_git_command(['for-each-ref', '--points-at', 'HEAD',
+                             '--format=%(refname:short)', 'refs/heads/']) or
+            os.environ.get('GITHUB_REF_NAME', 'unknown')
+        ),
+        forced=bool(event_data.get('forced')),
     )
-    # Push events don't have PR author info
-    return base_sha, branch_name, '', '', '', '', ''
 
 
-def _push_was_forced(event_name: str, event_path: str) -> bool:
-    """True when a push event force-updated the ref (GitHub's `forced`).
+_EVENT_PARSERS = {
+    'pull_request': _parse_pull_request_event,
+    'push': _parse_push_event,
+    'workflow_run': _parse_workflow_run_event,
+}
 
-    The core holds a branch head on a commit already in its history, since
-    that is what a CI re-run of an old commit looks like; a forced push says
-    the branch really was reset to that commit. A re-run replays the original
-    push payload, so it never reports forced for a normal push.
-    """
-    if event_name != 'push' or not event_path or not os.path.exists(event_path):
-        return False
+
+def _parse_github_event(event_name: str, event_path: str) -> GitHubEvent:
+    """Parse the GitHub event payload; an empty event when it cannot be read."""
+    parser = _EVENT_PARSERS.get(event_name)
+    if not parser or not event_path or not os.path.exists(event_path):
+        return GitHubEvent()
     try:
         with open(event_path, 'r', encoding='utf-8') as f:
-            return bool(json.load(f).get('forced'))
+            return parser(json.load(f))
     except Exception:  # pylint: disable=broad-exception-caught
-        return False
-
-
-def _parse_github_event(event_name: str, event_path: str) -> tuple:
-    """Parse GitHub event payload."""
-    base_sha, branch_name, pr_number, head_sha, pr_name = '', '', '', '', ''
-    pr_author_name, pr_author_email = '', ''
-
-    if not event_path or not os.path.exists(event_path):
-        return (base_sha, branch_name, pr_number, head_sha, pr_name,
-                pr_author_name, pr_author_email)
-
-    try:
-        with open(event_path, 'r', encoding='utf-8') as f:
-            event_data = json.load(f)
-
-        if event_name == 'pull_request':
-            (base_sha, branch_name, pr_number, head_sha, pr_name,
-             pr_author_name, pr_author_email) = _parse_pull_request_event(event_data)
-        elif event_name == 'push':
-            (base_sha, branch_name, pr_number, head_sha, pr_name,
-             pr_author_name, pr_author_email) = _parse_push_event(event_data)
-        elif event_name == 'workflow_run':
-            (base_sha, branch_name, pr_number, head_sha, pr_name,
-             pr_author_name, pr_author_email) = _parse_workflow_run_event(event_data)
-    except Exception:  # pylint: disable=broad-exception-caught
-        pass
-
-    return (base_sha, branch_name, pr_number, head_sha, pr_name,
-            pr_author_name, pr_author_email)
+        return GitHubEvent()
 
 
 def _get_branch_name(branch_name: str) -> str:
@@ -542,16 +569,20 @@ def detect_github_metadata() -> Dict[str, Any]:
     commit_sha = os.environ.get('GITHUB_SHA', '')
     event_path = os.environ.get('GITHUB_EVENT_PATH', '')
 
-    # Parse event payload if available
-    (base_sha, branch_name, pr_number, head_sha, pr_name,
-     pr_author_name, pr_author_email) = _parse_github_event(event_name, event_path)
+    event = _parse_github_event(event_name, event_path)
 
     # For pull_request events, use the PR head SHA instead of the merge commit SHA
     # GITHUB_SHA points to a temporary merge commit in PR events, not the actual commit.
     # For workflow_run events GITHUB_SHA is the default branch tip, not the
     # commit the triggering run built; the payload's head_sha is.
-    if event_name in ('pull_request', 'workflow_run') and head_sha:
-        commit_sha = head_sha
+    if event_name in ('pull_request', 'workflow_run') and event.head_sha:
+        commit_sha = event.head_sha
+
+    # Ancestry first: its fetch is what makes the reported commit local when
+    # the checkout does not have it (a pull_request checkout at fetch-depth 1
+    # holds only the merge ref; a workflow_run job holds the default branch),
+    # and the commit details and parent below need the object.
+    _attach_ancestry(metadata, commit_sha)
 
     # Override with GitHub-specific values where available
     if commit_sha:
@@ -565,8 +596,8 @@ def detect_github_metadata() -> Dict[str, Any]:
         metadata['author_email'] = author_email
         metadata['tags'] = get_commit_tags(commit_sha)
 
-    if branch_name:
-        metadata['branch_name'] = branch_name
+    if event.branch_name:
+        metadata['branch_name'] = event.branch_name
 
     # Use the event's base_sha as the parent instead of the git parent (HEAD~1):
     #   * pull_request -> pr.base.sha (the PR target tip)
@@ -578,25 +609,42 @@ def detect_github_metadata() -> Dict[str, Any]:
     # 'before' (branch creation / first push) is not a real commit, so skip it
     # and let the git parent stand. Guard against malformed event payloads by
     # only accepting a well-formed 40-hex SHA.
-    if event_name in ('pull_request', 'push', 'workflow_run') and _is_full_sha1(base_sha) \
-            and base_sha != _ZERO_SHA:
-        metadata['base_commit_hash'] = base_sha
+    if event_name in ('pull_request', 'push', 'workflow_run') \
+            and _is_full_sha1(event.base_sha) and event.base_sha != _ZERO_SHA:
+        metadata['base_commit_hash'] = event.base_sha
+    elif event_name == 'workflow_run' and commit_sha:
+        # No PR in the payload (always so for fork PRs and for push-triggered
+        # runs): the base is the reported commit's own parent. HEAD~1 is the
+        # parent of whatever the job checked out, which per the documented
+        # workflow_run pattern is the default branch, not head_sha.
+        metadata['base_commit_hash'] = _first_parent(commit_sha, metadata.get('ancestry'))
 
-    _attach_ancestry(metadata, commit_sha)
-    if _push_was_forced(event_name, event_path):
+    if event.forced:
         metadata['forced'] = True
 
     # Add PR-specific metadata
-    if pr_number:
-        metadata['pr_number'] = pr_number
-    if pr_name:
-        metadata['pr_name'] = pr_name
-    if pr_author_name:
-        metadata['pr_author_name'] = pr_author_name
-    if pr_author_email:
-        metadata['pr_author_email'] = pr_author_email
+    if event.pr_number:
+        metadata['pr_number'] = event.pr_number
+    if event.pr_name:
+        metadata['pr_name'] = event.pr_name
+    if event.pr_author_name:
+        metadata['pr_author_name'] = event.pr_author_name
+    if event.pr_author_email:
+        metadata['pr_author_email'] = event.pr_author_email
 
     return metadata
+
+
+def _first_parent(commit_sha: str, ancestry: Optional[List[str]]) -> Optional[str]:
+    """The first parent of commit_sha: from git, else from the ancestry line
+    (which the GitHub API may have supplied when the commit is not local),
+    else unknown. Never some other commit's parent."""
+    parent = run_git_command(['rev-parse', f'{commit_sha}~1'])
+    if _is_full_sha1(parent or ''):
+        return parent
+    if ancestry and len(ancestry) > 1 and ancestry[0] == commit_sha.lower():
+        return ancestry[1]
+    return None
 
 
 def _attach_ancestry(metadata: Dict[str, Any], commit_sha: str) -> None:

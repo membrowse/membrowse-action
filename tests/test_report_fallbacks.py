@@ -183,3 +183,22 @@ class TestEmptyRegionsFallback(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestUploadResponseBridged(unittest.TestCase):
+    """``print_upload_response`` and the core's ``data.bridged``."""
+
+    def test_bridged_dict_is_reported_and_other_shapes_are_ignored(self):
+        """Only a dict carries the link details; a flag or list from a newer
+        core must not raise after an upload that was accepted."""
+        # pylint: disable=import-outside-toplevel
+        from membrowse.commands.report import print_upload_response
+
+        bridged = {'skipped': 2, 'declared_parent': 'a' * 40,
+                   'effective_parent': 'b' * 40}
+        with self.assertLogs('membrowse.commands.report', level='INFO') as logs:
+            print_upload_response({'success': True, 'data': {'bridged': bridged}})
+        self.assertTrue(any('Linked past 2 untracked commit(s)' in m for m in logs.output))
+
+        for other in (True, [1], 'yes', 1):
+            print_upload_response({'success': True, 'data': {'bridged': other}})

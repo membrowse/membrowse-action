@@ -50,7 +50,7 @@ def print_upload_response(response_data: dict) -> str:
         # The declared parent had no report for this target and the core
         # linked the upload to the nearest ancestor that does.
         bridged = (response_data.get('data') or {}).get('bridged')
-        if bridged:
+        if isinstance(bridged, dict):
             logger.info(
                 "Linked past %s untracked commit(s): declared parent %s has no "
                 "report for this target, compared against %s instead",
@@ -204,8 +204,8 @@ def _display_comparison_link(response_data: dict) -> str:
         return None
 
     # Extract comparison URL directly from API response
-    data = response_data.get('data', {})
-    comparison_url = data.get('comparison_url')
+    data = response_data.get('data') or {}
+    comparison_url = data.get('comparison_url') if isinstance(data, dict) else None
 
     # Display URL if available
     if comparison_url:
