@@ -633,6 +633,7 @@ class TestAncestryInMetadata:
                     'GITHUB_EVENT_NAME': event_name,
                     'GITHUB_EVENT_PATH': event_path,
                     'GITHUB_REPOSITORY': '', 'GITHUB_TOKEN': '',
+                    'GITHUB_RUN_ATTEMPT': '1',
                     **env}):
                 with patch('membrowse.utils.git.run_git_command',
                            side_effect=git_side_effect):
@@ -686,6 +687,16 @@ class TestAncestryInMetadata:
             'push', {'before': before, 'after': head, 'forced': True},
             {'GITHUB_SHA': head}, self._git({head: head}))
         assert metadata['forced'] is True
+
+    def test_rerun_of_a_forced_push_is_not_forced(self):
+        """A re-run replays the original payload. After a reset to A and a
+        later push to B, re-running A must not reset the head back to A."""
+        head, before = self._sha(74), self._sha(75)
+        metadata = self._run(
+            'push', {'before': before, 'after': head, 'forced': True},
+            {'GITHUB_SHA': head, 'GITHUB_RUN_ATTEMPT': '2'}, self._git({head: head}))
+        assert 'forced' not in metadata
+        assert metadata['commit_hash'] == head
 
     def test_normal_push_carries_no_forced_flag(self):
         """Absent, not false: old cores ignore unknown keys either way."""

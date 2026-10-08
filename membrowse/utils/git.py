@@ -619,7 +619,7 @@ def detect_github_metadata() -> Dict[str, Any]:
         # workflow_run pattern is the default branch, not head_sha.
         metadata['base_commit_hash'] = _first_parent(commit_sha, metadata.get('ancestry'))
 
-    if event.forced:
+    if event.forced and _is_first_run_attempt():
         metadata['forced'] = True
 
     # Add PR-specific metadata
@@ -633,6 +633,18 @@ def detect_github_metadata() -> Dict[str, Any]:
         metadata['pr_author_email'] = event.pr_author_email
 
     return metadata
+
+
+def _is_first_run_attempt() -> bool:
+    """False on a GitHub re-run, which replays the original push payload.
+
+    A forced push's `forced` is a statement about the ref at that moment.
+    After a reset to A and a later push to B, re-running A's workflow would
+    send forced=True again and let the core reset the branch head back to
+    A. Only the first attempt may pass the flag on; a re-run of a forced
+    push is an ordinary upload, which the core holds in place.
+    """
+    return os.environ.get('GITHUB_RUN_ATTEMPT', '1').strip() in ('', '1')
 
 
 def _first_parent(commit_sha: str, ancestry: Optional[List[str]]) -> Optional[str]:
