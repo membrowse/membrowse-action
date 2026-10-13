@@ -308,6 +308,8 @@ class GitHubEvent:  # pylint: disable=too-many-instance-attributes
     # really was reset to that commit. A re-run replays the original push
     # payload, so it never reports forced for a normal push.
     forced: bool = False
+    # repository.default_branch, present on every repository event payload.
+    default_branch: str = ''
 
 
 def _parse_pull_request_event(event_data: Dict[str, Any]) -> GitHubEvent:
@@ -376,7 +378,12 @@ def _parse_github_event(event_name: str, event_path: str) -> GitHubEvent:
         return GitHubEvent()
     try:
         with open(event_path, 'r', encoding='utf-8') as f:
-            return parser(json.load(f))
+            event_data = json.load(f)
+        event = parser(event_data)
+        event.default_branch = (
+            (event_data.get('repository') or {}).get('default_branch', '') or ''
+        )
+        return event
     except Exception:  # pylint: disable=broad-exception-caught
         return GitHubEvent()
 
@@ -402,6 +409,27 @@ def _get_repo_name() -> str:
 
     parts = remote_url.rstrip('.git').split('/')
     return parts[-1] if parts else 'unknown'
+
+
+def get_default_branch(remote_lookup: bool = True) -> Optional[str]:
+    """The repository's default branch, or None when it cannot be told.
+
+    origin/HEAD is set by a clone and answers without the network. A CI
+    checkout (actions/checkout, shallow fetches) often lacks it; then, when
+    remote_lookup is set, ask the remote which branch its HEAD points at.
+    """
+    ref = run_git_command(['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'])
+    if ref and ref.startswith('origin/') and len(ref) > len('origin/'):
+        return ref[len('origin/'):]
+    if not remote_lookup:
+        return None
+    output = run_git_command(['ls-remote', '--symref', 'origin', 'HEAD'],
+                             timeout=10, env={'GIT_TERMINAL_PROMPT': '0'})
+    for line in (output or '').splitlines():
+        # "ref: refs/heads/main\tHEAD"
+        if line.startswith('ref: refs/heads/') and line.endswith('\tHEAD'):
+            return line[len('ref: refs/heads/'):-len('\tHEAD')] or None
+    return None
 
 
 def _get_commit_details(commit_sha: str) -> tuple:
@@ -436,7 +464,8 @@ def _get_commit_details(commit_sha: str) -> tuple:
     return commit_message, commit_timestamp, author_name, author_email
 
 
-def detect_git_metadata(include_ancestry: bool = True) -> Dict[str, Any]:
+def detect_git_metadata(include_ancestry: bool = True,
+                        default_branch_lookup: bool = True) -> Dict[str, Any]:
     """
     Detect Git metadata from local git repository.
 
@@ -447,6 +476,9 @@ def detect_git_metadata(include_ancestry: bool = True) -> Dict[str, Any]:
         include_ancestry: Also collect the first-parent ancestry line from
             HEAD (metadata.git.ancestry). detect_github_metadata passes
             False and collects it from the commit the upload will report.
+        default_branch_lookup: Ask the remote for its default branch when
+            origin/HEAD is not set. detect_github_metadata passes False and
+            takes it from the event payload first.
 
     Returns:
         Dict with metadata in metadata['git'] format:
@@ -455,6 +487,7 @@ def detect_git_metadata(include_ancestry: bool = True) -> Dict[str, Any]:
             'base_commit_hash': str,    # Parent commit (HEAD~1)
             'branch_name': str,
             'repository': str,
+            'default_branch': str,      # Repository default branch
             'commit_message': str,
             'commit_timestamp': str,
             'author_name': str,
@@ -489,6 +522,7 @@ def detect_git_metadata(include_ancestry: bool = True) -> Dict[str, Any]:
         'base_commit_hash': parent_sha or None,
         'branch_name': branch_name or None,
         'repository': repo_name or None,
+        'default_branch': get_default_branch(remote_lookup=default_branch_lookup),
         'commit_message': commit_message or None,
         'commit_timestamp': commit_timestamp or None,
         'author_name': author_name or None,
@@ -550,6 +584,7 @@ def detect_github_metadata() -> Dict[str, Any]:
             'base_commit_hash': str,    # Parent commit (HEAD~1)
             'branch_name': str,
             'repository': str,
+            'default_branch': str,      # From the event's repository object
             'commit_message': str,
             'commit_timestamp': str,
             'author_name': str,
@@ -562,7 +597,7 @@ def detect_github_metadata() -> Dict[str, Any]:
     """
     # Start with git metadata as base. Ancestry is collected below, from the
     # commit the upload will actually report rather than from git HEAD.
-    metadata = detect_git_metadata(include_ancestry=False)
+    metadata = detect_git_metadata(include_ancestry=False, default_branch_lookup=False)
 
     # Get GitHub environment variables
     event_name = os.environ.get('GITHUB_EVENT_NAME', '')
@@ -598,6 +633,11 @@ def detect_github_metadata() -> Dict[str, Any]:
 
     if event.branch_name:
         metadata['branch_name'] = event.branch_name
+
+    if event.default_branch:
+        metadata['default_branch'] = event.default_branch
+    elif not metadata.get('default_branch'):
+        metadata['default_branch'] = get_default_branch()
 
     # Use the event's base_sha as the parent instead of the git parent (HEAD~1):
     #   * pull_request -> pr.base.sha (the PR target tip)

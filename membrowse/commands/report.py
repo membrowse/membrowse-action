@@ -386,6 +386,8 @@ examples:
                                 'Use "none" or "" to explicitly set no parent.')
     git_group.add_argument('--branch-name', help='Git branch name')
     git_group.add_argument('--repo-name', help='Repository name')
+    git_group.add_argument('--default-branch',
+                           help='Repository default branch (auto-detected if omitted)')
     git_group.add_argument('--commit-message', help='Commit message')
     git_group.add_argument(
         '--commit-timestamp',
@@ -759,6 +761,7 @@ def upload_report(  # pylint: disable=too-many-arguments
                 'base_commit_hash': str,
                 'branch_name': str,
                 'repository': str,
+                'default_branch': str,
                 'commit_message': str,
                 'commit_timestamp': str,
                 'author_name': str,
@@ -831,7 +834,10 @@ def _build_enriched_report(
     """Build enriched report with metadata."""
     metadata = {
         'git': commit_info,
-        'repository': commit_info.get('repository'),
+        'repository': {
+            'name': commit_info.get('repository'),
+            'default_branch': commit_info.get('default_branch'),
+        },
         'target_name': target_name,
         'analysis_version': version('membrowse'),
         # Core reads these from memory_analysis (where they already are, via
@@ -1097,6 +1103,7 @@ def run_report(args: argparse.Namespace) -> int:
         'base_sha': 'base_commit_hash',
         'branch_name': 'branch_name',
         'repo_name': 'repository',
+        'default_branch': 'default_branch',
         'commit_message': 'commit_message',
         'commit_timestamp': 'commit_timestamp',
         'author_name': 'author_name',

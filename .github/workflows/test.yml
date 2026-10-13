@@ -93,6 +93,10 @@ jobs:
 
       - name: Install ARM cross-compiler
         uses: carlosperate/arm-none-eabi-gcc-action@v1
+        with:
+          # 'latest' became 15.3.Rel2 in v1.14.0, whose Windows zip fails the
+          # action's sha256 check. Pinned to the previous latest.
+          release: '15.3.Rel1'
 
       - name: Install Python dependencies
         run: |

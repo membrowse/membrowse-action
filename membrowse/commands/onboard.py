@@ -8,7 +8,7 @@ import logging
 from datetime import datetime
 
 from ..utils.git import (
-    run_git_command, get_commit_metadata, get_ancestry,
+    run_git_command, get_commit_metadata, get_ancestry, get_default_branch,
     git_checkout, git_submodule_update, git_clean,
 )
 from ..api.client import MemBrowseClient
@@ -571,6 +571,8 @@ def _build_commit_info(commit, current_branch, repo_name, parent_sha_override=_N
                               else metadata.get('parent_sha')),
         'branch_name': current_branch,
         'repository': repo_name,
+        # Full clone: origin/HEAD is local, so never ask the remote per commit.
+        'default_branch': get_default_branch(remote_lookup=False),
         'commit_message': metadata['commit_message'],
         'commit_timestamp': metadata['commit_timestamp'],
         'author_name': metadata.get('author_name'),
