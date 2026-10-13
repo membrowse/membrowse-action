@@ -310,6 +310,9 @@ class GitHubEvent:  # pylint: disable=too-many-instance-attributes
     forced: bool = False
     # repository.default_branch, present on every repository event payload.
     default_branch: str = ''
+    # push only: the pushed ref is a tag, not a branch. A tag push names no
+    # branch, so the commit must not be reported on one.
+    tag_push: bool = False
 
 
 def _parse_pull_request_event(event_data: Dict[str, Any]) -> GitHubEvent:
@@ -351,6 +354,11 @@ def _parse_workflow_run_event(event_data: Dict[str, Any]) -> GitHubEvent:
 
 def _parse_push_event(event_data: Dict[str, Any]) -> GitHubEvent:
     """Extract metadata from push event (no PR fields on a push)."""
+    # A tag push checks out a detached HEAD with no local branch, so the
+    # fallbacks below would land on GITHUB_REF_NAME, which is the tag name.
+    # 'before' is the tag's previous commit, not a parent, so it is not kept.
+    if (event_data.get('ref') or '').startswith('refs/tags/'):
+        return GitHubEvent(tag_push=True, forced=bool(event_data.get('forced')))
     return GitHubEvent(
         base_sha=event_data.get('before', ''),
         # Try to get branch from git, fall back to env var
@@ -633,11 +641,12 @@ def detect_github_metadata() -> Dict[str, Any]:
 
     if event.branch_name:
         metadata['branch_name'] = event.branch_name
+    elif event.tag_push:
+        # Drop the git-derived fallback ('unknown' on a detached HEAD) too:
+        # the commit is reported through its tags only.
+        metadata['branch_name'] = None
 
-    if event.default_branch:
-        metadata['default_branch'] = event.default_branch
-    elif not metadata.get('default_branch'):
-        metadata['default_branch'] = get_default_branch()
+    metadata['default_branch'] = _resolve_default_branch(event, metadata)
 
     # Use the event's base_sha as the parent instead of the git parent (HEAD~1):
     #   * pull_request -> pr.base.sha (the PR target tip)
@@ -673,6 +682,13 @@ def detect_github_metadata() -> Dict[str, Any]:
         metadata['pr_author_email'] = event.pr_author_email
 
     return metadata
+
+
+def _resolve_default_branch(event: GitHubEvent, metadata: Dict[str, Any]) -> Optional[str]:
+    """The event payload's default branch, else origin/HEAD, else the remote."""
+    if event.default_branch:
+        return event.default_branch
+    return metadata.get('default_branch') or get_default_branch()
 
 
 def _is_first_run_attempt() -> bool:
