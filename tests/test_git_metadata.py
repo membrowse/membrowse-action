@@ -706,6 +706,47 @@ class TestAncestryInMetadata:
             {'GITHUB_SHA': head}, self._git({head: head}))
         assert 'forced' not in metadata
 
+    def test_tag_push_reports_no_branch(self):
+        """A tag push checks out a detached HEAD, where the branch fallback is
+        GITHUB_REF_NAME, the tag name. The core would then open a branch named
+        after the tag, which the dashboard can pick as the default branch."""
+        head = self._sha(80)
+
+        def git(cmd, **_):
+            if cmd[:2] == ['tag', '--points-at']:
+                return '0.1.0'
+            return None  # detached HEAD: no symbolic-ref, no local branch
+
+        metadata = self._run(
+            'push', {'ref': 'refs/tags/0.1.0', 'before': '0' * 40, 'after': head},
+            {'GITHUB_SHA': head, 'GITHUB_REF_NAME': '0.1.0',
+             'GITHUB_REF_TYPE': 'tag'},
+            git)
+
+        assert metadata['commit_hash'] == head
+        assert metadata['branch_name'] is None
+        assert metadata['tags'] == ['0.1.0']
+
+    def test_tag_push_does_not_base_on_before(self):
+        """On a moved tag 'before' is the tag's previous commit, not a parent."""
+        head, old_tag = self._sha(83), self._sha(81)
+        metadata = self._run(
+            'push', {'ref': 'refs/tags/v1', 'before': old_tag, 'after': head,
+                     'forced': True},
+            {'GITHUB_SHA': head, 'GITHUB_REF_NAME': 'v1'}, self._git({head: head}))
+
+        assert metadata['branch_name'] is None
+        assert metadata['base_commit_hash'] != old_tag
+        assert metadata['forced'] is True
+
+    def test_branch_push_still_reports_branch(self):
+        """Test branch push still reports branch."""
+        head, before = self._sha(85), self._sha(84)
+        metadata = self._run(
+            'push', {'ref': 'refs/heads/main', 'before': before, 'after': head},
+            {'GITHUB_SHA': head}, self._git({head: head}))
+        assert metadata['branch_name'] == 'main'
+
     def test_no_ancestry_key_when_nothing_was_learned(self):
         """Test no ancestry key when nothing was learned."""
         head = self._sha(30)
