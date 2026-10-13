@@ -5,7 +5,7 @@ import os
 import tempfile
 from unittest.mock import patch
 from membrowse.utils.git import (
-    detect_github_metadata, detect_git_metadata, get_ancestry,
+    detect_github_metadata, detect_git_metadata, get_ancestry, get_default_branch,
     ANCESTRY_DEPTH, _parse_pull_request_event)
 from membrowse.commands.onboard import _build_commit_info  # pylint: disable=protected-access
 
@@ -843,9 +843,77 @@ class TestOnboardBackfill:
         assert info['backfill'] is True
         assert info['base_commit_hash'] == parent
         assert info['ancestry'] == [head, parent]
-        assert calls == ['rev-list'], "a full clone never deepens or calls the API"
+        assert info['default_branch'] is None
+        assert calls == ['symbolic-ref', 'rev-list'], \
+            "a full clone never deepens, calls the API or asks the remote"
 
     def test_report_detection_never_sets_backfill(self):
         """Test report detection never sets backfill."""
         with patch('membrowse.utils.git.run_git_command', return_value=None):
             assert 'backfill' not in detect_git_metadata()
+
+
+class TestDefaultBranch:
+    """repository.default_branch: event payload first, then origin/HEAD, then the remote."""
+
+    @staticmethod
+    def _git(origin_head=None, ls_remote=None, calls=None):
+        """Fake run_git_command answering only the default-branch lookups."""
+        def side_effect(cmd, **_):
+            if calls is not None:
+                calls.append(cmd)
+            if cmd == ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD']:
+                return origin_head
+            if cmd[:2] == ['ls-remote', '--symref']:
+                return ls_remote
+            return None
+        return side_effect
+
+    def test_local_origin_head(self):
+        """Test origin/HEAD answers without asking the remote."""
+        calls = []
+        with patch('membrowse.utils.git.run_git_command',
+                   side_effect=self._git(origin_head='origin/develop', calls=calls)):
+            assert get_default_branch() == 'develop'
+        assert not any(c[0] == 'ls-remote' for c in calls)
+
+    def test_remote_fallback(self):
+        """Test ls-remote supplies the branch when origin/HEAD is unset."""
+        out = 'ref: refs/heads/trunk\tHEAD\n' + 'a' * 40 + '\tHEAD'
+        with patch('membrowse.utils.git.run_git_command',
+                   side_effect=self._git(ls_remote=out)):
+            assert get_default_branch() == 'trunk'
+            assert get_default_branch(remote_lookup=False) is None
+
+    def test_unknown(self):
+        """Test None when nothing can tell."""
+        with patch('membrowse.utils.git.run_git_command', side_effect=self._git()):
+            assert get_default_branch() is None
+            assert detect_git_metadata(include_ancestry=False)['default_branch'] is None
+
+    def test_github_event_wins_without_remote_lookup(self):
+        """Test the event payload's repository.default_branch is used, no ls-remote."""
+        event = {'before': '0' * 40, 'forced': False,
+                 'repository': {'full_name': 'o/r', 'default_branch': 'stable'}}
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+            json.dump(event, f)
+            event_path = f.name
+        calls = []
+        try:
+            with patch.dict(os.environ, {'GITHUB_EVENT_NAME': 'push', 'GITHUB_SHA': '',
+                                         'GITHUB_EVENT_PATH': event_path}), \
+                    patch('membrowse.utils.git.run_git_command',
+                          side_effect=self._git(origin_head='origin/main', calls=calls)):
+                metadata = detect_github_metadata()
+        finally:
+            os.unlink(event_path)
+        assert metadata['default_branch'] == 'stable'
+        assert not any(c[0] == 'ls-remote' for c in calls)
+
+    def test_enriched_report_nests_repository(self):
+        """Test metadata.repository carries name and default_branch."""
+        # pylint: disable=import-outside-toplevel,protected-access
+        from membrowse.commands.report import _build_enriched_report
+        enriched = _build_enriched_report(
+            {}, {'repository': 'repo', 'default_branch': 'main'}, 'tgt')
+        assert enriched['metadata']['repository'] == {'name': 'repo', 'default_branch': 'main'}
