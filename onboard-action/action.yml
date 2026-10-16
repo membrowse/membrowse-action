@@ -147,7 +147,7 @@ runs:
             exit 1
           fi
         fi
-        "${{ steps.detect-python.outputs.python }}" -m pip install --force-reinstall --no-cache-dir "$INSTALL_PATH"
+        "${{ steps.detect-python.outputs.python }}" -m pip install --force-reinstall "$INSTALL_PATH"
 
     - name: Fetch full git history
       shell: bash
