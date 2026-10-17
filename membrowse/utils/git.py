@@ -82,17 +82,31 @@ def git_checkout(ref: str) -> None:
 
 
 def git_submodule_update() -> None:
-    """Update submodules to match the current checkout."""
-    subprocess.run(
-        ['git', 'submodule', 'update', '--init', '--recursive', '--quiet'],
-        capture_output=True, check=False
+    """Update submodules to match the current checkout.
+
+    Uses --force so local changes inside a submodule (e.g. patches applied
+    by the previous commit's build) can't block checking out the new
+    submodule commit and leave it on a stale revision.
+    """
+    result = subprocess.run(
+        ['git', 'submodule', 'update', '--init', '--recursive', '--force', '--quiet'],
+        capture_output=True, text=True, check=False
     )
+    if result.returncode != 0:
+        logger.warning("git submodule update failed: %s", result.stderr.strip())
 
 
 def git_clean() -> None:
-    """Remove all untracked and gitignored files (full clean build)."""
+    """Remove all untracked and gitignored files (full clean build).
+
+    Also cleans inside submodules, which the top-level clean doesn't touch.
+    """
     subprocess.run(
         ['git', 'clean', '-fdx'],
+        capture_output=True, check=False
+    )
+    subprocess.run(
+        ['git', 'submodule', 'foreach', '--recursive', '--quiet', 'git clean -fdx'],
         capture_output=True, check=False
     )
 
