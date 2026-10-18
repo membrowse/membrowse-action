@@ -38,12 +38,12 @@ def _wrap_comment_body(
     """
     Wrap a rendered body with the MemBrowse marker, header and footer.
 
-    The header includes a "View dashboard" link when a project URL is
+    The header includes an "Explore what changed" link when a project URL is
     available. The footer links to membrowse.com and can be disabled.
     """
     title = "MemBrowse Memory Report"
     if dashboard_url:
-        title += f" &middot; [View dashboard]({dashboard_url})"
+        title += f" &middot; [Explore what changed →]({dashboard_url})"
     header = f"{COMMENT_MARKER}\n## {_LOGO} {title}\n"
     if not footer:
         return f"{header}\n{body.rstrip()}\n"
