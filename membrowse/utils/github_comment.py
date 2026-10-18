@@ -34,12 +34,12 @@ def _wrap_comment_body(body: str, dashboard_url: Optional[str] = None) -> str:
     """
     Wrap a rendered body with the MemBrowse marker, header and footer.
 
-    The header includes a "Go to dashboard" link when a project URL is
+    The header includes a "View dashboard" link when a project URL is
     available. The footer always links to membrowse.com.
     """
     title = "MemBrowse Memory Report"
     if dashboard_url:
-        title += f" &middot; [Go to dashboard]({dashboard_url})"
+        title += f" &middot; [View dashboard]({dashboard_url})"
     header = f"{COMMENT_MARKER}\n## {_LOGO} {title}\n"
     footer = (
         f"\n---\n<sub>Memory footprint tracked by [MemBrowse]({MEMBROWSE_URL}). "
