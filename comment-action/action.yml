@@ -23,7 +23,7 @@ inputs:
     description: 'Optional path to custom Jinja2 template file for comment formatting'
     required: false
   footer:
-    description: 'Append the "Memory footprint tracked by MemBrowse" footer to the comment (true/false)'
+    description: 'Append the "Catch memory regressions in CI with MemBrowse" footer to the comment (true/false)'
     required: false
     default: 'true'
   verbose:

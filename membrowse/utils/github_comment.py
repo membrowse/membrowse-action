@@ -48,7 +48,7 @@ def _wrap_comment_body(
     if not footer:
         return f"{header}\n{body.rstrip()}\n"
     footer_text = (
-        f"\n---\n<sub>Memory footprint tracked by [MemBrowse]({MEMBROWSE_URL}). "
+        f"\n---\n<sub>Catch memory regressions in CI with [MemBrowse]({MEMBROWSE_URL}). "
         "Free for open source.</sub>\n"
     )
     return f"{header}\n{body.rstrip()}\n{footer_text}"
