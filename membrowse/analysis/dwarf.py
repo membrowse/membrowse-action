@@ -28,6 +28,19 @@ ARM_MACHINES = {
 }
 
 
+def _file_index_base(line_program) -> int:
+    """Index of the first entry in a line program's file table.
+
+    File numbers (in line program rows and in DW_AT_decl_file) index the
+    line program's file table, whose numbering is set by the line program
+    header version: 0-based from DWARF 5, 1-based before. The CU version
+    does not decide it, because toolchains mix the two: GCC 11+ with an
+    assembler-generated line table emits DWARF 5 .debug_info alongside a
+    version 3 .debug_line.
+    """
+    return 0 if line_program.header.version >= 5 else 1
+
+
 class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-public-methods
     """Handles DWARF debug information processing for source file mapping.
 
@@ -557,13 +570,14 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
                         file_index = entry.state.file
                         line_number = getattr(entry.state, 'line', 0) or 0
 
-                        if address == 0 or file_index == 0:
+                        if address == 0:
                             continue
 
                         # Get file from line program file table
                         file_entries = line_program.header.file_entry
-                        if file_index <= len(file_entries):
-                            file_entry = file_entries[file_index - 1]
+                        list_index = file_index - _file_index_base(line_program)
+                        if 0 <= list_index < len(file_entries):
+                            file_entry = file_entries[list_index]
                             if file_entry and hasattr(file_entry, 'name'):
                                 filename = self._extract_string_value(
                                     file_entry.name)
@@ -612,16 +626,13 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
             line_program = dwarfinfo.line_program_for_CU(cu)
 
             if line_program and hasattr(line_program.header, 'file_entry'):
-                # Build file entries preserving original DWARF file indices
-                # DWARF 4 and earlier: file indices are 1-based
-                # DWARF 5 and later: file indices are 0-based
+                # Build file entries preserving original DWARF file indices.
                 # Even if there are duplicates, we must keep original indices
                 # because DW_AT_decl_file references them by their original
                 # index
-                dwarf_version = cu['version']
-                start_index = 0 if dwarf_version >= 5 else 1
                 for idx, file_entry in enumerate(
-                        line_program.header.file_entry, start=start_index):
+                        line_program.header.file_entry,
+                        start=_file_index_base(line_program)):
                     if file_entry and hasattr(file_entry, 'name'):
                         filename = self._extract_string_value(file_entry.name)
                         if filename:
