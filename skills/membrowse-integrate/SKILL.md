@@ -412,6 +412,7 @@ jobs:
         uses: membrowse/membrowse-action/comment-action@v1
         with:
           api_key: ${{ secrets.MEMBROWSE_API_KEY }}
+          api_url: ${{ vars.MEMBROWSE_API_URL }}
           commit: ${{ github.event.pull_request.head.sha }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -508,6 +509,7 @@ jobs:
         uses: membrowse/membrowse-action/comment-action@v1
         with:
           api_key: ${{ secrets.MEMBROWSE_API_KEY }}
+          api_url: ${{ vars.MEMBROWSE_API_URL }}
           commit: ${{ github.event.pull_request.head.sha }}
         env:
           MEMBROWSE_API_KEY: ${{ secrets.MEMBROWSE_API_KEY }}
@@ -585,6 +587,10 @@ jobs:
           ld: ${{ matrix.ld }}
           map_file: ${{ matrix.map_file }}
           linker_vars: ${{ matrix.linker_vars }}
+          # Fork PRs cannot read repository secrets, so api_key is empty there.
+          # That is fine: for PRs to public repositories the action uploads the
+          # report tokenless, so no API key is needed. The key is only used for
+          # push events and same-repo PRs.
           api_key: ${{ secrets.MEMBROWSE_API_KEY }}
           api_url: ${{ vars.MEMBROWSE_API_URL }}
           verbose: INFO
@@ -627,6 +633,7 @@ jobs:
         uses: membrowse/membrowse-action/comment-action@v1
         with:
           api_key: ${{ secrets.MEMBROWSE_API_KEY }}
+          api_url: ${{ vars.MEMBROWSE_API_URL }}
           commit: ${{ github.event.workflow_run.head_sha }}
         env:
           MEMBROWSE_API_KEY: ${{ secrets.MEMBROWSE_API_KEY }}
@@ -807,7 +814,7 @@ Ensure the binary is compiled with debug symbols (`-g` flag, or `-DCMAKE_BUILD_T
 
 ### API key issues
 - Verify the secret is named exactly `MEMBROWSE_API_KEY` in repository settings.
-- Fork PRs do not have access to repository secrets. The report will still be generated and uploaded on push events, but fork PR runs will skip the upload. The `workflow_run` comment workflow handles this by posting comments from the base repo context.
+- Fork PRs do not have access to repository secrets, so `api_key` is empty in those runs. For PRs to public repositories the action uploads the report tokenless, so no API key is needed there. The `workflow_run` comment workflow then posts the comment from the base repo context, where the secret is available.
 
 ### Git metadata missing
 Ensure `fetch-depth: 2` is set on the checkout step for report workflows (the parent commit is needed for diff metadata). The onboard workflow needs `fetch-depth: 0` since it iterates through historical commits. With too little history, MemBrowse cannot detect branch and commit metadata correctly.
