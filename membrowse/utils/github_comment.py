@@ -42,7 +42,7 @@ def _wrap_comment_body(body: str, dashboard_url: Optional[str] = None) -> str:
         title += f" &middot; [Go to dashboard]({dashboard_url})"
     header = f"{COMMENT_MARKER}\n## {_LOGO} {title}\n"
     footer = (
-        f"\n---\n<sub>Memory footprint tracking by [MemBrowse]({MEMBROWSE_URL}). "
+        f"\n---\n<sub>Memory footprint tracked by [MemBrowse]({MEMBROWSE_URL}). "
         "Free for open source.</sub>\n"
     )
     return f"{header}\n{body.rstrip()}\n{footer}"
