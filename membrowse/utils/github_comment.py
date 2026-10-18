@@ -26,6 +26,33 @@ logger = logging.getLogger(__name__)
 # Unique marker to identify MemBrowse comments
 COMMENT_MARKER = "<!-- membrowse-pr-comment -->"
 
+MEMBROWSE_URL = "https://membrowse.com"
+_LOGO = f'<img src="{MEMBROWSE_URL}/membrowse-logo.svg" height="24" align="top">'
+
+
+def _wrap_comment_body(
+    body: str,
+    dashboard_url: Optional[str] = None,
+    footer: bool = True,
+) -> str:
+    """
+    Wrap a rendered body with the MemBrowse marker, header and footer.
+
+    The header includes an "Explore what changed" link when a project URL is
+    available. The footer links to membrowse.com and can be disabled.
+    """
+    title = "MemBrowse Memory Report"
+    if dashboard_url:
+        title += f" &middot; [Explore what changed →]({dashboard_url})"
+    header = f"{COMMENT_MARKER}\n## {_LOGO} {title}\n"
+    if not footer:
+        return f"{header}\n{body.rstrip()}\n"
+    footer_text = (
+        f"\n---\n<sub>Catch memory regressions in CI with [MemBrowse]({MEMBROWSE_URL}). "
+        "Free for open source.</sub>\n"
+    )
+    return f"{header}\n{body.rstrip()}\n{footer_text}"
+
 
 def _extract_pr_number(results: list[dict]) -> str:
     """
@@ -50,7 +77,8 @@ def _extract_pr_number(results: list[dict]) -> str:
 
 def post_combined_pr_comment(
     results: list[dict],
-    template_path: Optional[str] = None
+    template_path: Optional[str] = None,
+    footer: bool = True,
 ) -> None:
     """
     Post a single PR comment with combined memory analysis results from multiple targets.
@@ -60,6 +88,7 @@ def post_combined_pr_comment(
             target_name, pr_number
         template_path: Optional path to custom Jinja2 template file. If None, uses
             the default template format.
+        footer: Whether to append the MemBrowse footer.
     """
     if not is_gh_cli_available():
         logger.warning("GitHub CLI (gh) not available, skipping PR comment")
@@ -74,7 +103,7 @@ def post_combined_pr_comment(
     # Build comment body using template (custom or default)
     try:
         context = _build_template_context(results)
-        comment_body = _render_comment_body(context, template_path)
+        comment_body = _render_comment_body(context, template_path, footer)
     except FileNotFoundError as e:
         logger.error("Template error: %s", e)
         raise
@@ -91,7 +120,7 @@ def post_combined_pr_comment(
         handle_comment_error(e, "PR comment")
 
 
-def post_pr_comment_from_body(body: str, pr_number: str) -> None:
+def post_pr_comment_from_body(body: str, pr_number: str, footer: bool = True) -> None:
     """
     Post a pre-rendered body as a PR comment, wrapped with the MemBrowse header.
 
@@ -100,14 +129,13 @@ def post_pr_comment_from_body(body: str, pr_number: str) -> None:
     Args:
         body: Pre-rendered markdown body (e.g., from membrowse summary)
         pr_number: PR number to post the comment on
+        footer: Whether to append the MemBrowse footer
     """
     if not is_gh_cli_available():
         logger.warning("GitHub CLI (gh) not available, skipping PR comment")
         return
 
-    logo = '<img src="https://membrowse.com/membrowse-logo.svg" height="24" align="top">'
-    header = f"{COMMENT_MARKER}\n## {logo} MemBrowse Memory Report\n"
-    comment_body = f"{header}\n{body}"
+    comment_body = _wrap_comment_body(body, footer=footer)
 
     try:
         create_or_update_comment(comment_body, pr_number, COMMENT_MARKER)
@@ -178,7 +206,7 @@ def _get_default_template_path() -> Path:
     return Path(__file__).parent / 'templates' / 'default_comment.j2'
 
 
-def _render_template(template_path: str, context: dict) -> str:
+def _render_template(template_path: str, context: dict, footer: bool = True) -> str:
     """
     Render a Jinja2 template with comment marker and header prepended.
 
@@ -187,16 +215,13 @@ def _render_template(template_path: str, context: dict) -> str:
         Jinja2TemplateError: If template has syntax errors
     """
     rendered = render_jinja2_template(template_path, context)
-
-    logo = '<img src="https://membrowse.com/membrowse-logo.svg" height="24" align="top">'
-    header = f"{COMMENT_MARKER}\n## {logo} MemBrowse Memory Report\n"
-
-    return f"{header}\n{rendered}"
+    return _wrap_comment_body(rendered, context.get('dashboard_url'), footer)
 
 
 def _render_comment_body(
     context: dict,
-    template_path: Optional[str] = None
+    template_path: Optional[str] = None,
+    footer: bool = True,
 ) -> str:
     """
     Render comment body from a template context.
@@ -204,23 +229,25 @@ def _render_comment_body(
     Args:
         context: Template context dict with 'targets' and 'has_alerts'
         template_path: Path to custom template file, or None for default
+        footer: Whether to append the MemBrowse footer
 
     Returns:
         str: Markdown-formatted comment body
     """
     if template_path:
         logger.debug("Rendering comment using custom template: %s", template_path)
-        return _render_template(template_path, context)
+        return _render_template(template_path, context, footer)
 
     # Use default template
     default_template = _get_default_template_path()
-    return _render_template(str(default_template), context)
+    return _render_template(str(default_template), context, footer)
 
 
 def post_summary_comment(
     summary_json_path: str,
     pr_number: Optional[str] = None,
     template_path: Optional[str] = None,
+    footer: bool = True,
 ) -> None:
     """
     Post a PR comment from a saved /summary API response JSON file.
@@ -233,6 +260,7 @@ def post_summary_comment(
         summary_json_path: Path to the saved /summary JSON response
         pr_number: PR number override (auto-extracted from JSON if None)
         template_path: Custom Jinja2 template path, or None for default
+        footer: Whether to append the MemBrowse footer
     """
     with open(summary_json_path, 'r', encoding='utf-8') as f:
         response = json.load(f)
@@ -257,7 +285,7 @@ def post_summary_comment(
 
     # Render template from the same response
     context = build_summary_template_context(response)
-    body = _render_comment_body(context, template_path)
+    body = _render_comment_body(context, template_path, footer)
 
     # body already includes the header/marker from _render_comment_body,
     # so post directly instead of going through post_pr_comment_from_body
@@ -317,6 +345,12 @@ def main():
         dest='template_path',
         help='Path to custom Jinja2 template file for comment formatting'
     )
+    parser.add_argument(
+        '--no-footer',
+        dest='footer',
+        action='store_false',
+        help='Omit the MemBrowse footer from the comment'
+    )
     args = parser.parse_args()
 
     # Summary JSON mode: extract PR number, render, and post in one step
@@ -326,6 +360,7 @@ def main():
                 args.summary_json,
                 pr_number=args.pr_number,
                 template_path=args.template_path,
+                footer=args.footer,
             )
         except (json.JSONDecodeError, IOError, ValueError) as e:
             logger.error("Failed to post summary comment: %s", e)
@@ -341,7 +376,7 @@ def main():
         except IOError as e:
             logger.error("Failed to read body file: %s", e)
             sys.exit(1)
-        post_pr_comment_from_body(body, args.pr_number)
+        post_pr_comment_from_body(body, args.pr_number, footer=args.footer)
         return
 
     # File mode
@@ -384,7 +419,9 @@ def _handle_file_mode(parser, args):
 
     # Post combined PR comment with optional custom template
     try:
-        post_combined_pr_comment(results, template_path=args.template_path)
+        post_combined_pr_comment(
+            results, template_path=args.template_path, footer=args.footer
+        )
     except (FileNotFoundError, Jinja2TemplateError) as e:
         logger.error("Failed to generate comment: %s", e)
         sys.exit(1)

@@ -22,6 +22,10 @@ inputs:
   comment_template:
     description: 'Optional path to custom Jinja2 template file for comment formatting'
     required: false
+  footer:
+    description: 'Append the "Catch memory regressions in CI with MemBrowse" footer to the comment (true/false)'
+    required: false
+    default: 'true'
   verbose:
     description: 'Set logging level: DEBUG, INFO, or WARNING (default: WARNING)'
     required: false
@@ -105,6 +109,7 @@ runs:
         INPUT_PR_NUMBER: ${{ inputs.pr_number }}
         INPUT_API_URL: ${{ inputs.api_url }}
         INPUT_COMMENT_TEMPLATE: ${{ inputs.comment_template }}
+        INPUT_FOOTER: ${{ inputs.footer }}
         EVENT_PR_NUMBER: ${{ github.event.pull_request.number }}
       run: |
         # Global args (before subcommand)
@@ -118,6 +123,14 @@ runs:
           *)
             echo "::error::Invalid verbose level: '$INPUT_VERBOSE' (expected DEBUG, INFO, or WARNING)"
             exit 1
+            ;;
+        esac
+
+        # Shared comment flags
+        COMMON_ARGS=()
+        case "${INPUT_FOOTER,,}" in
+          false|0|no|off)
+            COMMON_ARGS+=(--no-footer)
             ;;
         esac
 
@@ -138,7 +151,7 @@ runs:
 
           # Post comment: extracts pr_number from JSON if not provided,
           # renders template, and posts in one step
-          COMMENT_ARGS=(--summary-json /tmp/membrowse-summary.json)
+          COMMENT_ARGS=(--summary-json /tmp/membrowse-summary.json "${COMMON_ARGS[@]}")
           if [ -n "$PR_NUMBER" ]; then
             COMMENT_ARGS+=(--pr-number "$PR_NUMBER")
           fi
@@ -148,7 +161,7 @@ runs:
           "${{ steps.detect-python.outputs.python }}" -m membrowse.utils.github_comment "${COMMENT_ARGS[@]}"
         else
           # File mode (backward compat)
-          ARGS=()
+          ARGS=("${COMMON_ARGS[@]}")
           if [ -n "$INPUT_COMMENT_TEMPLATE" ]; then
             ARGS+=(--comment-template "$INPUT_COMMENT_TEMPLATE")
           fi
