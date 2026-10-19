@@ -949,6 +949,27 @@ class TestIncludeDirective(unittest.TestCase):
         self.assertEqual(regions['FLASH']['address'], 0x08008000)
         self.assertEqual(regions['FLASH']['limit_size'], 10080 * 1024)
 
+    def test_include_found_in_a_search_directory(self):
+        """An INCLUDE file that is neither next to the script nor in the cwd is
+        found in an include_dirs entry, as GNU LD finds it through -L: pico-sdk
+        2.3 keeps its MEMORY block in script_include/memmap_default.incl."""
+        with tempfile.TemporaryDirectory() as sdk:
+            include_dir = Path(sdk) / 'script_include'
+            include_dir.mkdir()
+            (include_dir / 'memmap_default.incl').write_text('''
+                MEMORY
+                {
+                    FLASH(rx) : ORIGIN = 0x10000000, LENGTH = 4096k
+                    RAM(rwx) : ORIGIN = 0x20000000, LENGTH = 512k
+                }
+            ''', encoding='utf-8')
+            outer = self.create_test_file('INCLUDE "memmap_default.incl"\n', 'memmap_default.ld')
+
+            self.assertEqual(parse_linker_scripts([str(outer)]), {})
+            regions = parse_linker_scripts([str(outer)], include_dirs=[str(include_dir)])
+            self.assertEqual(regions['FLASH']['limit_size'], 4096 * 1024)
+            self.assertEqual(regions['RAM']['limit_size'], 512 * 1024)
+
     def test_include_unquoted_filename(self):
         """INCLUDE without quotes is supported."""
         self.create_test_file('''
