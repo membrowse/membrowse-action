@@ -20,6 +20,7 @@ from membrowse.analysis.dwarf import DWARFProcessor
 from membrowse.analysis.sources import SourceFileResolver, relative_source_path
 from membrowse.commands.report import generate_report, resolve_source_root
 from membrowse.core.analyzer import ELFAnalyzer
+from tests.test_helpers import can_compile_embedded
 
 
 class TestRelativeSourcePath(unittest.TestCase):
@@ -53,6 +54,14 @@ class TestRelativeSourcePath(unittest.TestCase):
             relative_source_path('C:\\work\\repo\\src\\main.c', ('C:/work/repo/',)),
             'src/main.c')
 
+    def test_windows_root_is_kept_as_a_drive_path(self):
+        """A drive-letter root is matched as given, on any host."""
+        resolver = SourceFileResolver(
+            {'symbol_to_file': {('foo', 1): 'C:\\work\\repo\\src\\foo.c'},
+             'address_to_file': {}, 'address_to_cu_file': {}},
+            system_header_cache={}, source_root='C:\\work\\repo')
+        self.assertEqual(resolver.extract_source_file('foo', 'FUNC', 1), 'src/foo.c')
+
     def test_sibling_directory_with_root_as_prefix_is_outside(self):
         """/work/repo-old is not inside /work/repo."""
         self.assertEqual(
@@ -85,7 +94,8 @@ class TestRelativeSourcePath(unittest.TestCase):
         """The compiler records the path it was invoked with; a root given
         through a symlink must match paths recorded either way."""
         with tempfile.TemporaryDirectory() as tmp:
-            real_root = os.path.join(tmp, 'real')
+            # the resolved temp dir: Windows hands out 8.3 short names
+            real_root = os.path.join(os.path.realpath(tmp), 'real')
             os.makedirs(os.path.join(real_root, 'src'))
             link_root = os.path.join(tmp, 'link')
             try:
@@ -176,7 +186,8 @@ class TestResolveSourceRoot(unittest.TestCase):
                 self.assertIsNone(resolve_source_root(None))
 
 
-@unittest.skipUnless(shutil.which('gcc'), 'gcc not available')
+@unittest.skipUnless(shutil.which('gcc') and can_compile_embedded('gcc'),
+                     'no gcc that produces ELF files')
 class TestCompiledSourcePaths(unittest.TestCase):
     """A real ELF: sources under the root are reported by path, the rest by basename."""
 

@@ -19,15 +19,35 @@ from .symbols import strip_compiler_suffix
 _CGU_HASH_PATTERN = re.compile(r'^.+\.[0-9a-f]+-cgu\.\d+$')
 
 
+# A drive-letter or UNC path from a Windows toolchain, slash-normalized
+_WINDOWS_ABS_RE = re.compile(r'^(?:[A-Za-z]:/|//)')
+
+
+def _is_abs(posix_path: str) -> bool:
+    return posixpath.isabs(posix_path) or bool(_WINDOWS_ABS_RE.match(posix_path))
+
+
+def _fold(path: str) -> str:
+    """Comparison form of a path: Windows file systems ignore case."""
+    return path.lower() if os.name == 'nt' else path
+
+
 def _source_roots(source_root: Optional[str]) -> tuple:
     """The prefixes a DWARF path is matched against, slash-terminated: the
-    root as given and as resolved, since the compiler records the path it
-    was invoked with, which may go through a symlink the root does not."""
+    root as given and, when it exists, as resolved, since the compiler
+    records the path it was invoked with, which may go through a symlink
+    (or a short name on Windows) the root does not."""
     if not source_root:
         return ()
+    given = source_root.replace('\\', '/')
+    if not _is_abs(given):
+        given = os.path.abspath(source_root).replace('\\', '/')
+    candidates = [given]
+    if os.path.exists(source_root):
+        candidates.append(os.path.realpath(source_root).replace('\\', '/'))
     roots = []
-    for candidate in (os.path.abspath(source_root), os.path.realpath(source_root)):
-        prefix = posixpath.normpath(candidate.replace('\\', '/')).rstrip('/') + '/'
+    for candidate in candidates:
+        prefix = posixpath.normpath(candidate).rstrip('/') + '/'
         if prefix not in roots:
             roots.append(prefix)
     return tuple(roots)
@@ -39,8 +59,9 @@ def relative_source_path(path: str, roots: Iterable[str]) -> str:
     its basename, so toolchain and system files stay short and build-location
     independent."""
     normalized = posixpath.normpath(path.replace('\\', '/'))
+    folded = _fold(normalized)
     for root in roots:
-        if normalized.startswith(root):
+        if folded.startswith(_fold(root)):
             return normalized[len(root):]
     return posixpath.basename(normalized)
 
