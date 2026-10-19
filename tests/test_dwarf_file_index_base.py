@@ -54,9 +54,11 @@ def die_file_entries(cu_version, line_version):
     processor = DWARFProcessor(None, set(), skip_line_program=True)
     dwarfinfo = mock.Mock()
     dwarfinfo.line_program_for_CU.return_value = FakeLineProgram(line_version)
+    cu = FakeCU(cu_version)
+    file_paths = processor._line_program_file_paths(dwarfinfo, cu, None)
     with mock.patch.object(processor, '_process_die_tree') as process:
         processor._extract_die_symbol_data_optimized(
-            FakeCU(cu_version), dwarfinfo, 'heap_4.c', None, None)
+            cu, 'heap_4.c', None, None, file_paths)
     return process.call_args[0][1]
 
 
@@ -66,7 +68,9 @@ def line_program_files(line_version, rows):
     dwarfinfo = mock.Mock()
     dwarfinfo.line_program_for_CU.return_value = FakeLineProgram(
         line_version, rows)
-    processor._extract_line_program_data(FakeCU(5), dwarfinfo)
+    cu = FakeCU(5)
+    file_paths = processor._line_program_file_paths(dwarfinfo, cu, None)
+    processor._extract_line_program_data(cu, dwarfinfo, file_paths)
     return processor.dwarf_data['address_to_file']
 
 

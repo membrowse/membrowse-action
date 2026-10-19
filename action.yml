@@ -68,9 +68,13 @@ inputs:
     default: ''
   source_root:
     description: |
-      Directory that symbols' source files are reported relative to, e.g.
-      src/portable/synopsys/dwc2/dcd_dwc2.c. Defaults to the workspace
-      (GITHUB_WORKSPACE). Files outside it are reported by basename.
+      Directory that symbols' source files are reported relative to, so a
+      file under it is reported as e.g. src/drivers/uart.c instead of
+      uart.c. Typically the checkout: ${{ github.workspace }} (or '.').
+      Off by default: every file is reported by basename. Files outside the
+      directory are always reported by basename. The platform keys symbol
+      identity on source_file, so the first upload after turning this on
+      reports in-repo symbols as moved.
     required: false
     default: ''
 
@@ -255,7 +259,7 @@ runs:
           set +f
         fi
 
-        # Source paths relative to this directory (default: the workspace)
+        # Source paths relative to this directory (off by default)
         if [ -n "$INPUT_SOURCE_ROOT" ]; then
           ARGS+=(--source-root "$INPUT_SOURCE_ROOT")
         fi

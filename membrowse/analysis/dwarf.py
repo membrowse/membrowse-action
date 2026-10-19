@@ -9,11 +9,11 @@ to map symbols to their source files with intelligent optimizations.
 import posixpath
 import logging
 import bisect
-import re
 from typing import Dict, List, Optional, Any, Tuple
 from collections import deque
 from elftools.common.exceptions import ELFError
 from ..core.exceptions import DWARFParsingError, DWARFCUProcessingError, DWARFAttributeError
+from .paths import is_abs, to_posix
 
 # Configure logger
 logger = logging.getLogger(__name__)
@@ -22,20 +22,11 @@ logger = logging.getLogger(__name__)
 MAX_ADDRESS = 0xFFFFFFFF  # Default max address when CU has no range
 THUMB_MODE_TOLERANCE = 2   # ARM thumb mode address difference tolerance
 
-# A drive-letter or UNC path from a Windows toolchain, already slash-normalized
-_WINDOWS_ABS_RE = re.compile(r'^(?:[A-Za-z]:/|//)')
-
 # ARM machine types that use Thumb mode
 ARM_MACHINES = {
     'EM_ARM',      # ARM 32-bit
     40,            # EM_ARM numeric value
 }
-
-
-def _to_posix(path: Optional[str]) -> Optional[str]:
-    """A DWARF path with forward slashes, so that every join and prefix
-    comparison works on Windows-built debug info too."""
-    return path.replace('\\', '/') if path else path
 
 
 def _file_index_base(line_program) -> int:
@@ -370,10 +361,10 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
             if comp_dir_attr:
                 comp_dir = self._extract_string_value(comp_dir_attr.value)
 
-        cu_name = _to_posix(cu_name)
-        comp_dir = _to_posix(comp_dir)
+        cu_name = to_posix(cu_name)
+        comp_dir = to_posix(comp_dir)
         if cu_name:
-            if comp_dir and not posixpath.isabs(cu_name):
+            if comp_dir and not is_abs(cu_name):
                 cu_source_file = posixpath.normpath(posixpath.join(comp_dir, cu_name))
             else:
                 cu_source_file = posixpath.normpath(cu_name)
@@ -396,7 +387,7 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
             self._extract_line_program_data(cu, dwarfinfo, file_paths)
 
         self._extract_die_symbol_data_optimized(
-            cu, dwarfinfo, cu_source_file, cu_low_pc, cu_high_pc, file_paths)
+            cu, cu_source_file, cu_low_pc, cu_high_pc, file_paths)
 
         # Track coverage after line program processing
         total_addresses = len(self.dwarf_data['address_to_file'])
@@ -437,18 +428,21 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
         if not line_program or not hasattr(line_program.header, 'file_entry'):
             return {}
         header = line_program.header
-        directories = [_to_posix(self._extract_string_value(d))
+        directories = [to_posix(self._extract_string_value(d))
                        for d in (getattr(header, 'include_directory', None) or [])]
         dwarf5 = header.version >= 5
         paths: Dict[int, str] = {}
         for idx, entry in enumerate(header.file_entry, start=_file_index_base(line_program)):
             if not entry or not hasattr(entry, 'name'):
                 continue
-            name = _to_posix(self._extract_string_value(entry.name))
+            name = to_posix(self._extract_string_value(entry.name))
             if not name:
                 continue
+            # pyelftools stores None when a DWARF 5 entry format carries no
+            # DW_LNCT_directory_index; the file is then in directory 0
+            dir_index = getattr(entry, 'dir_index', None)
             paths[idx] = self._join_file_entry(
-                name, getattr(entry, 'dir_index', 0), directories, dwarf5, comp_dir)
+                name, 0 if dir_index is None else dir_index, directories, dwarf5, comp_dir)
         return paths
 
     @staticmethod
@@ -456,7 +450,7 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
                          dwarf5: bool, comp_dir: Optional[str]) -> str:
         """The full path of one line program file entry (see
         _line_program_file_paths); the bare name when no directory is known."""
-        if posixpath.isabs(name) or _WINDOWS_ABS_RE.match(name):
+        if is_abs(name):
             return posixpath.normpath(name)
         directory = None
         if dwarf5:
@@ -466,8 +460,7 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
             directory = comp_dir
         elif 1 <= dir_index <= len(directories):
             directory = directories[dir_index - 1]
-        if directory and comp_dir and not (
-                posixpath.isabs(directory) or _WINDOWS_ABS_RE.match(directory)):
+        if directory and comp_dir and not is_abs(directory):
             directory = posixpath.join(comp_dir, directory)
         if not directory:
             return name
@@ -610,7 +603,7 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
             return None
 
     def _extract_line_program_data(  # pylint: disable=too-many-nested-blocks
-            self, cu, dwarfinfo, file_paths: Optional[Dict[int, str]] = None) -> None:
+            self, cu, dwarfinfo, file_paths: Dict[int, str]) -> None:
         """Extract line program data to map addresses to source files.
 
         Line program data provides instruction-level address to source file mappings,
@@ -621,15 +614,11 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
             cu: Compilation unit containing the line program
             dwarfinfo: DWARF debug information object
             file_paths: The CU's file table from _line_program_file_paths
-                (built here when not given)
         """
         try:  # pylint: disable=too-many-nested-blocks
             line_program = dwarfinfo.line_program_for_CU(cu)
             if not line_program:
                 return
-            if file_paths is None:
-                file_paths = self._line_program_file_paths(dwarfinfo, cu, None)
-
             entries = line_program.get_entries()
             if not entries:
                 return
@@ -675,11 +664,10 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
     def _extract_die_symbol_data_optimized(  # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals,too-many-branches,too-many-statements
             self,
             cu,
-            dwarfinfo,
             cu_source_file: Optional[str],
             cu_low_pc: Optional[int],
             cu_high_pc: Optional[int],
-            file_entries: Optional[Dict[int, str]] = None) -> None:
+            file_entries: Dict[int, str]) -> None:
         """Extract DIE symbol data optimized for only relevant symbols.
 
         DIEs (Debug Information Entries) provide symbol-specific source mappings
@@ -688,18 +676,14 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
 
         Args:
             cu: Compilation unit to process
-            dwarfinfo: DWARF debug information object
             cu_source_file: Source file path for this CU
             cu_low_pc: CU starting address
             cu_high_pc: CU ending address
             file_entries: The CU's file table from _line_program_file_paths,
                 keyed by the original DWARF file index that DW_AT_decl_file
-                references (built here when not given)
+                references
         """
         try:
-            if file_entries is None:
-                file_entries = self._line_program_file_paths(dwarfinfo, cu, None)
-
             # Process DIEs with early filtering
             top_die = cu.get_top_DIE()
             self._process_die_tree(

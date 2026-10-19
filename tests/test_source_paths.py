@@ -4,8 +4,8 @@ Symbols used to carry the basename of their source file. With a source
 root (the repository checkout) the file is reported relative to it, e.g.
 src/portable/synopsys/dwc2/dcd_dwc2.c, which tells same-named files apart
 and matches the paths a repository uses for its own per-file size tables.
-Files outside the root, and every file when there is no root, keep the
-basename.
+Files outside the root, and every file when there is no root (the
+default), keep the basename.
 """
 
 import os
@@ -14,11 +14,11 @@ import subprocess
 import tempfile
 import unittest
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest import mock
 
 from membrowse.analysis.dwarf import DWARFProcessor
 from membrowse.analysis.sources import SourceFileResolver, relative_source_path
-from membrowse.commands.report import generate_report, resolve_source_root
+from membrowse.commands.report import generate_report
 from membrowse.core.analyzer import ELFAnalyzer
 from tests.test_helpers import can_compile_embedded
 
@@ -32,15 +32,23 @@ class TestRelativeSourcePath(unittest.TestCase):
             relative_source_path('/work/repo/src/class/cdc/cdc_device.c', ('/work/repo/',)),
             'src/class/cdc/cdc_device.c')
 
-    def test_outside_root_is_basename(self):
-        """Outside root is basename."""
-        self.assertEqual(
-            relative_source_path('/opt/toolchain/include/stdint.h', ('/work/repo/',)),
-            'stdint.h')
+    def test_outside_root_is_none(self):
+        """Outside root no root applies: the resolver falls back to the basename."""
+        self.assertIsNone(
+            relative_source_path('/opt/toolchain/include/stdint.h', ('/work/repo/',)))
 
-    def test_no_root_is_basename(self):
-        """No root is basename."""
-        self.assertEqual(relative_source_path('/work/repo/src/main.c', ()), 'main.c')
+    def test_no_root_is_none(self):
+        """No root: nothing applies, the resolver falls back to the basename."""
+        self.assertIsNone(relative_source_path('/work/repo/src/main.c', ()))
+        self.assertIsNone(relative_source_path('src/main.c', ()))
+
+    def test_already_relative_path_is_kept_under_a_root(self):
+        """A build with -ffile-prefix-map=/path/repo=. records paths relative
+        to the repository already; with a root set they are reported as
+        recorded, while a path leaving the build directory is not."""
+        self.assertEqual(relative_source_path('./src/main.c', ('/work/repo/',)), 'src/main.c')
+        self.assertEqual(relative_source_path('src/main.c', ('/work/repo/',)), 'src/main.c')
+        self.assertIsNone(relative_source_path('../lib/x.c', ('/work/repo/',)))
 
     def test_dot_segments_are_collapsed_before_matching(self):
         """Dot segments are collapsed before matching."""
@@ -62,11 +70,24 @@ class TestRelativeSourcePath(unittest.TestCase):
             system_header_cache={}, source_root='C:\\work\\repo')
         self.assertEqual(resolver.extract_source_file('foo', 'FUNC', 1), 'src/foo.c')
 
+    def test_windows_paths_ignore_case_on_any_host(self):
+        """A Windows toolchain may record a lowercase drive letter; the
+        file system ignores case, so the root matches on a Linux runner too."""
+        self.assertEqual(
+            relative_source_path('c:/Work/repo/src/main.c', ('C:/work/repo/',)),
+            'src/main.c')
+        self.assertEqual(
+            relative_source_path('//server/share/repo/SRC/main.c', ('//server/share/repo/',)),
+            'SRC/main.c')
+
+    def test_posix_paths_are_case_sensitive(self):
+        """Posix paths are case sensitive."""
+        self.assertIsNone(relative_source_path('/Work/repo/src/main.c', ('/work/repo/',)))
+
     def test_sibling_directory_with_root_as_prefix_is_outside(self):
         """/work/repo-old is not inside /work/repo."""
-        self.assertEqual(
-            relative_source_path('/work/repo-old/src/main.c', ('/work/repo/',)),
-            'main.c')
+        self.assertIsNone(
+            relative_source_path('/work/repo-old/src/main.c', ('/work/repo/',)))
 
     def test_resolver_without_root_keeps_basenames(self):
         """Resolver without root keeps basenames."""
@@ -75,6 +96,39 @@ class TestRelativeSourcePath(unittest.TestCase):
              'address_to_file': {}, 'address_to_cu_file': {}},
             system_header_cache={})
         self.assertEqual(resolver.extract_source_file('foo', 'FUNC', 0x1000), 'foo.c')
+
+    def test_resolver_warns_when_no_path_lies_under_the_root(self):
+        """Firmware built from another checkout (a container mount) matches
+        nothing; say so instead of silently reporting basenames."""
+        resolver = SourceFileResolver(
+            {'symbol_to_file': {('foo', 1): '/app/src/foo.c', ('bar', 2): '/app/src/bar.c'},
+             'address_to_file': {}, 'address_to_cu_file': {}},
+            system_header_cache={}, source_root='/__w/repo/repo')
+        self.assertEqual(resolver.extract_source_file('foo', 'FUNC', 1), 'foo.c')
+        self.assertEqual(resolver.extract_source_file('bar', 'FUNC', 2), 'bar.c')
+        with self.assertLogs('membrowse.analysis.sources', level='WARNING') as logs:
+            resolver.log_source_root_coverage()
+        self.assertIn('/__w/repo/repo', logs.output[0])
+        self.assertIn('2 distinct', logs.output[0])
+
+    def test_resolver_is_quiet_when_a_path_matches_or_no_root_is_set(self):
+        """Resolver is quiet when a path matches or no root is set."""
+        with mock.patch('membrowse.analysis.sources.logger') as logger:
+            resolver = SourceFileResolver(
+                {'symbol_to_file': {('foo', 1): '/work/repo/src/foo.c',
+                                    ('bar', 2): '/opt/libc/bar.c'},
+                 'address_to_file': {}, 'address_to_cu_file': {}},
+                system_header_cache={}, source_root='/work/repo')
+            resolver.extract_source_file('foo', 'FUNC', 1)
+            resolver.extract_source_file('bar', 'FUNC', 2)
+            resolver.log_source_root_coverage()
+            resolver = SourceFileResolver(
+                {'symbol_to_file': {('bar', 2): '/opt/libc/bar.c'},
+                 'address_to_file': {}, 'address_to_cu_file': {}},
+                system_header_cache={})
+            resolver.extract_source_file('bar', 'FUNC', 2)
+            resolver.log_source_root_coverage()
+            logger.warning.assert_not_called()
 
     def test_resolver_with_root_reports_relative_paths(self):
         """Resolver with root reports relative paths."""
@@ -147,6 +201,50 @@ class TestLineProgramFilePaths(unittest.TestCase):
         self.assertEqual(join('x.c', 7, ['/d'], False, None), 'x.c')
         self.assertEqual(join('x.c', 0, [], False, None), 'x.c')
 
+    def test_dwarf5_entry_without_directory_index_is_in_directory_zero(self):
+        """pyelftools stores dir_index=None when the entry format has no
+        DW_LNCT_directory_index; that must not fail the whole CU."""
+        processor = self._processor()
+        header = SimpleNamespace(
+            version=5,
+            include_directory=[b'/work/repo/src'],
+            file_entry=[SimpleNamespace(name=b'main.c', dir_index=None)])
+        dwarfinfo = SimpleNamespace(
+            line_program_for_CU=lambda cu: SimpleNamespace(header=header))
+        paths = processor._line_program_file_paths(  # pylint: disable=protected-access
+            dwarfinfo, SimpleNamespace(cu_offset=0), '/work/repo/src')
+        self.assertEqual(paths, {0: '/work/repo/src/main.c'})
+
+    def test_windows_absolute_cu_name_is_not_joined_onto_comp_dir(self):
+        """CMake on a Windows runner hands the compiler absolute sources."""
+        self.assertEqual(
+            self._cu_source_file('C:/proj/src/main.c', 'C:/proj/build'),
+            'C:/proj/src/main.c')
+        self.assertEqual(
+            self._cu_source_file('C:\\proj\\src\\main.c', 'C:\\proj\\build'),
+            'C:/proj/src/main.c')
+        self.assertEqual(
+            self._cu_source_file('../src/main.c', 'C:/proj/build'),
+            'C:/proj/src/main.c')
+        self.assertEqual(
+            self._cu_source_file('/proj/src/main.c', '/proj/build'),
+            '/proj/src/main.c')
+
+    def _cu_source_file(self, name, comp_dir):
+        """The CU source file _process_cu hands the DIE pass."""
+        processor = DWARFProcessor(elffile=None, symbol_addresses=set(),
+                                   skip_line_program=True)
+        attributes = {'DW_AT_name': SimpleNamespace(value=name.encode()),
+                      'DW_AT_comp_dir': SimpleNamespace(value=comp_dir.encode())}
+        cu = SimpleNamespace(
+            cu_offset=0, get_top_DIE=lambda: SimpleNamespace(attributes=attributes))
+        with mock.patch.object(processor, '_extract_cu_address_range',
+                               return_value=(None, None)), \
+             mock.patch.object(processor, '_line_program_file_paths', return_value={}), \
+             mock.patch.object(processor, '_extract_die_symbol_data_optimized') as die_pass:
+            processor._process_cu(cu, dwarfinfo=None)  # pylint: disable=protected-access
+        return die_pass.call_args[0][1]
+
     def test_file_table_from_header(self):
         """File table from header."""
         processor = self._processor()
@@ -162,28 +260,6 @@ class TestLineProgramFilePaths(unittest.TestCase):
             dwarfinfo, SimpleNamespace(cu_offset=0), '/work/repo/src')
         self.assertEqual(paths, {1: '/work/repo/src/main.c', 2: '/work/repo/include/tusb.h'})
 
-
-class TestResolveSourceRoot(unittest.TestCase):
-    """Default source root of the report and onboard commands."""
-
-    def test_explicit_wins(self):
-        """Explicit wins."""
-        with patch.dict(os.environ, {'GITHUB_WORKSPACE': '/ws'}):
-            self.assertEqual(resolve_source_root('/explicit'), '/explicit')
-
-    def test_github_workspace(self):
-        """Github workspace."""
-        with patch.dict(os.environ, {'GITHUB_WORKSPACE': '/ws'}):
-            self.assertEqual(resolve_source_root(None), '/ws')
-
-    def test_git_top_level_then_none(self):
-        """Git top level then none."""
-        with patch.dict(os.environ, {}, clear=False):
-            os.environ.pop('GITHUB_WORKSPACE', None)
-            with patch('membrowse.commands.report.run_git_command', return_value='/top'):
-                self.assertEqual(resolve_source_root(None), '/top')
-            with patch('membrowse.commands.report.run_git_command', return_value=None):
-                self.assertIsNone(resolve_source_root(None))
 
 
 @unittest.skipUnless(shutil.which('gcc') and can_compile_embedded('gcc'),

@@ -8,8 +8,7 @@ import logging
 from importlib.metadata import version
 from typing import Dict, Any, Optional
 
-from ..utils.git import (detect_git_metadata, detect_github_metadata, get_ancestry,
-                         run_git_command)
+from ..utils.git import detect_git_metadata, detect_github_metadata, get_ancestry
 from ..utils.budget_alerts import iter_budget_alerts
 from ..utils.formatter import format_report_human_readable
 from ..utils.github import is_pull_request_event
@@ -425,15 +424,6 @@ examples:
              '(supports GNU LD and IAR formats; GNU LD generated with -Wl,-Map=output.map)'
     )
     perf_group.add_argument(
-        '--source-root',
-        default=None,
-        metavar='DIR',
-        help='Directory that symbol source files are reported relative to, '
-             'e.g. src/portable/synopsys/dwc2/dcd_dwc2.c (default: '
-             '$GITHUB_WORKSPACE, else the git top level of the current '
-             'directory). Files outside it are reported by basename.'
-    )
-    perf_group.add_argument(
         '--skip-section',
         dest='skip_sections',
         action='append',
@@ -477,6 +467,18 @@ examples:
         '--all-symbols',
         action='store_true',
         help='Display all symbols instead of just top 20 (human-readable mode only)'
+    )
+    output_group.add_argument(
+        '--source-root',
+        default=None,
+        metavar='DIR',
+        help='Directory that symbol source files are reported relative to; a '
+             'file under it is then reported as e.g. src/drivers/uart.c '
+             'instead of uart.c. Files outside it are reported by basename, '
+             'as is every file when this is not set. Typically the repository '
+             'checkout. Note: the MemBrowse platform keys symbol identity on '
+             'source_file, so the first upload after turning this on reports '
+             'in-repo symbols as moved.'
     )
     output_group.add_argument(
         '--output-raw-response',
@@ -530,21 +532,6 @@ def _apply_default_regions(generator: ReportGenerator, report: dict) -> None:
     }
 
 
-def resolve_source_root(source_root: Optional[str]) -> Optional[str]:
-    """The directory symbol source files are reported relative to.
-
-    The explicit value wins; otherwise the GitHub Actions workspace, then
-    the git top level of the current directory (the checkout the firmware
-    was built from). None, when nothing applies, keeps basenames.
-    """
-    if source_root:
-        return source_root
-    workspace = os.environ.get('GITHUB_WORKSPACE')
-    if workspace:
-        return workspace
-    return run_git_command(['rev-parse', '--show-toplevel']) or None
-
-
 def generate_report(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     elf_path: str,
     ld_scripts: Optional[str] = None,
@@ -578,8 +565,8 @@ def generate_report(  # pylint: disable=too-many-arguments,too-many-positional-a
             removed before region mapping so they don't contribute to any
             region's ``used_size``; symbols inside them are also dropped.
         source_root: Directory that symbols' source files are reported
-            relative to (see :func:`resolve_source_root`). Files outside it,
-            or every file when None, are reported by basename.
+            relative to. Files outside it, or every file when None (the
+            default), are reported by basename.
 
     Returns:
         dict: Memory analysis report (JSON-serializable)
@@ -1113,7 +1100,7 @@ def run_report(args: argparse.Namespace) -> int:
                 map_file=getattr(args, 'map_file', None),
                 limits_ld=getattr(args, 'limits', None),
                 skip_sections=getattr(args, 'skip_sections', None),
-                source_root=resolve_source_root(getattr(args, 'source_root', None)),
+                source_root=getattr(args, 'source_root', None),
             )
         except ValueError as e:
             logger.error("Failed to generate report: %s", e)

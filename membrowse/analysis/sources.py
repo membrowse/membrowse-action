@@ -10,26 +10,25 @@ import os
 import posixpath
 import re
 import bisect
+import logging
 from typing import Any, Dict, Iterable, Optional
 
+from .paths import case_insensitive, is_abs, to_posix
 from .symbols import strip_compiler_suffix
+
+logger = logging.getLogger(__name__)
 
 # Rust Codegen Unit hash filenames (e.g. "defmt_rtt.2465299265768a95-cgu.0")
 # These are compiler internals, not real source files.
 _CGU_HASH_PATTERN = re.compile(r'^.+\.[0-9a-f]+-cgu\.\d+$')
 
 
-# A drive-letter or UNC path from a Windows toolchain, slash-normalized
-_WINDOWS_ABS_RE = re.compile(r'^(?:[A-Za-z]:/|//)')
-
-
-def _is_abs(posix_path: str) -> bool:
-    return posixpath.isabs(posix_path) or bool(_WINDOWS_ABS_RE.match(posix_path))
-
-
-def _fold(path: str) -> str:
-    """Comparison form of a path: Windows file systems ignore case."""
-    return path.lower() if os.name == 'nt' else path
+def _under(path: str, root: str) -> bool:
+    """Whether normalized `path` lies under the slash-terminated `root`,
+    ignoring case when either comes from a Windows file system."""
+    if case_insensitive(path, root):
+        return path.lower().startswith(root.lower())
+    return path.startswith(root)
 
 
 def _source_roots(source_root: Optional[str]) -> tuple:
@@ -39,12 +38,12 @@ def _source_roots(source_root: Optional[str]) -> tuple:
     (or a short name on Windows) the root does not."""
     if not source_root:
         return ()
-    given = source_root.replace('\\', '/')
-    if not _is_abs(given):
-        given = os.path.abspath(source_root).replace('\\', '/')
+    given = to_posix(source_root)
+    if not is_abs(given):
+        given = to_posix(os.path.abspath(source_root))
     candidates = [given]
     if os.path.exists(source_root):
-        candidates.append(os.path.realpath(source_root).replace('\\', '/'))
+        candidates.append(to_posix(os.path.realpath(source_root)))
     roots = []
     for candidate in candidates:
         prefix = posixpath.normpath(candidate).rstrip('/') + '/'
@@ -53,17 +52,21 @@ def _source_roots(source_root: Optional[str]) -> tuple:
     return tuple(roots)
 
 
-def relative_source_path(path: str, roots: Iterable[str]) -> str:
-    """The name a source file is reported under: its path relative to the
-    first of `roots` (slash-terminated prefixes) that contains it, otherwise
-    its basename, so toolchain and system files stay short and build-location
-    independent."""
-    normalized = posixpath.normpath(path.replace('\\', '/'))
-    folded = _fold(normalized)
+def relative_source_path(path: str, roots: Iterable[str]) -> Optional[str]:
+    """The path a source file is reported under when a source root applies:
+    relative to the first of `roots` (slash-terminated prefixes) that
+    contains it, or as recorded when the compiler already recorded it
+    relative to the build (``-ffile-prefix-map=/path/repo=.`` and similar,
+    where no root can match). None when no root applies, so the caller
+    falls back to the basename and toolchain and system files stay short
+    and build-location independent."""
+    normalized = posixpath.normpath(to_posix(path))
     for root in roots:
-        if folded.startswith(_fold(root)):
+        if _under(normalized, root):
             return normalized[len(root):]
-    return posixpath.basename(normalized)
+    if roots and not is_abs(normalized) and not normalized.startswith('../'):
+        return normalized
+    return None
 
 
 class SourceFileResolver:  # pylint: disable=too-few-public-methods,too-many-instance-attributes
@@ -88,20 +91,16 @@ class SourceFileResolver:  # pylint: disable=too-few-public-methods,too-many-ins
         # Pre-build static symbol mappings lookup for O(1) access
         self._static_symbol_lookup = {}
         self._basename_cache = {}  # Cache basename computations
+        self.source_root = source_root
         self._source_roots = _source_roots(source_root)
         self._source_name_cache = {}  # DWARF path -> reported name
+        self._paths_under_root = 0  # distinct DWARF paths the root matched
+        self._paths_outside_root = 0  # distinct absolute DWARF paths it missed
         self._sorted_addresses = None  # Lazy initialization for address lookup
         if 'static_symbol_mappings' in dwarf_data:
             for mapping in dwarf_data['static_symbol_mappings']:
                 symbol_name = mapping[0]
-                if symbol_name not in self._static_symbol_lookup:
-                    self._static_symbol_lookup[symbol_name] = []
-                # Pre-compute basename to avoid repeated os.path.basename calls
-                source_file = mapping[2]
-                if source_file not in self._basename_cache:
-                    self._basename_cache[source_file] = os.path.basename(
-                        source_file)
-                self._static_symbol_lookup[symbol_name].append(mapping)
+                self._static_symbol_lookup.setdefault(symbol_name, []).append(mapping)
 
     def _get_basename(self, source_file: str) -> str:
         """Get basename with caching to avoid repeated os.path.basename calls."""
@@ -115,8 +114,27 @@ class SourceFileResolver:  # pylint: disable=too-few-public-methods,too-many-ins
         name = self._source_name_cache.get(source_file)
         if name is None:
             name = relative_source_path(source_file, self._source_roots)
+            if name is not None:
+                self._paths_under_root += 1
+            else:
+                normalized = posixpath.normpath(to_posix(source_file))
+                name = posixpath.basename(normalized)
+                if self._source_roots and is_abs(normalized):
+                    self._paths_outside_root += 1
             self._source_name_cache[source_file] = name
         return name
+
+    def log_source_root_coverage(self) -> None:
+        """Warn when a source root was configured but no resolved DWARF path
+        lay under it: the firmware was built from another checkout (a
+        container mount such as /app or /__w, or a path-mapped build), and
+        every symbol has fallen back to its basename."""
+        if self._source_roots and self._paths_outside_root and not self._paths_under_root:
+            logger.warning(
+                "No source file lies under the source root %s (%d distinct DWARF "
+                "paths); symbols are reported by basename. Pass --source-root with "
+                "the directory the firmware was built from.",
+                self.source_root, self._paths_outside_root)
 
     def extract_source_file(
             self,

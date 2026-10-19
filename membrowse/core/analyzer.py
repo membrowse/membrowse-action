@@ -243,8 +243,10 @@ class ELFAnalyzer:  # pylint: disable=too-many-instance-attributes
             - ``section``: Section name, e.g., ".text", ".data", ".bss".
             - ``source_file``: Source file path (if DWARF info available).
         """
-        return self._symbol_extractor.extract_symbols(
+        symbols = self._symbol_extractor.extract_symbols(
             self._source_resolver, self._map_resolver)
+        self._source_resolver.log_source_root_coverage()
+        return symbols
 
     def get_program_headers(self) -> List[Dict[str, Any]]:
         """Extract program headers."""

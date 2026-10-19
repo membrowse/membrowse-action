@@ -402,7 +402,8 @@ def _format_top_symbols(  # pylint: disable=too-many-locals,too-many-branches
         if len(section) > 18:
             section = section[:15] + "..."
         if len(source_file) > 28:
-            source_file = source_file[:25] + "..."
+            # keep the tail: with repo-relative paths the file name is there
+            source_file = "..." + source_file[-25:]
 
         row = (
             f"{name:<40} {_format_address(address):<12} {size:>12,} bytes  "
