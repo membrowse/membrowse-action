@@ -215,6 +215,19 @@ examples:
              '(supports GNU LD and IAR formats; GNU LD generated with -Wl,-Map=output.map)'
     )
     parser.add_argument(
+        '--source-root',
+        dest='source_root',
+        default=None,
+        metavar='DIR',
+        help='Directory that symbol source files are reported relative to; a '
+             'file under it is then reported as e.g. src/drivers/uart.c '
+             'instead of uart.c. Files outside it are reported by basename, '
+             'as is every file when this is not set. Typically the repository '
+             'checkout. Note: the MemBrowse platform keys symbol identity on '
+             'source_file, so the first upload after turning this on reports '
+             'in-repo symbols as moved.'
+    )
+    parser.add_argument(
         '--skip-section',
         dest='skip_sections',
         action='append',
@@ -533,6 +546,7 @@ def _build_and_generate_report(commit, args, linker_variables):
         map_file=getattr(args, 'map_file', None),
         limits_ld=getattr(args, 'limits', None),
         skip_sections=getattr(args, 'skip_sections', None),
+        source_root=getattr(args, 'source_root', None),
     )
 
     # Case 3b: Build succeeded but report has empty memory_layout

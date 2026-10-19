@@ -148,6 +148,10 @@ Skips DWARF line program processing for faster analysis at the cost of reduced s
 
 See `SKIP_LINE_PROGRAM_SUMMARY.md` for detailed analysis.
 
+#### --source-root DIR
+
+Symbols' `source_file` is reported relative to this directory (e.g. `src/portable/synopsys/dwc2/dcd_dwc2.c`), which tells same-named files apart and matches the paths a repository uses itself. Off by default: every file is reported by basename. Files outside the root (toolchain headers, libc) are reported by basename too; a DWARF path the compiler already recorded relative to the build (`-ffile-prefix-map=/path/repo=.`) is reported as recorded. A WARNING is logged when a root is set but no DWARF path lies under it (firmware built from another checkout or container mount). The platform keys symbol identity on `source_file`, so the first upload after turning this on reports in-repo symbols as moved. The DWARF paths come from `analysis/dwarf.py` (compilation directory joined with the file table's directories), shared path forms live in `analysis/paths.py`, and the paths are relativized in `analysis/sources.py`.
+
 ## Testing
 
 ### Run Tests

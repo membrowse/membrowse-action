@@ -13,6 +13,7 @@ from typing import Dict, List, Optional, Any, Tuple
 from collections import deque
 from elftools.common.exceptions import ELFError
 from ..core.exceptions import DWARFParsingError, DWARFCUProcessingError, DWARFAttributeError
+from .paths import is_abs, to_posix
 
 # Configure logger
 logger = logging.getLogger(__name__)
@@ -360,11 +361,17 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
             if comp_dir_attr:
                 comp_dir = self._extract_string_value(comp_dir_attr.value)
 
+        cu_name = to_posix(cu_name)
+        comp_dir = to_posix(comp_dir)
         if cu_name:
-            if comp_dir and not posixpath.isabs(cu_name):
-                cu_source_file = posixpath.join(comp_dir, cu_name)
+            if comp_dir and not is_abs(cu_name):
+                cu_source_file = posixpath.normpath(posixpath.join(comp_dir, cu_name))
             else:
-                cu_source_file = cu_name
+                cu_source_file = posixpath.normpath(cu_name)
+
+        # The line program's file table, joined with its directories, is
+        # shared by the line rows (address_to_file) and DW_AT_decl_file
+        file_paths = self._line_program_file_paths(dwarfinfo, cu, comp_dir)
 
         # Process both line program and DIE data as they provide complementary information:
         # - Line program: Maps instruction addresses to source files (useful for functions)
@@ -377,10 +384,10 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
         # Skip line program processing if requested (20-30% performance
         # improvement)
         if not self.skip_line_program:
-            self._extract_line_program_data(cu, dwarfinfo)
+            self._extract_line_program_data(cu, dwarfinfo, file_paths)
 
         self._extract_die_symbol_data_optimized(
-            cu, dwarfinfo, cu_source_file, cu_low_pc, cu_high_pc)
+            cu, cu_source_file, cu_low_pc, cu_high_pc, file_paths)
 
         # Track coverage after line program processing
         total_addresses = len(self.dwarf_data['address_to_file'])
@@ -399,6 +406,65 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
         self.dwarf_data['coverage_metrics']['die_symbols'] = die_coverage_after
         self.dwarf_data['coverage_metrics']['line_program_addresses'] = line_program_addresses
         self.dwarf_data['coverage_metrics']['cus_processed'] += 1
+
+    def _line_program_file_paths(self, dwarfinfo, cu,
+                                 comp_dir: Optional[str]) -> Dict[int, str]:
+        """The CU's line program file table as {file index: full path}.
+
+        A file entry names a file relative to one of the line program's
+        directories (its dir_index); the directory may itself be relative to
+        the CU's compilation directory. Before DWARF 5, dir_index 0 is the
+        compilation directory and the directory list is 1-based; from DWARF 5
+        the list is 0-based and its first entry is the compilation directory.
+        Indices follow the file table's numbering (_file_index_base), the one
+        DW_AT_decl_file and the line rows use. Both are kept as recorded by
+        the compiler, so a file is a full path when the compiler knew one.
+        """
+        try:
+            line_program = dwarfinfo.line_program_for_CU(cu)
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            logger.debug("No line program for CU at offset %d: %s", cu.cu_offset, e)
+            return {}
+        if not line_program or not hasattr(line_program.header, 'file_entry'):
+            return {}
+        header = line_program.header
+        directories = [to_posix(self._extract_string_value(d))
+                       for d in (getattr(header, 'include_directory', None) or [])]
+        dwarf5 = header.version >= 5
+        paths: Dict[int, str] = {}
+        for idx, entry in enumerate(header.file_entry, start=_file_index_base(line_program)):
+            if not entry or not hasattr(entry, 'name'):
+                continue
+            name = to_posix(self._extract_string_value(entry.name))
+            if not name:
+                continue
+            # pyelftools stores None when a DWARF 5 entry format carries no
+            # DW_LNCT_directory_index; the file is then in directory 0
+            dir_index = getattr(entry, 'dir_index', None)
+            paths[idx] = self._join_file_entry(
+                name, 0 if dir_index is None else dir_index, directories, dwarf5, comp_dir)
+        return paths
+
+    @staticmethod
+    def _join_file_entry(name: str, dir_index: int, directories: List[Optional[str]],
+                         dwarf5: bool, comp_dir: Optional[str]) -> str:
+        """The full path of one line program file entry (see
+        _line_program_file_paths); the bare name when no directory is known."""
+        if is_abs(name):
+            return posixpath.normpath(name)
+        directory = None
+        if dwarf5:
+            if 0 <= dir_index < len(directories):
+                directory = directories[dir_index]
+        elif dir_index == 0:
+            directory = comp_dir
+        elif 1 <= dir_index <= len(directories):
+            directory = directories[dir_index - 1]
+        if directory and comp_dir and not is_abs(directory):
+            directory = posixpath.join(comp_dir, directory)
+        if not directory:
+            return name
+        return posixpath.normpath(posixpath.join(directory, name))
 
     def _extract_string_value(self, value) -> Optional[str]:
         """Extract string value from DWARF attribute.
@@ -536,7 +602,8 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
                 "Failed to parse location expression: %s", e)
             return None
 
-    def _extract_line_program_data(self, cu, dwarfinfo) -> None:  # pylint: disable=too-many-nested-blocks
+    def _extract_line_program_data(  # pylint: disable=too-many-nested-blocks
+            self, cu, dwarfinfo, file_paths: Dict[int, str]) -> None:
         """Extract line program data to map addresses to source files.
 
         Line program data provides instruction-level address to source file mappings,
@@ -546,12 +613,12 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
         Args:
             cu: Compilation unit containing the line program
             dwarfinfo: DWARF debug information object
+            file_paths: The CU's file table from _line_program_file_paths
         """
         try:  # pylint: disable=too-many-nested-blocks
             line_program = dwarfinfo.line_program_for_CU(cu)
             if not line_program:
                 return
-
             entries = line_program.get_entries()
             if not entries:
                 return
@@ -574,18 +641,12 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
                             continue
 
                         # Get file from line program file table
-                        file_entries = line_program.header.file_entry
-                        list_index = file_index - _file_index_base(line_program)
-                        if 0 <= list_index < len(file_entries):
-                            file_entry = file_entries[list_index]
-                            if file_entry and hasattr(file_entry, 'name'):
-                                filename = self._extract_string_value(
-                                    file_entry.name)
-                                if filename:
-                                    # Store in dictionary
-                                    self.dwarf_data['address_to_file'][address] = filename
-                                    if line_number:
-                                        self.dwarf_data['address_to_line'][address] = line_number
+                        filename = file_paths.get(file_index)
+                        if filename:
+                            # Store in dictionary
+                            self.dwarf_data['address_to_file'][address] = filename
+                            if line_number:
+                                self.dwarf_data['address_to_line'][address] = line_number
 
                     except (IndexError, AttributeError) as e:
                         logger.error(
@@ -603,10 +664,10 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
     def _extract_die_symbol_data_optimized(  # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals,too-many-branches,too-many-statements
             self,
             cu,
-            dwarfinfo,
             cu_source_file: Optional[str],
             cu_low_pc: Optional[int],
-            cu_high_pc: Optional[int]) -> None:
+            cu_high_pc: Optional[int],
+            file_entries: Dict[int, str]) -> None:
         """Extract DIE symbol data optimized for only relevant symbols.
 
         DIEs (Debug Information Entries) provide symbol-specific source mappings
@@ -615,29 +676,14 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
 
         Args:
             cu: Compilation unit to process
-            dwarfinfo: DWARF debug information object
             cu_source_file: Source file path for this CU
             cu_low_pc: CU starting address
             cu_high_pc: CU ending address
+            file_entries: The CU's file table from _line_program_file_paths,
+                keyed by the original DWARF file index that DW_AT_decl_file
+                references
         """
         try:
-            # Build file entries for this CU
-            file_entries = {}
-            line_program = dwarfinfo.line_program_for_CU(cu)
-
-            if line_program and hasattr(line_program.header, 'file_entry'):
-                # Build file entries preserving original DWARF file indices.
-                # Even if there are duplicates, we must keep original indices
-                # because DW_AT_decl_file references them by their original
-                # index
-                for idx, file_entry in enumerate(
-                        line_program.header.file_entry,
-                        start=_file_index_base(line_program)):
-                    if file_entry and hasattr(file_entry, 'name'):
-                        filename = self._extract_string_value(file_entry.name)
-                        if filename:
-                            file_entries[idx] = filename
-
             # Process DIEs with early filtering
             top_die = cu.get_top_DIE()
             self._process_die_tree(

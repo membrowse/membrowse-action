@@ -68,7 +68,8 @@ class ELFAnalyzer:  # pylint: disable=too-many-instance-attributes
     """
 
     def __init__(self, elf_path: str, skip_line_program: bool = False,
-                 map_file_path: Optional[str] = None):
+                 map_file_path: Optional[str] = None,
+                 source_root: Optional[str] = None):
         """Initialize ELF analyzer with file path and component setup.
 
         Args:
@@ -78,6 +79,9 @@ class ELFAnalyzer:  # pylint: disable=too-many-instance-attributes
                 file mapping coverage from ~97% to ~88% (ARM) or ~76% to ~65% (ESP32).
             map_file_path: Optional path to a linker map file (GNU LD or IAR)
                 for archive/object file attribution on symbols.
+            source_root: Directory that symbols' source files are reported
+                relative to (e.g. the repository checkout). Files outside it,
+                or every file when None, are reported by basename.
 
         Raises:
             ELFAnalysisError: If the file doesn't exist or cannot be read.
@@ -112,7 +116,7 @@ class ELFAnalyzer:  # pylint: disable=too-many-instance-attributes
 
             # Initialize specialized analyzers
             self._source_resolver = SourceFileResolver(
-                self._dwarf_data, self._system_header_cache)
+                self._dwarf_data, self._system_header_cache, source_root=source_root)
             self._symbol_extractor = SymbolExtractor(self.elffile)
             self._section_analyzer = SectionAnalyzer(self.elffile)
 
@@ -239,8 +243,10 @@ class ELFAnalyzer:  # pylint: disable=too-many-instance-attributes
             - ``section``: Section name, e.g., ".text", ".data", ".bss".
             - ``source_file``: Source file path (if DWARF info available).
         """
-        return self._symbol_extractor.extract_symbols(
+        symbols = self._symbol_extractor.extract_symbols(
             self._source_resolver, self._map_resolver)
+        self._source_resolver.log_source_root_coverage()
+        return symbols
 
     def get_program_headers(self) -> List[Dict[str, Any]]:
         """Extract program headers."""

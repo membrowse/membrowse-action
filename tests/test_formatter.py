@@ -359,6 +359,26 @@ class TestFormatTopSymbols:
         output = _format_top_symbols(report)
         assert '...' in output
 
+    def test_format_top_symbols_keeps_the_tail_of_a_long_source_path(self):
+        """A repo-relative path is cut from the front so the file name stays."""
+        report = {
+            'symbols': [
+                {
+                    'name': 'dcd_init',
+                    'address': 0x08001234,
+                    'size': 100,
+                    'type': 'FUNC',
+                    'binding': 'GLOBAL',
+                    'section': '.text',
+                    'source_file': 'src/portable/synopsys/dwc2/dcd_dwc2.c'
+                }
+            ]
+        }
+
+        output = _format_top_symbols(report)
+        assert '.../synopsys/dwc2/dcd_dwc2.c' in output
+        assert 'src/portable/synopsys/dwc...' not in output
+
     def test_format_all_symbols(self):
         """Test that all symbols are shown when show_all=True."""
         # Create 30 symbols

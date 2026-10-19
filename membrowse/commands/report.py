@@ -469,6 +469,18 @@ examples:
         help='Display all symbols instead of just top 20 (human-readable mode only)'
     )
     output_group.add_argument(
+        '--source-root',
+        default=None,
+        metavar='DIR',
+        help='Directory that symbol source files are reported relative to; a '
+             'file under it is then reported as e.g. src/drivers/uart.c '
+             'instead of uart.c. Files outside it are reported by basename, '
+             'as is every file when this is not set. Typically the repository '
+             'checkout. Note: the MemBrowse platform keys symbol identity on '
+             'source_file, so the first upload after turning this on reports '
+             'in-repo symbols as moved.'
+    )
+    output_group.add_argument(
         '--output-raw-response',
         action='store_true',
         help='Output raw API response as JSON to stdout (for piping to GitHub Actions PR comment)'
@@ -528,6 +540,7 @@ def generate_report(  # pylint: disable=too-many-arguments,too-many-positional-a
     map_file: Optional[str] = None,
     limits_ld: Optional[str] = None,
     skip_sections: Optional[list] = None,
+    source_root: Optional[str] = None,
 ) -> dict:
     """
     Generate a memory footprint report from ELF and optionally linker scripts.
@@ -551,6 +564,9 @@ def generate_report(  # pylint: disable=too-many-arguments,too-many-positional-a
             ``.noinit``) to exclude from the report. Listed sections are
             removed before region mapping so they don't contribute to any
             region's ``used_size``; symbols inside them are also dropped.
+        source_root: Directory that symbols' source files are reported
+            relative to. Files outside it, or every file when None (the
+            default), are reported by basename.
 
     Returns:
         dict: Memory analysis report (JSON-serializable)
@@ -584,6 +600,7 @@ def generate_report(  # pylint: disable=too-many-arguments,too-many-positional-a
             map_file_path=map_file,
             real_limits=real_limits,
             skip_sections=skip_sections,
+            source_root=source_root,
         )
         report = generator.generate_report()
 
@@ -1083,6 +1100,7 @@ def run_report(args: argparse.Namespace) -> int:
                 map_file=getattr(args, 'map_file', None),
                 limits_ld=getattr(args, 'limits', None),
                 skip_sections=getattr(args, 'skip_sections', None),
+                source_root=getattr(args, 'source_root', None),
             )
         except ValueError as e:
             logger.error("Failed to generate report: %s", e)
