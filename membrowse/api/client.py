@@ -108,7 +108,11 @@ class MemBrowseClient:
             requests.exceptions.RequestException: For other request errors
         """
         url = f"{self.api_base_url}/summary"
-        return self._request_with_retry('GET', url, params={'commit': commit_sha})
+        # files=true has the platform aggregate changes.files for reports
+        # stored before per-file deltas were recorded; reports that carry
+        # them are returned as stored.
+        return self._request_with_retry(
+            'GET', url, params={'commit': commit_sha, 'files': 'true'})
 
     def _request_with_retry(
         self,

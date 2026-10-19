@@ -1,4 +1,10 @@
 """Tests for the per-file changes in the PR comment template context."""
+from unittest.mock import patch
+
+from membrowse.api.client import MemBrowseClient
+from membrowse.auth.strategy import AuthContext, AuthType
+from membrowse.core.generator import ReportGenerator
+from membrowse.linker.parser import parse_linker_scripts
 from membrowse.utils.github_comment import _build_template_context
 from membrowse.utils.summary_formatter import (
     build_summary_template_context,
@@ -43,6 +49,62 @@ class TestRegionKind:
         """A name with no hint is other."""
         assert region_kind('SPIX', 'UNKNOWN') == 'other'
         assert region_kind('VECT1', None) == 'other'
+
+    def test_a_word_type_is_read_like_a_name(self):
+        """Regions inferred from ELF segments carry 'FLASH' or 'RAM' as type."""
+        assert region_kind('RAM (inferred)', 'RAM') == 'ram'
+        assert region_kind('Flash (inferred)', 'FLASH') == 'flash'
+        assert region_kind('X', 'ROM') == 'flash'
+        # a word that tells nothing leaves it to the name
+        assert region_kind('DTCM', 'MEMORY') == 'ram'
+        assert region_kind('SPIX', 'MEMORY') == 'other'
+
+    def test_program_memory_is_flash(self):
+        """'PROGRAM' contains 'ram' but is flash."""
+        assert region_kind('PROGRAM', None) == 'flash'
+        assert region_kind('PROGRAM_MEM', 'UNKNOWN') == 'flash'
+
+
+class TestReportRegionType:
+    """The report's region type is the linker attributes, so that the
+    attribute rule of region_kind applies to linker-script builds."""
+
+    def test_linker_attributes_become_the_region_type(self, tmp_path):
+        """Linker attributes become the region type."""
+        script = tmp_path / 'mem.ld'
+        script.write_text(
+            'MEMORY\n{\n'
+            '  FLASH (rx) : ORIGIN = 0x08000000, LENGTH = 1M\n'
+            '  RAM (xrw)  : ORIGIN = 0x20000000, LENGTH = 128K\n'
+            '}\n')
+        regions = ReportGenerator._convert_to_memory_regions(  # pylint: disable=protected-access
+            ReportGenerator.__new__(ReportGenerator),
+            parse_linker_scripts([str(script)]))
+        assert regions['FLASH'].type == 'rx'
+        assert regions['RAM'].type == 'xrw'
+        assert region_kind('FLASH', regions['FLASH'].to_dict()['type']) == 'flash'
+        assert region_kind('RAM', regions['RAM'].to_dict()['type']) == 'ram'
+
+    def test_a_region_declared_without_attributes_is_unknown(self):
+        """A region declared without attributes is unknown."""
+        regions = ReportGenerator._convert_to_memory_regions(  # pylint: disable=protected-access
+            ReportGenerator.__new__(ReportGenerator),
+            {'iram0_0_seg': {'attributes': '', 'address': 0x40080000, 'limit_size': 0x20000}})
+        assert regions['iram0_0_seg'].type == 'UNKNOWN'
+
+
+class TestSummaryRequest:  # pylint: disable=too-few-public-methods
+    """/summary is asked for the per-file changes of reports stored before
+    they were recorded."""
+
+    def test_get_summary_asks_for_files(self):
+        """get_summary asks for files."""
+        client = MemBrowseClient(
+            AuthContext(auth_type=AuthType.API_KEY, api_key='k'), 'https://api.example.com/')
+        with patch.object(client, '_request_with_retry', return_value={'success': True}) as req:
+            assert client.get_summary('abc') == {'success': True}
+        req.assert_called_once_with(
+            'GET', 'https://api.example.com/summary', params={'commit': 'abc', 'files': 'true'})
 
 
 LAYOUT = {

@@ -33,7 +33,7 @@ def enrich_regions(regions_data: dict) -> list[dict]:
         regions.append({
             **region,
             'delta': delta,
-            'delta_str': f"+{delta:,}" if delta >= 0 else f"{delta:,}",
+            'delta_str': delta_str(delta),
             'delta_pct_str': f"+{delta_pct:.1f}%" if delta >= 0 else f"{delta_pct:.1f}%",
             'utilization_pct': (used_size / limit_size * 100)
                                if limit_size > 0 else 0,
@@ -74,26 +74,38 @@ def process_alerts(alerts_data: dict | None) -> list[dict]:
 
 # ── Per-file changes ────────────────────────────────────────────────
 
-# A region's linker attributes say what it is: 'w' (writable) is RAM, anything
-# else is flash. A linker script that declares no attributes leaves the report's
-# region type UNKNOWN, and the region's name decides. Flash hints come first so
-# that DATA_FLASH is flash.
-_FLASH_HINTS = ('flash', 'rom', 'code', 'text')
+# A report's region type is the region's linker attributes ('rx', 'xrw', ...):
+# 'w' (writable) is RAM, anything else is flash. Regions inferred from ELF
+# segments carry a word instead ('FLASH', 'RAM'), and a linker script that
+# declares no attributes leaves the type UNKNOWN; then the type's or the
+# region's name decides. Flash hints come first so that DATA_FLASH is flash,
+# and 'program' is listed so that PROGRAM is not RAM.
+_FLASH_HINTS = ('flash', 'rom', 'code', 'text', 'program')
 _RAM_HINTS = ('ram', 'tcm', 'ddr', 'data')
+_ATTRIBUTE_CHARS = frozenset('rwxail!')
 FILE_KINDS = ('flash', 'ram', 'other')
 
 
-def region_kind(name: str, region_type: str | None) -> str:
-    """'flash' or 'ram' for a memory region; 'other' when neither its linker
-    attributes nor its name tell."""
-    if region_type and region_type.upper() != 'UNKNOWN':
-        return 'ram' if 'w' in region_type.lower() else 'flash'
+def _kind_from_name(name: str) -> str:
     lowered = name.lower()
     if any(hint in lowered for hint in _FLASH_HINTS):
         return 'flash'
     if any(hint in lowered for hint in _RAM_HINTS):
         return 'ram'
     return 'other'
+
+
+def region_kind(name: str, region_type: str | None) -> str:
+    """'flash' or 'ram' for a memory region; 'other' when neither its linker
+    attributes nor its name tell."""
+    if region_type and region_type.upper() != 'UNKNOWN':
+        lowered_type = region_type.lower()
+        if set(lowered_type) <= _ATTRIBUTE_CHARS:
+            return 'ram' if 'w' in lowered_type else 'flash'
+        kind = _kind_from_name(region_type)
+        if kind != 'other':
+            return kind
+    return _kind_from_name(name)
 
 
 def _file_entry(entry: dict, old_size: int, size: int, memory_layout: dict) -> dict:

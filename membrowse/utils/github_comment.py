@@ -160,8 +160,13 @@ def _build_template_context(results: list[dict]) -> dict:  # pylint: disable=too
 
     Returns:
         Dictionary with template variables:
-        - targets: List of target data with regions, sections, alerts
+        - targets: List of target data with regions, sections, symbols, alerts
+          and files (enrich_files), each with has_changes, has_alerts and
+          has_file_changes
         - has_alerts: True if any target has budget alerts
+        - file_changes: One row per changed source file across targets
+          (summarize_file_changes)
+        - targets_with_file_changes: How many targets carry per-file changes
     """
     targets = []
     has_any_alerts = False
