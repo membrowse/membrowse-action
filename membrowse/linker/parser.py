@@ -447,6 +447,7 @@ class ExpressionEvaluator:
     def __init__(self):
         self.variables: Dict[str, Any] = {}
         self._memory_regions: Dict[str, MemoryRegion] = {}
+        self._defined_checks: Set[str] = set()
 
     def set_variables(self, variables: Dict[str, Any]) -> None:
         """Set variables for expression evaluation"""
@@ -690,8 +691,7 @@ class ExpressionEvaluator:
             return None
         match = re.search(r"DEFINED\s*\(\s*([^)]+)\s*\)", condition)
         if match:
-            symbol = match.group(1).strip()
-            return symbol in self.variables
+            return self.is_defined(match.group(1).strip())
         return None
 
     def _eval_comparison(self, condition: str) -> Optional[bool]:
@@ -744,10 +744,35 @@ class ExpressionEvaluator:
 
         raise ValueError(f"Cannot evaluate: {expr}")
 
+    def is_defined(self, symbol: str) -> bool:
+        """Whether DEFINED(symbol) holds: the symbol has a value that resolves.
+
+        A variable whose value is still an unresolved expression naming the
+        symbol itself is a placeholder the extractor stored on an earlier
+        pass (scripts are read in both orders): pico-sdk's
+        ``X = DEFINED(X) ? X : X_DEFAULT;`` asks whether X was defined before
+        that statement, and the placeholder is that statement, not a
+        definition. Any other string value counts when it evaluates (a user
+        variable such as ``'256k'``)."""
+        value = self.variables.get(symbol)
+        if value is None:
+            return False
+        if not isinstance(value, str):
+            return True
+        if symbol in self._defined_checks or re.search(rf"\b{re.escape(symbol)}\b", value):
+            return False
+        self._defined_checks.add(symbol)
+        try:
+            self.evaluate_expression(value, {symbol})
+        except (ExpressionEvaluationError, VariableResolutionError, ValueError):
+            return False
+        finally:
+            self._defined_checks.discard(symbol)
+        return True
+
     def _replace_defined(self, match: re.Match) -> str:
         """Replace DEFINED() function with 1 or 0"""
-        symbol = match.group(1).strip()
-        return "1" if symbol in self.variables else "0"
+        return "1" if self.is_defined(match.group(1).strip()) else "0"
 
     def _replace_origin(self, match: re.Match) -> str:
         """Replace ORIGIN() function with actual address"""
@@ -972,6 +997,8 @@ class VariableExtractor:  # pylint: disable=too-few-public-methods
         # (not linker symbols like __bss_start__ defined inside SECTIONS)
         content = ScriptContentCleaner.strip_sections_content(content)
 
+        content, provided = self._unwrap_provides(content)
+
         # Find variable assignments: var_name = value;
         # The '=' must be neither preceded by =, !, <, > nor followed by '='
         # so that ==, !=, <=, >= comparisons are never treated as assignments.
@@ -984,6 +1011,13 @@ class VariableExtractor:  # pylint: disable=too-few-public-methods
         for match in re.finditer(var_pattern, content):
             var_name = match.group(1).strip()
             var_value = match.group(2).strip()
+
+            if var_name in provided and (self.evaluator.is_defined(var_name)
+                                         or var_name in simple_vars
+                                         or var_name in complex_vars):
+                continue  # already defined: the PROVIDE default yields
+            if var_name in provided:
+                provided.discard(var_name)  # a later plain assignment still overrides
 
             try:
                 # Try to evaluate simple expressions immediately
@@ -1031,6 +1065,27 @@ class VariableExtractor:  # pylint: disable=too-few-public-methods
         for var_name, var_value in complex_vars.items():
             if var_name not in self.variables:
                 self.variables[var_name] = var_value
+
+    @staticmethod
+    def _unwrap_provides(content: str) -> tuple[str, set]:
+        """Rewrite ``PROVIDE(name = value);`` (and PROVIDE_HIDDEN) as
+        ``name = value;`` and return the names so provided.
+
+        PROVIDE defines a symbol only when nothing else does: a default,
+        which a definition already known (a user variable, --defsym, an
+        earlier script or an earlier plain assignment) overrides. pico-sdk
+        sets its region origins and lengths this way. Unwrapped, the
+        assignment scan sees the assignment and not a stray ')'."""
+        provided = set()
+
+        def unwrap(match: re.Match) -> str:
+            provided.add(match.group(1))
+            return f"{match.group(1)} = {match.group(2)};"
+
+        content = re.sub(
+            r"\bPROVIDE(?:_HIDDEN)?\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([^;]*?)\s*\)\s*;",
+            unwrap, content)
+        return content, provided
 
     def _is_simple_expression(self, expr: str) -> bool:
         """Check if an expression is simple enough to evaluate immediately"""

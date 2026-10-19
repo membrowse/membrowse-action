@@ -949,6 +949,50 @@ class TestIncludeDirective(unittest.TestCase):
         self.assertEqual(regions['FLASH']['address'], 0x08008000)
         self.assertEqual(regions['FLASH']['limit_size'], 10080 * 1024)
 
+    def test_provide_defines_a_default_that_a_definition_overrides(self):
+        """PROVIDE(name = value) is the symbol's fallback: pico-sdk builds its
+        regions on provided origins and lengths, and a board overrides them by
+        defining the symbol itself."""
+        self.create_test_file('''
+            RAM_ORIGIN_DEFAULT = 0x20000000;
+            RAM_LENGTH_DEFAULT = 512k;
+            SCRATCH_X_ORIGIN_DEFAULT = 0x20080000;
+            SCRATCH_X_LENGTH_DEFAULT = 4k;
+        ''', 'default_locations.ld')
+        memmap = self.create_test_file('''
+            PROVIDE( RAM_ORIGIN = RAM_ORIGIN_DEFAULT);
+            PROVIDE( RAM_LENGTH = RAM_LENGTH_DEFAULT);
+            PROVIDE_HIDDEN(SCRATCH_X_ORIGIN = SCRATCH_X_ORIGIN_DEFAULT);
+            PROVIDE(SCRATCH_X_LENGTH = SCRATCH_X_LENGTH_DEFAULT);
+            RAM_ORIGIN = DEFINED(RAM_ORIGIN) ? RAM_ORIGIN : RAM_ORIGIN_DEFAULT;
+            RAM_LENGTH = DEFINED(RAM_LENGTH) ? RAM_LENGTH : RAM_LENGTH_DEFAULT;
+            SCRATCH_X_ORIGIN = DEFINED(SCRATCH_X_ORIGIN) ? SCRATCH_X_ORIGIN : SCRATCH_X_ORIGIN_DEFAULT;
+            SCRATCH_X_LENGTH = DEFINED(SCRATCH_X_LENGTH) ? SCRATCH_X_LENGTH : SCRATCH_X_LENGTH_DEFAULT;
+            MEMORY
+            {
+                RAM(rwx) : ORIGIN = RAM_ORIGIN, LENGTH = RAM_LENGTH
+                SCRATCH_X(rwx) : ORIGIN = SCRATCH_X_ORIGIN, LENGTH = SCRATCH_X_LENGTH
+            }
+        ''', 'memmap_default.ld')
+        locations = str(self.temp_dir / 'default_locations.ld')
+
+        regions = parse_linker_scripts([locations, str(memmap)])
+        self.assertEqual(regions['RAM']['address'], 0x20000000)
+        self.assertEqual(regions['RAM']['limit_size'], 512 * 1024)
+        self.assertEqual(regions['SCRATCH_X']['address'], 0x20080000)
+        self.assertEqual(regions['SCRATCH_X']['limit_size'], 4 * 1024)
+
+        # a definition the board makes wins over the provided default
+        parser = LinkerScriptParser([locations, str(memmap)],
+                                    user_variables={'RAM_LENGTH': '256k'})
+        regions = parser.parse_memory_regions()
+        self.assertEqual(regions['RAM']['limit_size'], 256 * 1024)
+
+        # as does a plain assignment in an earlier script
+        board = self.create_test_file('RAM_ORIGIN = 0x20001000;\n', 'board.ld')
+        regions = parse_linker_scripts([locations, str(board), str(memmap)])
+        self.assertEqual(regions['RAM']['address'], 0x20001000)
+
     def test_include_found_in_a_search_directory(self):
         """An INCLUDE file that is neither next to the script nor in the cwd is
         found in an include_dirs entry, as GNU LD finds it through -L: pico-sdk
