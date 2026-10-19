@@ -59,7 +59,8 @@ class ReportGenerator:  # pylint: disable=too-few-public-methods
                  skip_line_program: bool = False,
                  map_file_path: Optional[str] = None,
                  real_limits: Optional[Dict[str, int]] = None,
-                 skip_sections: Optional[List[str]] = None):
+                 skip_sections: Optional[List[str]] = None,
+                 source_root: Optional[str] = None):
         """Initialize the report generator.
 
         Args:
@@ -82,10 +83,13 @@ class ReportGenerator:  # pylint: disable=too-few-public-methods
                 are removed before mapping, so they do not contribute to any
                 region's ``used_size``; symbols residing in those sections
                 are also dropped to keep the report consistent.
+            source_root: Directory that symbols' source files are reported
+                relative to; files outside it, or every file when None, are
+                reported by basename.
         """
         self.elf_analyzer = ELFAnalyzer(
             elf_path, skip_line_program=skip_line_program,
-            map_file_path=map_file_path)
+            map_file_path=map_file_path, source_root=source_root)
         self.memory_regions_data = memory_regions_data
         self.elf_path = elf_path
         self.skip_line_program = skip_line_program

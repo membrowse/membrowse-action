@@ -66,6 +66,13 @@ inputs:
       removed from the report.
     required: false
     default: ''
+  source_root:
+    description: |
+      Directory that symbols' source files are reported relative to, e.g.
+      src/portable/synopsys/dwc2/dcd_dwc2.c. Defaults to the workspace
+      (GITHUB_WORKSPACE). Files outside it are reported by basename.
+    required: false
+    default: ''
 
 outputs:
   report_path:
@@ -158,6 +165,7 @@ runs:
         INPUT_MAP_FILE: ${{ inputs.map_file }}
         INPUT_LIMITS: ${{ inputs.limits }}
         INPUT_SKIP_SECTIONS: ${{ inputs.skip_sections }}
+        INPUT_SOURCE_ROOT: ${{ inputs.source_root }}
         # Lets the CLI read first-parent ancestry through the REST API when the
         # checkout cannot fetch (persist-credentials: false). Read-only; the
         # user's workflow does not change. An explicit GITHUB_TOKEN in the
@@ -245,6 +253,11 @@ runs:
             ARGS+=(--skip-section "$sec")
           done
           set +f
+        fi
+
+        # Source paths relative to this directory (default: the workspace)
+        if [ -n "$INPUT_SOURCE_ROOT" ]; then
+          ARGS+=(--source-root "$INPUT_SOURCE_ROOT")
         fi
 
         # Run report command and save output to file. Capture exit status so

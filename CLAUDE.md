@@ -148,6 +148,10 @@ Skips DWARF line program processing for faster analysis at the cost of reduced s
 
 See `SKIP_LINE_PROGRAM_SUMMARY.md` for detailed analysis.
 
+#### --source-root DIR
+
+Symbols' `source_file` is reported relative to this directory (e.g. `src/portable/synopsys/dwc2/dcd_dwc2.c`), which tells same-named files apart and matches the paths a repository uses itself. Default: `$GITHUB_WORKSPACE`, else the git top level of the current directory. Files outside the root (toolchain headers, libc) and every file when no root resolves are reported by basename, as before. The DWARF paths come from `analysis/dwarf.py` (compilation directory joined with the file table's directories) and are relativized in `analysis/sources.py`.
+
 ## Testing
 
 ### Run Tests

@@ -8,7 +8,8 @@ import logging
 from importlib.metadata import version
 from typing import Dict, Any, Optional
 
-from ..utils.git import detect_git_metadata, detect_github_metadata, get_ancestry
+from ..utils.git import (detect_git_metadata, detect_github_metadata, get_ancestry,
+                         run_git_command)
 from ..utils.budget_alerts import iter_budget_alerts
 from ..utils.formatter import format_report_human_readable
 from ..utils.github import is_pull_request_event
@@ -424,6 +425,15 @@ examples:
              '(supports GNU LD and IAR formats; GNU LD generated with -Wl,-Map=output.map)'
     )
     perf_group.add_argument(
+        '--source-root',
+        default=None,
+        metavar='DIR',
+        help='Directory that symbol source files are reported relative to, '
+             'e.g. src/portable/synopsys/dwc2/dcd_dwc2.c (default: '
+             '$GITHUB_WORKSPACE, else the git top level of the current '
+             'directory). Files outside it are reported by basename.'
+    )
+    perf_group.add_argument(
         '--skip-section',
         dest='skip_sections',
         action='append',
@@ -520,6 +530,21 @@ def _apply_default_regions(generator: ReportGenerator, report: dict) -> None:
     }
 
 
+def resolve_source_root(source_root: Optional[str]) -> Optional[str]:
+    """The directory symbol source files are reported relative to.
+
+    The explicit value wins; otherwise the GitHub Actions workspace, then
+    the git top level of the current directory (the checkout the firmware
+    was built from). None, when nothing applies, keeps basenames.
+    """
+    if source_root:
+        return source_root
+    workspace = os.environ.get('GITHUB_WORKSPACE')
+    if workspace:
+        return workspace
+    return run_git_command(['rev-parse', '--show-toplevel']) or None
+
+
 def generate_report(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     elf_path: str,
     ld_scripts: Optional[str] = None,
@@ -528,6 +553,7 @@ def generate_report(  # pylint: disable=too-many-arguments,too-many-positional-a
     map_file: Optional[str] = None,
     limits_ld: Optional[str] = None,
     skip_sections: Optional[list] = None,
+    source_root: Optional[str] = None,
 ) -> dict:
     """
     Generate a memory footprint report from ELF and optionally linker scripts.
@@ -551,6 +577,9 @@ def generate_report(  # pylint: disable=too-many-arguments,too-many-positional-a
             ``.noinit``) to exclude from the report. Listed sections are
             removed before region mapping so they don't contribute to any
             region's ``used_size``; symbols inside them are also dropped.
+        source_root: Directory that symbols' source files are reported
+            relative to (see :func:`resolve_source_root`). Files outside it,
+            or every file when None, are reported by basename.
 
     Returns:
         dict: Memory analysis report (JSON-serializable)
@@ -584,6 +613,7 @@ def generate_report(  # pylint: disable=too-many-arguments,too-many-positional-a
             map_file_path=map_file,
             real_limits=real_limits,
             skip_sections=skip_sections,
+            source_root=source_root,
         )
         report = generator.generate_report()
 
@@ -1083,6 +1113,7 @@ def run_report(args: argparse.Namespace) -> int:
                 map_file=getattr(args, 'map_file', None),
                 limits_ld=getattr(args, 'limits', None),
                 skip_sections=getattr(args, 'skip_sections', None),
+                source_root=resolve_source_root(getattr(args, 'source_root', None)),
             )
         except ValueError as e:
             logger.error("Failed to generate report: %s", e)

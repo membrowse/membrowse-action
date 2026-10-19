@@ -13,7 +13,8 @@ from ..utils.git import (
 )
 from ..api.client import MemBrowseClient
 from ..auth.strategy import determine_auth_strategy
-from .report import generate_report, upload_report, DEFAULT_API_URL, _parse_linker_definitions
+from .report import (generate_report, upload_report, resolve_source_root,
+                     DEFAULT_API_URL, _parse_linker_definitions)
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -213,6 +214,15 @@ examples:
         metavar='PATH',
         help='Path to linker map file for archive/object file attribution '
              '(supports GNU LD and IAR formats; GNU LD generated with -Wl,-Map=output.map)'
+    )
+    parser.add_argument(
+        '--source-root',
+        dest='source_root',
+        default=None,
+        metavar='DIR',
+        help='Directory that symbol source files are reported relative to '
+             '(default: $GITHUB_WORKSPACE, else the git top level of the '
+             'current directory). Files outside it are reported by basename.'
     )
     parser.add_argument(
         '--skip-section',
@@ -533,6 +543,7 @@ def _build_and_generate_report(commit, args, linker_variables):
         map_file=getattr(args, 'map_file', None),
         limits_ld=getattr(args, 'limits', None),
         skip_sections=getattr(args, 'skip_sections', None),
+        source_root=resolve_source_root(getattr(args, 'source_root', None)),
     )
 
     # Case 3b: Build succeeded but report has empty memory_layout
