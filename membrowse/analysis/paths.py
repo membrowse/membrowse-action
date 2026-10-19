@@ -9,7 +9,6 @@ on the slash-normalized form so joins and prefix comparisons behave the same
 on every host.
 """
 
-import os
 import posixpath
 import re
 from typing import Optional
@@ -34,7 +33,8 @@ def is_abs(posix_path: str) -> bool:
 
 
 def case_insensitive(*posix_paths: str) -> bool:
-    """Whether paths compare case-insensitively: on a Windows host, or when
-    any of them comes from a Windows file system (which ignores case),
-    whichever host the analysis runs on."""
-    return os.name == 'nt' or any(is_windows_path(p) for p in posix_paths)
+    """Whether paths compare case-insensitively: when any of them comes from
+    a Windows file system (which ignores case), whichever host the analysis
+    runs on. POSIX paths stay case-sensitive even on a Windows host, since
+    they were recorded by a case-sensitive file system."""
+    return any(is_windows_path(p) for p in posix_paths)
