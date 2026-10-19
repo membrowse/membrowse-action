@@ -12,6 +12,8 @@ from jinja2 import TemplateError as Jinja2TemplateError
 
 from .summary_formatter import (
     build_summary_template_context,
+    enrich_files,
+    summarize_file_changes,
     enrich_regions, enrich_sections, process_alerts, render_jinja2_template,
 )
 from .github_common import (
@@ -175,6 +177,7 @@ def _build_template_context(results: list[dict]) -> dict:  # pylint: disable=too
 
         regions = enrich_regions(changes_data.get('regions', {}))
         sections, sections_by_region = enrich_sections(changes_data.get('sections', {}))
+        files = enrich_files(changes_data.get('files'), data.get('memory_layout', {}))
 
         symbols = {
             'added': symbols_data.get('added', []),
@@ -190,14 +193,18 @@ def _build_template_context(results: list[dict]) -> dict:  # pylint: disable=too
             'sections': sections,
             'sections_by_region': sections_by_region,
             'symbols': symbols,
+            'files': files,
             'alerts': alerts,
             'has_changes': bool(regions),
             'has_alerts': bool(alerts),
+            'has_file_changes': bool(files),
         })
 
     return {
         'targets': targets,
         'has_alerts': has_any_alerts,
+        'file_changes': summarize_file_changes(targets),
+        'targets_with_file_changes': sum(1 for target in targets if target['has_file_changes']),
     }
 
 
