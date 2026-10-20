@@ -76,8 +76,11 @@ def git_checkout(ref: str) -> None:
     Builds can rewrite tracked files (a lockfile cargo or npm brings up to
     date, generated sources). A plain checkout refuses to switch once the
     next commit also changes such a file, so the change would block every
-    later commit. Onboard refuses to start with local edits outside CI (see
-    git_modified_tracked_files), so this only discards what the builds wrote.
+    later commit.
+
+    This discards any local change to tracked files, not only what builds
+    wrote. Callers must make sure there is nothing to lose first; onboard
+    checks git_modified_tracked_files at startup.
 
     Raises RuntimeError on failure.
     """
@@ -94,23 +97,20 @@ def git_modified_tracked_files() -> Optional[List[str]]:
     """Return tracked files with staged or unstaged changes.
 
     Untracked files are not listed: onboard removes them with git_clean
-    anyway. Submodules are not listed: git_submodule_update already resets
-    them to the recorded revision.
+    anyway, inside submodules too. A submodule is listed when its checked-out
+    commit differs from the recorded one or its tracked files are modified,
+    since the forced checkout and submodule update would discard both.
 
     Returns:
         List of paths (empty when the working tree is clean), or None if
-        git status failed.
+        git diff failed.
     """
-    # Not run_git_command: it strips the output, which would eat the leading
-    # status column of the first line.
-    result = subprocess.run(
-        ['git', 'status', '--porcelain', '--untracked-files=no',
-         '--ignore-submodules=all'],
-        capture_output=True, text=True, check=False
-    )
-    if result.returncode != 0:
+    output = run_git_command(
+        ['diff', 'HEAD', '--name-only', '-z', '--no-renames',
+         '--ignore-submodules=untracked'])
+    if output is None:
         return None
-    return [line[3:] for line in result.stdout.splitlines() if line]
+    return [path for path in output.split('\0') if path]
 
 
 def git_submodule_update() -> None:
