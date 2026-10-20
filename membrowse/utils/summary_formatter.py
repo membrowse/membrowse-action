@@ -4,6 +4,8 @@ Shared helpers for enriching regions/sections/alerts/files are used by both
 this module (summary mode) and github_comment.py (file mode).
 """
 
+from __future__ import annotations
+
 from pathlib import Path
 from typing import Any
 
