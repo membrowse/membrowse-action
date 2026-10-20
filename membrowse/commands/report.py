@@ -6,7 +6,7 @@ import json
 import argparse
 import logging
 from importlib.metadata import version
-from typing import Dict, Any, Optional
+from typing import Dict, Any, List, Optional
 
 from ..utils.git import detect_git_metadata, detect_github_metadata, get_ancestry
 from ..utils.budget_alerts import iter_budget_alerts
@@ -469,6 +469,17 @@ examples:
         help='Display all symbols instead of just top 20 (human-readable mode only)'
     )
     output_group.add_argument(
+        '--ld-include-dir',
+        action='append',
+        dest='ld_include_dirs',
+        default=None,
+        metavar='DIR',
+        help='Directory searched for a linker script INCLUDE file that is not '
+             'next to the including script or in the current directory: the '
+             'linker\'s -L directories. Repeatable. pico-sdk 2.3 keeps its '
+             'MEMORY block in a .incl file found this way.'
+    )
+    output_group.add_argument(
         '--source-root',
         default=None,
         metavar='DIR',
@@ -541,6 +552,7 @@ def generate_report(  # pylint: disable=too-many-arguments,too-many-positional-a
     limits_ld: Optional[str] = None,
     skip_sections: Optional[list] = None,
     source_root: Optional[str] = None,
+    ld_include_dirs: Optional[List[str]] = None,
 ) -> dict:
     """
     Generate a memory footprint report from ELF and optionally linker scripts.
@@ -567,6 +579,8 @@ def generate_report(  # pylint: disable=too-many-arguments,too-many-positional-a
         source_root: Directory that symbols' source files are reported
             relative to. Files outside it, or every file when None (the
             default), are reported by basename.
+        ld_include_dirs: Directories searched for linker script INCLUDE
+            files, like the linker's -L directories.
 
     Returns:
         dict: Memory analysis report (JSON-serializable)
@@ -583,11 +597,11 @@ def generate_report(  # pylint: disable=too-many-arguments,too-many-positional-a
 
     # Handle optional linker scripts
     memory_regions_data = _parse_linker_scripts_if_provided(
-        ld_scripts, elf_path, linker_variables
+        ld_scripts, elf_path, linker_variables, ld_include_dirs
     )
 
     real_limits = _resolve_real_limits(
-        limits_ld, memory_regions_data, elf_path, linker_variables
+        limits_ld, memory_regions_data, elf_path, linker_variables, ld_include_dirs
     )
 
     # Generate JSON report
@@ -627,7 +641,8 @@ def _resolve_real_limits(
     limits_ld: Optional[str],
     attribution_regions: Optional[Dict[str, Any]],
     elf_path: str,
-    linker_variables: Optional[Dict[str, Any]]
+    linker_variables: Optional[Dict[str, Any]],
+    ld_include_dirs: Optional[List[str]] = None,
 ) -> Optional[Dict[str, int]]:
     """Parse the limits linker script and return a ``name -> real_limit_size``
     mapping for regions that appear in both scripts.
@@ -652,7 +667,8 @@ def _resolve_real_limits(
     logger.debug("Parsing limits linker script: %s", limits_ld)
     try:
         limits_parser = LinkerScriptParser(
-            [limits_ld], elf_file=elf_path, user_variables=linker_variables
+            [limits_ld], elf_file=elf_path, user_variables=linker_variables,
+            include_dirs=ld_include_dirs,
         )
         limits_regions = limits_parser.parse_memory_regions()
     except Exception as e:  # pylint: disable=broad-exception-caught
@@ -696,7 +712,8 @@ def _resolve_real_limits(
 def _parse_linker_scripts_if_provided(
     ld_scripts: Optional[str],
     elf_path: str,
-    linker_variables: Optional[Dict[str, Any]]
+    linker_variables: Optional[Dict[str, Any]],
+    ld_include_dirs: Optional[List[str]] = None,
 ) -> Optional[Dict[str, Any]]:
     """
     Parse linker scripts if provided, otherwise return None for default regions.
@@ -725,7 +742,8 @@ def _parse_linker_scripts_if_provided(
     logger.debug("Parsing memory regions from linker scripts...")
     try:
         parser = LinkerScriptParser(
-            ld_array, elf_file=elf_path, user_variables=linker_variables
+            ld_array, elf_file=elf_path, user_variables=linker_variables,
+            include_dirs=ld_include_dirs,
         )
         return parser.parse_memory_regions()
     except Exception as e:  # pylint: disable=broad-exception-caught
@@ -1101,6 +1119,7 @@ def run_report(args: argparse.Namespace) -> int:
                 limits_ld=getattr(args, 'limits', None),
                 skip_sections=getattr(args, 'skip_sections', None),
                 source_root=getattr(args, 'source_root', None),
+                ld_include_dirs=getattr(args, 'ld_include_dirs', None),
             )
         except ValueError as e:
             logger.error("Failed to generate report: %s", e)

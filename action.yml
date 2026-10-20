@@ -66,6 +66,13 @@ inputs:
       removed from the report.
     required: false
     default: ''
+  ld_include_dirs:
+    description: |
+      Space-separated directories searched for a linker script INCLUDE file
+      that is not next to the including script: the linker's -L directories.
+      pico-sdk 2.3 keeps its MEMORY block in a .incl file found this way.
+    required: false
+    default: ''
   source_root:
     description: |
       Directory that symbols' source files are reported relative to, so a
@@ -169,6 +176,7 @@ runs:
         INPUT_MAP_FILE: ${{ inputs.map_file }}
         INPUT_LIMITS: ${{ inputs.limits }}
         INPUT_SKIP_SECTIONS: ${{ inputs.skip_sections }}
+        INPUT_LD_INCLUDE_DIRS: ${{ inputs.ld_include_dirs }}
         INPUT_SOURCE_ROOT: ${{ inputs.source_root }}
         # Lets the CLI read first-parent ancestry through the REST API when the
         # checkout cannot fetch (persist-credentials: false). Read-only; the
@@ -255,6 +263,16 @@ runs:
           set -f
           for sec in $INPUT_SKIP_SECTIONS; do
             ARGS+=(--skip-section "$sec")
+          done
+          set +f
+        fi
+
+        # Linker -L directories, searched for INCLUDE files. Word-split on
+        # whitespace; disable glob expansion as for skip_sections.
+        if [ -n "$INPUT_LD_INCLUDE_DIRS" ]; then
+          set -f
+          for dir in $INPUT_LD_INCLUDE_DIRS; do
+            ARGS+=(--ld-include-dir "$dir")
           done
           set +f
         fi

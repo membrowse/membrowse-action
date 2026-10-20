@@ -21,7 +21,7 @@ The module is split into focused classes with clear responsibilities:
 import os
 import re
 import logging
-from typing import Dict, List, Any, Optional, Set
+from typing import Dict, List, Any, Optional, Set, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -88,13 +88,17 @@ class ScriptContentCleaner:  # pylint: disable=too-few-public-methods
         base_dir: str,
         visited: Optional[Set[str]] = None,
         depth: int = 0,
+        search_dirs: Sequence[str] = (),
     ) -> str:
         """Inline GNU LD ``INCLUDE filename`` directives.
 
         Paths are resolved relative to the including script's directory, then
-        the current working directory. Cycles are guarded via ``visited`` and
-        depth is capped at ``MAX_INCLUDE_DEPTH``. Unresolvable includes log a
-        warning and are dropped so parsing can continue.
+        the current working directory, then ``search_dirs`` in order: the
+        linker's ``-L`` directories, which GNU LD searches for INCLUDE files
+        (pico-sdk keeps its MEMORY block in a ``.incl`` file found that way).
+        Cycles are guarded via ``visited`` and depth is capped at
+        ``MAX_INCLUDE_DEPTH``. Unresolvable includes log a warning and are
+        dropped so parsing can continue.
         """
         if visited is None:
             visited = set()
@@ -117,11 +121,11 @@ class ScriptContentCleaner:  # pylint: disable=too-few-public-methods
         def replace_include(match: re.Match) -> str:
             filename = (match.group(1) or match.group(2)).strip().rstrip(';')
             resolved = ScriptContentCleaner._resolve_include_path(
-                filename, base_dir)
+                filename, base_dir, search_dirs)
             if resolved is None:
                 logger.warning(
-                    "INCLUDE '%s' not found (searched %s and cwd)",
-                    filename, base_dir)
+                    "INCLUDE '%s' not found (searched %s)",
+                    filename, ", ".join([base_dir, "cwd", *search_dirs]))
                 return ""
             if resolved in visited:
                 logger.debug("Skipping already-included file: %s", resolved)
@@ -134,12 +138,13 @@ class ScriptContentCleaner:  # pylint: disable=too-few-public-methods
                 logger.warning("Failed to read INCLUDE %s: %s", resolved, exc)
                 return ""
             return ScriptContentCleaner.resolve_includes(
-                inner, os.path.dirname(resolved), visited, depth + 1)
+                inner, os.path.dirname(resolved), visited, depth + 1, search_dirs=search_dirs)
 
         return include_pattern.sub(replace_include, scan)
 
     @staticmethod
-    def _resolve_include_path(filename: str, base_dir: str) -> Optional[str]:
+    def _resolve_include_path(filename: str, base_dir: str,
+                              search_dirs: Sequence[str] = ()) -> Optional[str]:
         """Resolve an INCLUDE filename to an absolute path or None."""
         if os.path.isabs(filename):
             return filename if os.path.exists(filename) else None
@@ -150,6 +155,11 @@ class ScriptContentCleaner:  # pylint: disable=too-few-public-methods
 
         if os.path.exists(filename):
             return os.path.abspath(filename)
+
+        for search_dir in search_dirs:
+            candidate = os.path.join(search_dir, filename)
+            if os.path.exists(candidate):
+                return os.path.abspath(candidate)
 
         return None
 
@@ -436,6 +446,7 @@ class ExpressionEvaluator:
     def __init__(self):
         self.variables: Dict[str, Any] = {}
         self._memory_regions: Dict[str, MemoryRegion] = {}
+        self._defined_checks: Set[str] = set()
 
     def set_variables(self, variables: Dict[str, Any]) -> None:
         """Set variables for expression evaluation"""
@@ -679,8 +690,7 @@ class ExpressionEvaluator:
             return None
         match = re.search(r"DEFINED\s*\(\s*([^)]+)\s*\)", condition)
         if match:
-            symbol = match.group(1).strip()
-            return symbol in self.variables
+            return self.is_defined(match.group(1).strip())
         return None
 
     def _eval_comparison(self, condition: str) -> Optional[bool]:
@@ -733,10 +743,35 @@ class ExpressionEvaluator:
 
         raise ValueError(f"Cannot evaluate: {expr}")
 
+    def is_defined(self, symbol: str) -> bool:
+        """Whether DEFINED(symbol) holds: the symbol has a value that resolves.
+
+        A variable whose value is still an unresolved expression naming the
+        symbol itself is a placeholder the extractor stored on an earlier
+        pass (scripts are read in both orders): pico-sdk's
+        ``X = DEFINED(X) ? X : X_DEFAULT;`` asks whether X was defined before
+        that statement, and the placeholder is that statement, not a
+        definition. Any other string value counts when it evaluates (a user
+        variable such as ``'256k'``)."""
+        value = self.variables.get(symbol)
+        if value is None:
+            return False
+        if not isinstance(value, str):
+            return True
+        if symbol in self._defined_checks or re.search(rf"\b{re.escape(symbol)}\b", value):
+            return False
+        self._defined_checks.add(symbol)
+        try:
+            self.evaluate_expression(value, {symbol})
+        except (ExpressionEvaluationError, VariableResolutionError, ValueError):
+            return False
+        finally:
+            self._defined_checks.discard(symbol)
+        return True
+
     def _replace_defined(self, match: re.Match) -> str:
         """Replace DEFINED() function with 1 or 0"""
-        symbol = match.group(1).strip()
-        return "1" if symbol in self.variables else "0"
+        return "1" if self.is_defined(match.group(1).strip()) else "0"
 
     def _replace_origin(self, match: re.Match) -> str:
         """Replace ORIGIN() function with actual address"""
@@ -938,8 +973,10 @@ class ExpressionEvaluator:
 class VariableExtractor:  # pylint: disable=too-few-public-methods
     """Extracts and manages variables from linker scripts"""
 
-    def __init__(self, evaluator: ExpressionEvaluator):
+    def __init__(self, evaluator: ExpressionEvaluator,
+                 include_dirs: Sequence[str] = ()):
         self.evaluator = evaluator
+        self.include_dirs = list(include_dirs)
         self.variables: Dict[str, Any] = {}
 
     def extract_from_script(self, script_path: str) -> None:
@@ -949,7 +986,8 @@ class VariableExtractor:  # pylint: disable=too-few-public-methods
 
         # Inline INCLUDE directives before any other preprocessing
         content = ScriptContentCleaner.resolve_includes(
-            content, os.path.dirname(os.path.abspath(script_path)))
+            content, os.path.dirname(os.path.abspath(script_path)),
+            search_dirs=self.include_dirs)
 
         # Remove comments and preprocessor directives
         content = ScriptContentCleaner.clean_content(content)
@@ -958,18 +996,31 @@ class VariableExtractor:  # pylint: disable=too-few-public-methods
         # (not linker symbols like __bss_start__ defined inside SECTIONS)
         content = ScriptContentCleaner.strip_sections_content(content)
 
-        # Find variable assignments: var_name = value;
-        # The '=' must be neither preceded by =, !, <, > nor followed by '='
-        # so that ==, !=, <=, >= comparisons are never treated as assignments.
-        var_pattern = r"([A-Za-z_][A-Za-z0-9_]*)\s*(?<![=!<>])=(?!=)\s*([^;]+);"
+        # Find, in script order, assignments `name = value;` and
+        # `PROVIDE(name = value);` (also PROVIDE_HIDDEN). An assignment's '='
+        # must be neither preceded by =, !, <, > nor followed by '=' so that
+        # ==, !=, <=, >= comparisons are never treated as assignments.
+        statement_pattern = (
+            r"\bPROVIDE(?:_HIDDEN)?\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([^;]*?)\s*\)\s*;"
+            r"|([A-Za-z_][A-Za-z0-9_]*)\s*(?<![=!<>])=(?!=)\s*([^;]+);")
 
         # First pass: extract simple variables and store complex ones
         simple_vars = {}
         complex_vars = {}
 
-        for match in re.finditer(var_pattern, content):
-            var_name = match.group(1).strip()
-            var_value = match.group(2).strip()
+        for match in re.finditer(statement_pattern, content):
+            provided = match.group(1) is not None
+            var_name = (match.group(1) if provided else match.group(3)).strip()
+            var_value = (match.group(2) if provided else match.group(4)).strip()
+
+            # PROVIDE defines a symbol only when nothing else has: a default
+            # that a user variable, an earlier script, or an earlier
+            # assignment or PROVIDE in this script overrides, and that a
+            # later plain assignment overrides too. pico-sdk sets its region
+            # origins and lengths this way.
+            if provided and (var_name in simple_vars or var_name in complex_vars
+                             or self.evaluator.is_defined(var_name)):
+                continue
 
             try:
                 # Try to evaluate simple expressions immediately
@@ -1215,7 +1266,8 @@ class LinkerScriptParser:  # pylint: disable=too-few-public-methods,too-many-ins
     """Main parser orchestrator for linker script files"""
 
     def __init__(self, ld_scripts: List[str], elf_file: Optional[str] = None,
-                 user_variables: Optional[Dict[str, Any]] = None):
+                 user_variables: Optional[Dict[str, Any]] = None,
+                 include_dirs: Optional[Sequence[str]] = None):
         """Initialize the parser with linker script paths and optional ELF file
 
         Args:
@@ -1223,9 +1275,12 @@ class LinkerScriptParser:  # pylint: disable=too-few-public-methods,too-many-ins
             elf_file: Optional path to ELF file for architecture detection
             user_variables: Optional dict of user-defined variables to use during parsing
                           (e.g., {'__micropy_flash_size__': '4096K', 'RAM_START': '0x20000000'})
+            include_dirs: Directories searched for INCLUDE files not found next to
+                          the including script or in the cwd (the linker's -L dirs)
         """
         self.ld_scripts = [str(Path(script).resolve())
                            for script in ld_scripts]
+        self.include_dirs = [str(Path(d).resolve()) for d in include_dirs or []]
         self.elf_file = str(Path(elf_file).resolve()) if elf_file else None
         self._validate_scripts()
 
@@ -1247,7 +1302,7 @@ class LinkerScriptParser:  # pylint: disable=too-few-public-methods,too-many-ins
 
         # Initialize components
         self.evaluator = ExpressionEvaluator()
-        self.variable_extractor = VariableExtractor(self.evaluator)
+        self.variable_extractor = VariableExtractor(self.evaluator, self.include_dirs)
         self.region_builder = MemoryRegionBuilder(self.evaluator)
 
         # Apply architecture-specific default variables
@@ -1423,7 +1478,8 @@ class LinkerScriptParser:  # pylint: disable=too-few-public-methods,too-many-ins
         # GNU LD path (existing logic)
         # Inline INCLUDE directives before cleaning/scanning
         content = ScriptContentCleaner.resolve_includes(
-            content, os.path.dirname(os.path.abspath(script_path)))
+            content, os.path.dirname(os.path.abspath(script_path)),
+            search_dirs=self.include_dirs)
 
         # Remove comments and normalize whitespace
         content = ScriptContentCleaner.clean_content(content)
@@ -1482,13 +1538,15 @@ class LinkerScriptParser:  # pylint: disable=too-few-public-methods,too-many-ins
 
 # Convenience functions for backward compatibility
 def parse_linker_scripts(
-    ld_scripts: List[str], elf_file: Optional[str] = None
+    ld_scripts: List[str], elf_file: Optional[str] = None,
+    include_dirs: Optional[Sequence[str]] = None,
 ) -> Dict[str, Dict[str, Any]]:
     """Convenience function to parse memory regions from linker scripts
 
     Args:
         ld_scripts: List of paths to linker script files
         elf_file: Optional path to ELF file for architecture detection
+        include_dirs: Directories searched for INCLUDE files (the linker's -L dirs)
 
     Returns:
         Dictionary mapping region names to region information
@@ -1497,5 +1555,5 @@ def parse_linker_scripts(
         FileNotFoundError: If any linker script file is not found
         LinkerScriptError: If parsing fails for critical regions
     """
-    parser = LinkerScriptParser(ld_scripts, elf_file)
+    parser = LinkerScriptParser(ld_scripts, elf_file, include_dirs=include_dirs)
     return parser.parse_memory_regions()
