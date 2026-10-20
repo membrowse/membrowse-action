@@ -268,7 +268,8 @@ class ReportGenerator:  # pylint: disable=too-few-public-methods
             regions[name] = MemoryRegion(
                 address=data['address'],
                 limit_size=data['limit_size'],
-                # Type field no longer in linker parser output
-                type=data.get('type', 'UNKNOWN')
+                # The linker parser gives the region's attributes ('rx',
+                # 'xrw'); a region declared without them stays UNKNOWN.
+                type=data.get('attributes') or data.get('type') or 'UNKNOWN'
             )
         return regions
