@@ -77,7 +77,7 @@ inputs:
     description: |
       Directory that symbols' source files are reported relative to, so a
       file under it is reported as e.g. src/drivers/uart.c instead of
-      uart.c. Typically the checkout: ${{ github.workspace }} (or '.').
+      uart.c. Typically the checkout: $GITHUB_WORKSPACE (or '.').
       Off by default: every file is reported by basename. Files outside the
       directory are always reported by basename. The platform keys symbol
       identity on source_file, so the first upload after turning this on
