@@ -228,6 +228,17 @@ examples:
              'in-repo symbols as moved.'
     )
     parser.add_argument(
+        '--ld-include-dir',
+        action='append',
+        dest='ld_include_dirs',
+        default=None,
+        metavar='DIR',
+        help='Directory searched for a linker script INCLUDE file that is not '
+             'next to the including script or in the current directory: the '
+             'linker\'s -L directories. Repeatable. pico-sdk 2.3 keeps its '
+             'MEMORY block in a .incl file found this way.'
+    )
+    parser.add_argument(
         '--skip-section',
         dest='skip_sections',
         action='append',
@@ -547,6 +558,7 @@ def _build_and_generate_report(commit, args, linker_variables):
         limits_ld=getattr(args, 'limits', None),
         skip_sections=getattr(args, 'skip_sections', None),
         source_root=getattr(args, 'source_root', None),
+        ld_include_dirs=getattr(args, 'ld_include_dirs', None),
     )
 
     # Case 3b: Build succeeded but report has empty memory_layout

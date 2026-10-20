@@ -358,6 +358,23 @@ class TestOnboardDefArgument(unittest.TestCase):
         self.assertEqual(args2.linker_defs[0], 'VAR2=value2')
 
 
+class TestOnboardLdIncludeDirArgument(unittest.TestCase):
+    """--ld-include-dir reaches onboard as it reaches report."""
+
+    def test_ld_include_dir_is_repeatable_and_optional(self):
+        """Each --ld-include-dir is collected in order; absent, it is None."""
+        parser = argparse.ArgumentParser()
+        add_onboard_parser(parser.add_subparsers())
+        base = ['onboard', '10', 'make', 'build/firmware.elf', 'rp2350', 'api_key',
+                '--ld-scripts', 'memmap_default.ld']
+
+        args = parser.parse_args(base + ['--ld-include-dir', 'pico-sdk/src/rp2350/pico_platform',
+                                         '--ld-include-dir', 'board'])
+        self.assertEqual(args.ld_include_dirs,
+                         ['pico-sdk/src/rp2350/pico_platform', 'board'])
+        self.assertIsNone(parser.parse_args(base).ld_include_dirs)
+
+
 class TestDefVariableParsing(unittest.TestCase):
     """Test the parsing logic for --def variable definitions"""
 

@@ -993,6 +993,24 @@ class TestIncludeDirective(unittest.TestCase):
         regions = parse_linker_scripts([locations, str(board), str(memmap)])
         self.assertEqual(regions['RAM']['address'], 0x20001000)
 
+    def test_provide_follows_script_order(self):
+        """As in GNU LD, a PROVIDE yields to a plain assignment of the symbol
+        before or after it and to an earlier PROVIDE, and a plain assignment
+        after a PROVIDE overrides it while DEFINED() sees the provided value."""
+        memory = 'MEMORY { RAM (rwx) : ORIGIN = 0x20000000, LENGTH = A }\n'
+
+        def ram_length(*scripts):
+            paths = [str(self.create_test_file(text, f'order{i}.ld'))
+                     for i, text in enumerate(scripts)]
+            return parse_linker_scripts(paths)['RAM']['limit_size']
+
+        self.assertEqual(ram_length('A = 1k; PROVIDE(A = 2k);\n' + memory), 1024)
+        self.assertEqual(ram_length('PROVIDE(A = 1k); PROVIDE(A = 2k);\n' + memory), 1024)
+        self.assertEqual(ram_length('PROVIDE(A = 1k); A = 2k;\n' + memory), 2048)
+        self.assertEqual(ram_length('A = 5k;\n', 'PROVIDE(A = 1k); A = 2k;\n' + memory), 2048)
+        self.assertEqual(
+            ram_length('PROVIDE(A = 1k); A = DEFINED(A) ? A : 4k;\n' + memory), 1024)
+
     def test_include_found_in_a_search_directory(self):
         """An INCLUDE file that is neither next to the script nor in the cwd is
         found in an include_dirs entry, as GNU LD finds it through -L: pico-sdk

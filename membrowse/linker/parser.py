@@ -124,9 +124,8 @@ class ScriptContentCleaner:  # pylint: disable=too-few-public-methods
                 filename, base_dir, search_dirs)
             if resolved is None:
                 logger.warning(
-                    "INCLUDE '%s' not found (searched %s, cwd and the %d "
-                    "--ld-include-dir directories)",
-                    filename, base_dir, len(search_dirs))
+                    "INCLUDE '%s' not found (searched %s)",
+                    filename, ", ".join([base_dir, "cwd", *search_dirs]))
                 return ""
             if resolved in visited:
                 logger.debug("Skipping already-included file: %s", resolved)
@@ -997,27 +996,31 @@ class VariableExtractor:  # pylint: disable=too-few-public-methods
         # (not linker symbols like __bss_start__ defined inside SECTIONS)
         content = ScriptContentCleaner.strip_sections_content(content)
 
-        content, provided = self._unwrap_provides(content)
-
-        # Find variable assignments: var_name = value;
-        # The '=' must be neither preceded by =, !, <, > nor followed by '='
-        # so that ==, !=, <=, >= comparisons are never treated as assignments.
-        var_pattern = r"([A-Za-z_][A-Za-z0-9_]*)\s*(?<![=!<>])=(?!=)\s*([^;]+);"
+        # Find, in script order, assignments `name = value;` and
+        # `PROVIDE(name = value);` (also PROVIDE_HIDDEN). An assignment's '='
+        # must be neither preceded by =, !, <, > nor followed by '=' so that
+        # ==, !=, <=, >= comparisons are never treated as assignments.
+        statement_pattern = (
+            r"\bPROVIDE(?:_HIDDEN)?\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([^;]*?)\s*\)\s*;"
+            r"|([A-Za-z_][A-Za-z0-9_]*)\s*(?<![=!<>])=(?!=)\s*([^;]+);")
 
         # First pass: extract simple variables and store complex ones
         simple_vars = {}
         complex_vars = {}
 
-        for match in re.finditer(var_pattern, content):
-            var_name = match.group(1).strip()
-            var_value = match.group(2).strip()
+        for match in re.finditer(statement_pattern, content):
+            provided = match.group(1) is not None
+            var_name = (match.group(1) if provided else match.group(3)).strip()
+            var_value = (match.group(2) if provided else match.group(4)).strip()
 
-            if var_name in provided and (self.evaluator.is_defined(var_name)
-                                         or var_name in simple_vars
-                                         or var_name in complex_vars):
-                continue  # already defined: the PROVIDE default yields
-            if var_name in provided:
-                provided.discard(var_name)  # a later plain assignment still overrides
+            # PROVIDE defines a symbol only when nothing else has: a default
+            # that a user variable, an earlier script, or an earlier
+            # assignment or PROVIDE in this script overrides, and that a
+            # later plain assignment overrides too. pico-sdk sets its region
+            # origins and lengths this way.
+            if provided and (var_name in simple_vars or var_name in complex_vars
+                             or self.evaluator.is_defined(var_name)):
+                continue
 
             try:
                 # Try to evaluate simple expressions immediately
@@ -1065,27 +1068,6 @@ class VariableExtractor:  # pylint: disable=too-few-public-methods
         for var_name, var_value in complex_vars.items():
             if var_name not in self.variables:
                 self.variables[var_name] = var_value
-
-    @staticmethod
-    def _unwrap_provides(content: str) -> tuple[str, set]:
-        """Rewrite ``PROVIDE(name = value);`` (and PROVIDE_HIDDEN) as
-        ``name = value;`` and return the names so provided.
-
-        PROVIDE defines a symbol only when nothing else does: a default,
-        which a definition already known (a user variable, --defsym, an
-        earlier script or an earlier plain assignment) overrides. pico-sdk
-        sets its region origins and lengths this way. Unwrapped, the
-        assignment scan sees the assignment and not a stray ')'."""
-        provided = set()
-
-        def unwrap(match: re.Match) -> str:
-            provided.add(match.group(1))
-            return f"{match.group(1)} = {match.group(2)};"
-
-        content = re.sub(
-            r"\bPROVIDE(?:_HIDDEN)?\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([^;]*?)\s*\)\s*;",
-            unwrap, content)
-        return content, provided
 
     def _is_simple_expression(self, expr: str) -> bool:
         """Check if an expression is simple enough to evaluate immediately"""

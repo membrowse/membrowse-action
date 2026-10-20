@@ -267,10 +267,15 @@ runs:
           set +f
         fi
 
-        # Linker -L directories, searched for INCLUDE files
-        for DIR in $INPUT_LD_INCLUDE_DIRS; do
-          ARGS+=(--ld-include-dir "$DIR")
-        done
+        # Linker -L directories, searched for INCLUDE files. Word-split on
+        # whitespace; disable glob expansion as for skip_sections.
+        if [ -n "$INPUT_LD_INCLUDE_DIRS" ]; then
+          set -f
+          for dir in $INPUT_LD_INCLUDE_DIRS; do
+            ARGS+=(--ld-include-dir "$dir")
+          done
+          set +f
+        fi
 
         # Source paths relative to this directory (off by default)
         if [ -n "$INPUT_SOURCE_ROOT" ]; then
