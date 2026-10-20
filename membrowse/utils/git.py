@@ -71,14 +71,46 @@ def run_git_command(command: list, timeout: Optional[float] = None,
 
 
 def git_checkout(ref: str) -> None:
-    """Checkout a git ref. Raises RuntimeError on failure."""
+    """Checkout a git ref, discarding local changes to tracked files.
+
+    Builds can rewrite tracked files (a lockfile cargo or npm brings up to
+    date, generated sources). A plain checkout refuses to switch once the
+    next commit also changes such a file, so the change would block every
+    later commit. Onboard refuses to start with local edits outside CI (see
+    git_modified_tracked_files), so this only discards what the builds wrote.
+
+    Raises RuntimeError on failure.
+    """
     result = subprocess.run(
-        ['git', 'checkout', ref, '--quiet'],
+        ['git', 'checkout', '--force', '--quiet', ref],
         capture_output=True,
         check=False
     )
     if result.returncode != 0:
         raise RuntimeError(f"Failed to checkout {ref}")
+
+
+def git_modified_tracked_files() -> Optional[List[str]]:
+    """Return tracked files with staged or unstaged changes.
+
+    Untracked files are not listed: onboard removes them with git_clean
+    anyway. Submodules are not listed: git_submodule_update already resets
+    them to the recorded revision.
+
+    Returns:
+        List of paths (empty when the working tree is clean), or None if
+        git status failed.
+    """
+    # Not run_git_command: it strips the output, which would eat the leading
+    # status column of the first line.
+    result = subprocess.run(
+        ['git', 'status', '--porcelain', '--untracked-files=no',
+         '--ignore-submodules=all'],
+        capture_output=True, text=True, check=False
+    )
+    if result.returncode != 0:
+        return None
+    return [line[3:] for line in result.stdout.splitlines() if line]
 
 
 def git_submodule_update() -> None:

@@ -103,3 +103,25 @@ def same_repo_pr_event():
         head_repo='owner/repo',
         base_repo='owner/repo'
     )
+
+
+@pytest.fixture(autouse=True)
+def _clean_working_tree_for_onboard(request):
+    """Report a clean working tree to run_onboard's startup check.
+
+    Onboard tests mock git by name and run inside this repository, whose
+    working tree may legitimately have local edits. Tests of the check itself
+    opt out with the real_working_tree_check marker.
+    """
+    if request.node.get_closest_marker('real_working_tree_check'):
+        yield
+        return
+    with patch('membrowse.commands.onboard.git_modified_tracked_files', return_value=[]):
+        yield
+
+
+def pytest_configure(config):
+    """Register custom markers."""
+    config.addinivalue_line(
+        'markers',
+        'real_working_tree_check: run onboard\'s working-tree check unmocked')

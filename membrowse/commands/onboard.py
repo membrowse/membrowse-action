@@ -9,7 +9,7 @@ from datetime import datetime
 
 from ..utils.git import (
     run_git_command, get_commit_metadata, get_ancestry, get_default_branch,
-    git_checkout, git_submodule_update, git_clean,
+    git_checkout, git_submodule_update, git_clean, git_modified_tracked_files,
 )
 from ..api.client import MemBrowseClient
 from ..auth.strategy import determine_auth_strategy
@@ -81,6 +81,8 @@ How it works:
 
 Requirements:
   - Must be run from within a Git repository
+  - Tracked files must have no uncommitted changes (checkouts are forced);
+    in CI (CI env var set) such changes only produce a warning
   - Build command must produce the ELF file at the specified path
   - All commits must be buildable (script stops on first build failure)
         """,
@@ -297,6 +299,49 @@ def _resolve_and_validate_commits(commits_str: str) -> list[str]:
             f"Cannot resolve commit reference(s): {', '.join(invalid)}")
 
     return resolved
+
+
+def _running_in_ci() -> bool:
+    """True when a CI system set the conventional CI environment variable."""
+    return os.environ.get('CI', '').strip().lower() not in ('', '0', 'false')
+
+
+def _check_working_tree(max_listed: int = 10) -> bool:
+    """
+    Make sure onboard won't discard uncommitted work.
+
+    Onboard checks out every commit with --force so files the builds rewrite
+    can't block the next checkout. That would also discard the user's own
+    edits to tracked files, so outside CI onboard refuses to start with any.
+    In CI the checkout is disposable: warn instead, since a setup step may
+    have edited files on purpose and those edits won't reach the builds.
+
+    Returns:
+        True if onboard may proceed
+    """
+    modified = git_modified_tracked_files()
+    if modified is None:
+        logger.error("Could not check the working tree for local changes (git status failed)")
+        return False
+    if not modified:
+        return True
+
+    listing = ', '.join(modified[:max_listed])
+    if len(modified) > max_listed:
+        listing += f" and {len(modified) - max_listed} more"
+
+    if _running_in_ci():
+        logger.warning(
+            "Tracked files have local changes, which will be discarded when "
+            "onboard checks out each commit: %s. If the build needs these "
+            "changes, make them in the build command instead.", listing)
+        return True
+
+    logger.error(
+        "Tracked files have uncommitted changes: %s. Onboard checks out each "
+        "commit with --force, which would discard them. Commit or stash them "
+        "first.", listing)
+    return False
 
 
 def _get_repository_info():
@@ -1103,6 +1148,9 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
     current_branch, original_head, repo_name = _get_repository_info()
     if not original_head:
         logger.error("Not in a git repository")
+        return 1
+
+    if not _check_working_tree():
         return 1
 
     # Get commit list
