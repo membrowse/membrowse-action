@@ -53,12 +53,15 @@ def run_git_command(command: list, timeout: Optional[float] = None,
     """Run a git command and return stdout, or None on error or timeout.
 
     env adds to (or overrides) the inherited environment for this call only.
+    Output is decoded as UTF-8, which git writes for paths and (by default)
+    commit messages, rather than the locale encoding (cp1252 on Windows).
     """
     try:
         result = subprocess.run(
             ['git'] + command,
             capture_output=True,
-            text=True,
+            encoding='utf-8',
+            errors='replace',
             check=False,
             timeout=timeout,
             env={**os.environ, **env} if env else None,
