@@ -9,7 +9,7 @@ from datetime import datetime
 
 from ..utils.git import (
     run_git_command, get_commit_metadata, get_ancestry, get_default_branch,
-    git_checkout, git_submodule_update, git_clean,
+    git_checkout, git_submodule_update, git_clean, git_modified_tracked_files,
 )
 from ..api.client import MemBrowseClient
 from ..auth.strategy import determine_auth_strategy
@@ -81,6 +81,8 @@ How it works:
 
 Requirements:
   - Must be run from within a Git repository
+  - Tracked files must have no uncommitted changes (checkouts are forced);
+    in CI such changes only produce a warning
   - Build command must produce the ELF file at the specified path
   - All commits must be buildable (script stops on first build failure)
         """,
@@ -297,6 +299,55 @@ def _resolve_and_validate_commits(commits_str: str) -> list[str]:
             f"Cannot resolve commit reference(s): {', '.join(invalid)}")
 
     return resolved
+
+
+# CI systems that don't set the conventional CI variable by default.
+_CI_ENV_MARKERS = ('JENKINS_URL', 'TF_BUILD', 'TEAMCITY_VERSION')
+
+
+def _running_in_ci() -> bool:
+    """True when the environment shows onboard is running under CI."""
+    if os.environ.get('CI', '').strip().lower() not in ('', '0', 'false'):
+        return True
+    return any(os.environ.get(name) for name in _CI_ENV_MARKERS)
+
+
+def _check_working_tree(max_listed: int = 10) -> bool:
+    """
+    Make sure onboard won't discard uncommitted work.
+
+    Onboard checks out every commit with --force so files the builds rewrite
+    can't block the next checkout. That would also discard the user's own
+    edits to tracked files, so outside CI onboard refuses to start with any.
+    In CI the checkout is disposable: warn instead, since a setup step may
+    have edited files on purpose and those edits won't reach the builds.
+
+    Returns:
+        True if onboard may proceed
+    """
+    modified = git_modified_tracked_files()
+    if modified is None:
+        logger.error("Could not check the working tree for local changes (git status failed)")
+        return False
+    if not modified:
+        return True
+
+    listing = ', '.join(modified[:max_listed])
+    if len(modified) > max_listed:
+        listing += f" and {len(modified) - max_listed} more"
+
+    if _running_in_ci():
+        logger.warning(
+            "Tracked files have local changes, which will be discarded when "
+            "onboard checks out each commit: %s. If the build needs these "
+            "changes, make them in the build command instead.", listing)
+        return True
+
+    logger.error(
+        "Tracked files have uncommitted changes: %s. Onboard checks out each "
+        "commit with --force, which would discard them. Commit or stash them "
+        "first.", listing)
+    return False
 
 
 def _get_repository_info():
@@ -686,41 +737,24 @@ def _upload_commit(  # pylint: disable=too-many-arguments,too-many-positional-ar
 
 
 def _mark_identical_range(  # pylint: disable=too-many-arguments,too-many-positional-arguments
-    commits, left_idx, right_idx, left_fingerprint,
-    built_indices, commit_results, elf_path
+    commits, left_idx, right_idx, built_indices, commit_results, elf_path
 ):
-    """Mark all commits between left and right as identical or build failures."""
-    count = right_idx - left_idx - 1
-    both_failed = left_fingerprint is None
-
-    if both_failed:
-        logger.debug(
-            "Commits %d..%d both failed to build, "
-            "marking %d intermediate commits as build failures",
-            left_idx, right_idx, count)
-    else:
-        logger.debug(
-            "Commits %d..%d have identical memory fingerprints, "
-            "marking %d intermediate commits as identical",
-            left_idx, right_idx, count)
+    """Mark all commits between left and right as identical."""
+    logger.debug(
+        "Commits %d..%d have identical memory fingerprints, "
+        "marking %d intermediate commits as identical",
+        left_idx, right_idx, right_idx - left_idx - 1)
 
     for i in range(left_idx + 1, right_idx):
         if i in built_indices:
             continue
-        commit = commits[i]
-        if both_failed:
-            report = _create_empty_report(elf_path)
-            commit_results[i] = (report, True, False)
-            logger.debug("(%s): Marked as build failure (%d/%d)",
-                         commit[:8], i + 1, len(commits))
-        else:
-            report = _create_metadata_only_report(elf_path)
-            commit_results[i] = (report, False, True)
-            logger.debug("(%s): Marked as identical (%d/%d)",
-                         commit[:8], i + 1, len(commits))
+        report = _create_metadata_only_report(elf_path)
+        commit_results[i] = (report, False, True)
+        logger.debug("(%s): Marked as identical (%d/%d)",
+                     commits[i][:8], i + 1, len(commits))
 
 
-def _binary_search_range(  # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals,too-many-return-statements
+def _binary_search_range(  # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals
     commits, left_idx, right_idx,
     left_fingerprint, right_fingerprint,
     built_indices, failed_indices, reports_cache, commit_results,
@@ -730,10 +764,11 @@ def _binary_search_range(  # pylint: disable=too-many-arguments,too-many-positio
     Recursively classify a range of commits using binary search.
 
     Builds midpoints only where fingerprints differ, and marks identical
-    ranges. Build failures are treated as a distinct fingerprint state
-    (None), allowing binary search to find where builds start/stop
-    failing. Does NOT upload — results are stored in commit_results for
-    chronological upload via flush_fn.
+    ranges. A failed build has no fingerprint (None) and says nothing about
+    its neighbours, so a range bounded by failures on both sides is still
+    searched rather than assumed to fail throughout. Does NOT upload —
+    results are stored in commit_results for chronological upload via
+    flush_fn.
 
     Args:
         commits: Full list of commit hashes (oldest first)
@@ -754,19 +789,23 @@ def _binary_search_range(  # pylint: disable=too-many-arguments,too-many-positio
 
     Returns:
         True if processing should continue, False to abort
+
+    Raises:
+        RuntimeError: If checking out a midpoint fails
+        ValueError: If report generation fails with a configuration error
     """
     # Base case: no commits between left and right
     if right_idx - left_idx <= 1:
         return True
 
     # Fingerprints match - all commits in between share the same state
-    if left_fingerprint == right_fingerprint:
+    if left_fingerprint is not None and left_fingerprint == right_fingerprint:
         _mark_identical_range(
-            commits, left_idx, right_idx, left_fingerprint,
+            commits, left_idx, right_idx,
             built_indices, commit_results, args.elf_path)
         return flush_fn()
 
-    # Fingerprints differ - binary search for the change point
+    # Fingerprints differ (or a side failed) - binary search for the change point
     mid_idx = (left_idx + right_idx) // 2
 
     if mid_idx in built_indices:
@@ -778,17 +817,8 @@ def _binary_search_range(  # pylint: disable=too-many-arguments,too-many-positio
         commit = commits[mid_idx]
         logger.debug("Building midpoint commit %d/%d: %s",
                       mid_idx + 1, len(commits), commit[:8])
-        try:
-            mid_report, build_failed = _build_and_generate_report(
-                commit, args, linker_variables)
-        except RuntimeError as e:
-            logger.error("Checkout failed at midpoint %s: %s", commit[:8], e)
-            mid_report = _create_empty_report(args.elf_path)
-            build_failed = True
-        except ValueError as e:
-            logger.error("Report generation failed at midpoint %s: %s",
-                         commit[:8], e)
-            return False
+        mid_report, build_failed = _build_and_generate_report(
+            commit, args, linker_variables)
 
         commit_results[mid_idx] = (mid_report, build_failed, False)
         built_indices.add(mid_idx)
@@ -998,12 +1028,20 @@ def _run_binary_search_between_endpoints(commits, args, linker_variables, state,
 
     _log_fingerprint_comparison(first_fp, last_fp, total)
 
-    if not _binary_search_range(
+    try:
+        completed = _binary_search_range(
             commits, 0, total - 1,
             first_fp, last_fp,
             state['built_indices'], state['failed_indices'],
             state['reports_cache'], state['commit_results'],
-            args, linker_variables, flush_fn):
+            args, linker_variables, flush_fn)
+    except (RuntimeError, ValueError) as e:
+        # Like the sequential mode: a checkout or configuration error is not
+        # a build failure, so stop instead of uploading an empty report.
+        logger.error("Binary search stopped at a midpoint commit: %s", e)
+        state['counters']['failed'] += 1
+        return
+    if not completed:
         logger.error("Binary search aborted due to upload failure")
         return
 
@@ -1105,6 +1143,9 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
         logger.error("Not in a git repository")
         return 1
 
+    if not _check_working_tree():
+        return 1
+
     # Get commit list
     if use_explicit_commits:
         try:
@@ -1137,6 +1178,7 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
         logger.debug("Restoring original HEAD...")
         try:
             git_checkout(original_head)
+            git_submodule_update()
         except RuntimeError:
             logger.warning("Failed to restore original HEAD")
 

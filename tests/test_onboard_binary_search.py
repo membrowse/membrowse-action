@@ -438,9 +438,9 @@ class TestRunBinarySearchOnboard:
     @patch('membrowse.commands.onboard._build_and_generate_report')
     @patch('membrowse.commands.onboard.upload_report')
     @patch('membrowse.commands.onboard.get_commit_metadata')
-    def test_both_endpoints_fail_marks_intermediates_failed(self, mock_metadata,
-                                                            mock_upload, mock_build):
-        """When both endpoints fail, intermediates are marked as build_failed."""
+    def test_both_endpoints_fail_builds_intermediates(self, mock_metadata,
+                                                     mock_upload, mock_build):
+        """Two failed endpoints say nothing about the commits between them."""
         mock_metadata.side_effect = _make_commit_metadata
         mock_upload.return_value = ({"status": "success"}, "")
 
@@ -452,11 +452,88 @@ class TestRunBinarySearchOnboard:
 
         assert failed == 0
         assert success == 5
-        # Only endpoints built (both None fingerprint -> intermediates marked failed)
-        assert mock_build.call_count == 2
-        # All uploads should have build_failed=True
+        # Every commit is built: a failure is never extrapolated to a range
+        assert mock_build.call_count == 5
         for call in mock_upload.call_args_list:
             assert call.kwargs.get('build_failed') is True
+
+    @patch('membrowse.commands.onboard._build_and_generate_report')
+    @patch('membrowse.commands.onboard.upload_report')
+    @patch('membrowse.commands.onboard.get_commit_metadata')
+    def test_buildable_commits_between_failed_endpoints(self, mock_metadata,
+                                                        mock_upload, mock_build):
+        """Commits that build between two failed endpoints get real reports."""
+        mock_metadata.side_effect = _make_commit_metadata
+        mock_upload.return_value = ({"status": "success"}, "")
+
+        def build_side_effect(commit, _args, _linker_vars):
+            if commit in ('c0', 'c4'):
+                return _make_report({}), True
+            return _make_report(_make_layout(flash_used=1000)), False
+
+        mock_build.side_effect = build_side_effect
+
+        commits = ['c0', 'c1', 'c2', 'c3', 'c4']
+        success, failed = _run_binary_search_onboard(
+            _make_args(), commits, 'main', 'repo', {})
+
+        assert (success, failed) == (5, 0)
+        by_sha = {call.kwargs['commit_info']['commit_hash']: call.kwargs
+                  for call in mock_upload.call_args_list}
+        assert by_sha['c0'].get('build_failed') is True
+        assert by_sha['c4'].get('build_failed') is True
+        for sha in ('c1', 'c2', 'c3'):
+            assert not by_sha[sha].get('build_failed')
+
+    @patch('membrowse.commands.onboard._build_and_generate_report')
+    @patch('membrowse.commands.onboard.upload_report')
+    @patch('membrowse.commands.onboard.get_commit_metadata')
+    def test_midpoint_checkout_failure_stops(self, mock_metadata, mock_upload,
+                                             mock_build):
+        """A midpoint checkout failure aborts the run instead of uploading empty."""
+        mock_metadata.side_effect = _make_commit_metadata
+        mock_upload.return_value = ({"status": "success"}, "")
+
+        def build_side_effect(commit, _args, _linker_vars):
+            if commit == 'c2':
+                raise RuntimeError("Failed to checkout c2")
+            flash = 2000 if commit == 'c4' else 1000
+            return _make_report(_make_layout(flash_used=flash)), False
+
+        mock_build.side_effect = build_side_effect
+
+        commits = ['c0', 'c1', 'c2', 'c3', 'c4']
+        _, failed = _run_binary_search_onboard(
+            _make_args(), commits, 'main', 'repo', {})
+
+        assert failed == 1
+        uploaded = [call.kwargs['commit_info']['commit_hash']
+                    for call in mock_upload.call_args_list]
+        assert 'c2' not in uploaded
+        assert all(not call.kwargs.get('build_failed')
+                   for call in mock_upload.call_args_list)
+
+    @patch('membrowse.commands.onboard._build_and_generate_report')
+    @patch('membrowse.commands.onboard.upload_report')
+    @patch('membrowse.commands.onboard.get_commit_metadata')
+    def test_midpoint_config_error_counts_as_failure(self, mock_metadata,
+                                                     mock_upload, mock_build):
+        """A midpoint configuration error makes the run fail, not end green."""
+        mock_metadata.side_effect = _make_commit_metadata
+        mock_upload.return_value = ({"status": "success"}, "")
+
+        def build_side_effect(commit, _args, _linker_vars):
+            if commit == 'c2':
+                raise ValueError("bad linker script")
+            flash = 2000 if commit == 'c4' else 1000
+            return _make_report(_make_layout(flash_used=flash)), False
+
+        mock_build.side_effect = build_side_effect
+
+        _, failed = _run_binary_search_onboard(
+            _make_args(), ['c0', 'c1', 'c2', 'c3', 'c4'], 'main', 'repo', {})
+
+        assert failed == 1
 
     @patch('membrowse.commands.onboard._build_and_generate_report')
     @patch('membrowse.commands.onboard.upload_report')

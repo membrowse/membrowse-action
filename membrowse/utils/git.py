@@ -53,12 +53,15 @@ def run_git_command(command: list, timeout: Optional[float] = None,
     """Run a git command and return stdout, or None on error or timeout.
 
     env adds to (or overrides) the inherited environment for this call only.
+    Output is decoded as UTF-8, which git writes for paths and (by default)
+    commit messages, rather than the locale encoding (cp1252 on Windows).
     """
     try:
         result = subprocess.run(
             ['git'] + command,
             capture_output=True,
-            text=True,
+            encoding='utf-8',
+            errors='replace',
             check=False,
             timeout=timeout,
             env={**os.environ, **env} if env else None,
@@ -71,14 +74,46 @@ def run_git_command(command: list, timeout: Optional[float] = None,
 
 
 def git_checkout(ref: str) -> None:
-    """Checkout a git ref. Raises RuntimeError on failure."""
+    """Checkout a git ref, discarding local changes to tracked files.
+
+    Builds can rewrite tracked files (a lockfile cargo or npm brings up to
+    date, generated sources). A plain checkout refuses to switch once the
+    next commit also changes such a file, so the change would block every
+    later commit.
+
+    This discards any local change to tracked files, not only what builds
+    wrote. Callers must make sure there is nothing to lose first; onboard
+    checks git_modified_tracked_files at startup.
+
+    Raises RuntimeError on failure.
+    """
     result = subprocess.run(
-        ['git', 'checkout', ref, '--quiet'],
+        ['git', 'checkout', '--force', '--quiet', ref],
         capture_output=True,
         check=False
     )
     if result.returncode != 0:
         raise RuntimeError(f"Failed to checkout {ref}")
+
+
+def git_modified_tracked_files() -> Optional[List[str]]:
+    """Return tracked files with staged or unstaged changes.
+
+    Untracked files are not listed: onboard removes them with git_clean
+    anyway, inside submodules too. A submodule is listed when its checked-out
+    commit differs from the recorded one or its tracked files are modified,
+    since the forced checkout and submodule update would discard both.
+
+    Returns:
+        List of paths (empty when the working tree is clean), or None if
+        git diff failed.
+    """
+    output = run_git_command(
+        ['diff', 'HEAD', '--name-only', '-z', '--no-renames',
+         '--ignore-submodules=untracked'])
+    if output is None:
+        return None
+    return [path for path in output.split('\0') if path]
 
 
 def git_submodule_update() -> None:
