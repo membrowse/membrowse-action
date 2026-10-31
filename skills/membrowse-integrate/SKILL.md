@@ -340,6 +340,32 @@ Choose the appropriate pattern:
 - **Pattern B** (Multiple targets, private repo): One workflow with matrix build + comment job
 - **Pattern C** (Open-source / fork PRs): Two workflows — report + comment via `workflow_run`
 
+### Zephyr Projects: Checkout in a Subdirectory
+
+Zephyr projects often check out the repository into a subdirectory so the west workspace can sit around it (e.g. `actions/checkout` with `path: <app>`, used with `zephyrproject-rtos/action-zephyr-setup` and `app-path: <app>`). Check the project's existing CI for this. The MemBrowse action runs `git` from the workspace root (`$GITHUB_WORKSPACE`). When the checkout is in a subdirectory, the root is not a git repository and every git call fails silently. The report still uploads, but without commit message, author, tags or ancestry.
+
+When the checkout uses `path:`, set `GIT_DIR` and `GIT_WORK_TREE` on the MemBrowse step, relative to the workspace root, and prefix the `elf`, `ld` and `map_file` paths with the same directory:
+
+```yaml
+      - name: Analyze memory
+        uses: membrowse/membrowse-action@v1
+        # The checkout lives under <app>/, but action steps run from the
+        # workspace root. Point git at the checkout so MemBrowse reads the
+        # commit message and author from it.
+        env:
+          GIT_DIR: <app>/.git
+          GIT_WORK_TREE: <app>
+        with:
+          elf: <app>/build/zephyr/zephyr.elf
+          ld: <app>/build/zephyr/linker.cmd
+          map_file: <app>/build/zephyr/zephyr.map
+          # ...
+```
+
+Use relative paths, not `${{ github.workspace }}`: in container jobs `github.workspace` gives the host path, which does not exist inside the container. A container job also needs `git config --global --add safe.directory '*'` before this step, or git refuses the checkout because a different user owns it.
+
+Zephyr builds produce `zephyr.elf`, the linker script `linker.cmd` and `zephyr.map` in `<build-dir>/zephyr/`. With sysbuild they are in `<build-dir>/<app-name>/zephyr/`.
+
 ---
 
 ### Pattern A: Single Target, Private Repo
@@ -818,6 +844,8 @@ Ensure the binary is compiled with debug symbols (`-g` flag, or `-DCMAKE_BUILD_T
 
 ### Git metadata missing
 Ensure `fetch-depth: 2` is set on the checkout step for report workflows (the parent commit is needed for diff metadata). The onboard workflow needs `fetch-depth: 0` since it iterates through historical commits. With too little history, MemBrowse cannot detect branch and commit metadata correctly.
+
+If the commit SHA and branch are present but the commit message, author and tags are empty, the repository is probably checked out into a subdirectory (`actions/checkout` with `path:`, common in Zephyr/west projects). Set `GIT_DIR` and `GIT_WORK_TREE` on the MemBrowse step. See [Zephyr Projects: Checkout in a Subdirectory](#zephyr-projects-checkout-in-a-subdirectory).
 
 ### Unsupported binary format
 MemBrowse requires ELF binaries. If your build produces `.bin`, `.hex`, or other non-ELF formats, locate the intermediate ELF file (usually in the build directory before the final conversion step). For non-embedded projects, the output binary is typically already ELF — verify with `file path/to/binary` (should show "ELF").
