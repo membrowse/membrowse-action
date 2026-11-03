@@ -130,6 +130,11 @@ class TestMeshtastic(ProjectTestCase):
             'Adafruit_BusIO_Register::write(unsigned char*, unsigned char)': (
                 'libAdafruit BusIO.a', 'Adafruit_BusIO_Register.cpp.o'),
             'setup': ('', 'src/main.cpp.o'),
+            # Merged .str1.N sections are listed at these addresses too
+            'DAYS_IN_MONTH': ('libc.a', 'libc_a-mktime.o'),
+            'CSWTCH.56': ('', 'RedirectablePrint.cpp.o'),
+            '__func__.2': ('', 'sleep.c.o'),
+            'uxTopUsedPriority': ('libFrameworkArduino.a', 'tasks.c.o'),
         })
 
 
@@ -266,13 +271,42 @@ class TestSourceLinePairing(ProjectTestCase):
         self.assert_source('tinyusb-feather_nrf52840_express', {
             'SystemInit': ('system_nrf52840.c', 0)})
 
-    def test_no_decl_line_from_a_name_alone(self):
-        """A variable is not given the line of another DIE of its name
+    def test_no_line_without_a_file(self):
+        """Labels whose file is not found get no line either"""
+        self.assert_source('meshtastic-picow', {'__default_isrs_start': ('', 0)})
+        self.assert_source('tinyusb-stm32f407disco', {'Default_Handler': ('', 0)})
 
-        The global owner (NodeDB.cpp) is attributed to mutex.c by name, where
-        a local of that name is declared at line 119.
-        """
-        self.assert_source('meshtastic-picow', {'owner': ('mutex.c', 0)})
+
+class TestDataWithoutDebugInfo(ProjectTestCase):
+    """Meshtastic's own C++ is built without -g: its variables have no DIEs
+    and get no source file, not that of a neighbour or a namesake."""
+
+    TARGET = 'meshtastic-picow'
+
+    def test_no_file_from_a_neighbouring_variable(self):
+        """rtc_found (main.cpp) is 1 byte after rng_initialised (rand.c):
+        the Thumb bit tolerance is for code only."""
+        self.assert_source(self.TARGET, {
+            'rng_initialised': ('rand.c', 43),
+            'rtc_found': ('', 0),
+            'kb_found': ('', 0),
+            'cannedMessageModuleConfig': ('', 0),
+            'channels': ('', 0),
+        })
+
+    def test_no_file_from_a_namesake(self):
+        """Locals, extern declarations and C++ members of the same name"""
+        self.assert_source(self.TARGET, {
+            'owner': ('', 0),               # a local in mutex.c
+            'bytes': ('', 0),               # a local in _mallocr.c
+            '__lock___tz_mutex': ('', 0),   # extern declaration in tzlock.c
+            'end': ('', 0),                 # std::string::end in string-inst.cc
+        })
+
+    def test_weak_stub_still_found_by_name(self):
+        """A defining DIE without an address still names its function"""
+        self.assert_source('tinyusb-stm32f407disco', {
+            'tud_cdc_tx_complete_cb': ('cdc_device.c', 72)})
 
     def test_decl_line_without_line_rows(self):
         """Symbols without line rows take the line of their DW_AT_decl_line
