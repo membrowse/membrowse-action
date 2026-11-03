@@ -12,13 +12,14 @@ from typing import Dict, Any, List, Optional
 from .models import MemoryRegion, MemoryReport
 from .analyzer import ELFAnalyzer
 from ..analysis.mapper import MemoryMapper
+from ..analysis.alignment import exclude_padding
 from .exceptions import ELFAnalysisError
 
 # Set up logger
 logger = logging.getLogger(__name__)
 
 
-class ReportGenerator:  # pylint: disable=too-few-public-methods
+class ReportGenerator:  # pylint: disable=too-few-public-methods,too-many-instance-attributes
     """Main class for generating comprehensive memory reports.
 
     This is the primary entry point for generating memory footprint reports
@@ -60,7 +61,8 @@ class ReportGenerator:  # pylint: disable=too-few-public-methods
                  map_file_path: Optional[str] = None,
                  real_limits: Optional[Dict[str, int]] = None,
                  skip_sections: Optional[List[str]] = None,
-                 source_root: Optional[str] = None):
+                 source_root: Optional[str] = None,
+                 exclude_alignment: bool = False):
         """Initialize the report generator.
 
         Args:
@@ -70,8 +72,8 @@ class ReportGenerator:  # pylint: disable=too-few-public-methods
                 will not include memory layout utilization data.
             skip_line_program: Skip DWARF line program processing for faster
                 analysis at the cost of reduced source file coverage (~24-31% faster).
-            map_file_path: Optional path to a linker map file (GNU LD or IAR)
-                for archive/object file attribution on symbols.
+            map_file_path: Optional path to a linker map file (GNU LD, LLD
+                or IAR) for archive/object file attribution on symbols.
             real_limits: Optional mapping of region name to the real
                 ``limit_size`` used as the denominator for utilization. The
                 ranges in ``memory_regions_data`` are used for section
@@ -86,15 +88,23 @@ class ReportGenerator:  # pylint: disable=too-few-public-methods
             source_root: Directory that symbols' source files are reported
                 relative to; files outside it, or every file when None, are
                 reported by basename.
+            exclude_alignment: Take the padding of explicit ``. = ALIGN(n)``
+                statements off each section's size before utilization is
+                computed. Read from the map file when ``map_file_path`` is a
+                GNU LD or LLD map (none for IAR), estimated from ELF symbols
+                otherwise. Only padding at the end of a section is taken.
         """
         self.elf_analyzer = ELFAnalyzer(
             elf_path, skip_line_program=skip_line_program,
-            map_file_path=map_file_path, source_root=source_root)
+            map_file_path=map_file_path, source_root=source_root,
+            exclude_alignment=exclude_alignment)
         self.memory_regions_data = memory_regions_data
         self.elf_path = elf_path
         self.skip_line_program = skip_line_program
         self.real_limits = real_limits or {}
         self.skip_sections = set(skip_sections) if skip_sections else set()
+        self.exclude_alignment = exclude_alignment
+        self._alignment_padding: Optional[Dict[str, int]] = None
 
     def generate_report(self) -> MemoryReport:  # pylint: disable=too-many-locals
         """Generate comprehensive memory report.
@@ -145,6 +155,8 @@ class ReportGenerator:  # pylint: disable=too-few-public-methods
             # so they don't contribute to any region's used_size.
             if self.skip_sections:
                 sections, symbols = self._apply_section_skips(sections, symbols)
+            if self.exclude_alignment:
+                sections = self.apply_alignment_exclusion(sections)
 
             # Convert memory regions data to MemoryRegion objects (if provided)
             memory_regions = {}
@@ -251,6 +263,29 @@ class ReportGenerator:  # pylint: disable=too-few-public-methods
         kept_sections = [s for s in sections if s.name not in skip]
         kept_symbols = [s for s in symbols if s.section not in skip]
         return kept_sections, kept_symbols
+
+    def apply_alignment_exclusion(self, sections):
+        """Return ``sections`` with alignment padding taken off their sizes.
+
+        The sections keep their addresses; only ``size`` and
+        ``end_address`` shrink, so region utilization and PR diffs follow
+        the real content.
+        """
+        first = self._alignment_padding is None
+        if first:
+            self._alignment_padding = self.elf_analyzer.get_alignment_padding()
+        sections, excluded = exclude_padding(sections, self._alignment_padding)
+        if not first:
+            return sections
+        if excluded:
+            logger.info(
+                "Excluding %d B of alignment padding: %s",
+                sum(excluded.values()),
+                ", ".join(f"{name} {size} B"
+                          for name, size in sorted(excluded.items())))
+        else:
+            logger.info("No alignment padding found to exclude")
+        return sections
 
     def _convert_to_memory_regions(
         self, regions_data: Dict[str, Dict[str, Any]]

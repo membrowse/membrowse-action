@@ -251,6 +251,16 @@ examples:
              'every commit built during onboarding.'
     )
     parser.add_argument(
+        '--exclude-alignment',
+        dest='exclude_alignment',
+        action='store_true',
+        help='Do not count padding from explicit ". = ALIGN(n)" statements '
+             'inside sections as used memory. Exact with a GNU LD or LLD '
+             '--map-file; estimated from ELF symbols without one. Applied '
+             'to every commit built during onboarding; commits uploaded '
+             'earlier without it keep the padding counted.'
+    )
+    parser.add_argument(
         '--limits',
         dest='limits',
         default=None,
@@ -610,6 +620,7 @@ def _build_and_generate_report(commit, args, linker_variables):
         skip_sections=getattr(args, 'skip_sections', None),
         source_root=getattr(args, 'source_root', None),
         ld_include_dirs=getattr(args, 'ld_include_dirs', None),
+        exclude_alignment=getattr(args, 'exclude_alignment', False),
     )
 
     # Case 3b: Build succeeded but report has empty memory_layout

@@ -67,6 +67,17 @@ inputs:
       real limit.
     required: false
     default: ''
+  exclude_alignment:
+    description: |
+      Set to 'true' to not count padding from explicit `. = ALIGN(n)`
+      statements inside sections as used memory, so usage and PR diffs
+      follow the real code and data size. Exact when `map_file` is a GNU LD
+      or LLD map; without one the padding is estimated from ELF symbols.
+      Turning it on lowers the reported usage from that commit on (a
+      one-time drop in the history); reports do not record the padding.
+      Applied to every commit analyzed during onboarding.
+    required: false
+    default: 'false'
   skip_sections:
     description: |
       Space-separated list of ELF section names to exclude from each
@@ -192,6 +203,7 @@ runs:
         INPUT_MAP_FILE: ${{ inputs.map_file }}
         INPUT_LIMITS: ${{ inputs.limits }}
         INPUT_SKIP_SECTIONS: ${{ inputs.skip_sections }}
+        INPUT_EXCLUDE_ALIGNMENT: ${{ inputs.exclude_alignment }}
         INPUT_LD_INCLUDE_DIRS: ${{ inputs.ld_include_dirs }}
         INPUT_SOURCE_ROOT: ${{ inputs.source_root }}
         INPUT_BINARY_SEARCH: ${{ inputs.binary_search }}
@@ -275,6 +287,11 @@ runs:
         # Source paths relative to this directory (off by default)
         if [ -n "$INPUT_SOURCE_ROOT" ]; then
           ONBOARD_ARGS+=(--source-root "$INPUT_SOURCE_ROOT")
+        fi
+
+        # Leave explicit ALIGN padding out of section sizes
+        if [ "$INPUT_EXCLUDE_ALIGNMENT" = "true" ]; then
+          ONBOARD_ARGS+=(--exclude-alignment)
         fi
 
         # Add --skip-section for each section name listed. Word-split on

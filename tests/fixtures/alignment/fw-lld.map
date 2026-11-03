@@ -1,0 +1,46 @@
+     VMA      LMA     Size Align Out     In      Symbol
+ 8000000  8000000     2000   512 .kernel
+ 8000000  8000000        0     1         kernel_start = .
+ 8000000  8000000      123     1         fw.o:(.kernel_blob)
+ 8000123  8000123        0     1         kernel_end = .
+ 8000123  8000123     1edd     1         . = ALIGN ( 0x2000 )
+ 8002000  8002000       10     4 .ARM.exidx
+ 8002000  8002000       10     4         <internal>:(.ARM.exidx)
+ 8002010  8002010      5f0     1 .reserved
+ 8002010  8002010        4     1         LONG ( 0xdeadbeef )
+ 8002014  8002014      400     1         . = ( . + 0x400 )
+ 8002414  8002414      1ec     1         . = ALIGN ( 0x200 )
+ 8002600  8002600      200     4 .flash
+ 8002600  8002600        0     4         fw.o:(.text)
+ 8002600  8002600        a     2         fw.o:(.text.msg)
+ 8002600  8002600        0     1                 $t.0
+ 8002601  8002601        a     1                 msg
+ 800260a  800260a       1e     2         fw.o:(.text.add)
+ 800260a  800260a        0     1                 $t.1
+ 800260b  800260b       1e     1                 add
+ 8002628  8002628       46     4         fw.o:(.text.Reset_Handler)
+ 8002628  8002628        0     1                 $t.2
+ 8002629  8002629       46     1                 Reset_Handler
+ 800266e  800266e       21     1         <internal>:(.flash)
+ 800268f  800268f      171     1         . = ALIGN ( 512 )
+20000000  8002800      200     4 .data
+20000000  8002800        0     1         _sdata = .
+20000000  8002800        4     4         fw.o:(.data.counter)
+20000000  8002800        4     1                 counter
+20000004  8002804        c     4         fw.o:(.data.table)
+20000004  8002804        c     1                 table
+20000010  8002810      1f0     1         . = ALIGN ( 512 )
+20000200  8002a00        0     1         _edata = .
+20000200 20000200      800     8 .stack
+20000200 20000200      800     1         . = . + 0x800
+20000a00 20000a00        0     1         _estack = .
+       0        0       37     1 .comment
+       0        0       37     1         <internal>:(.comment)
+       0        0       41     1 .ARM.attributes
+       0        0       41     1         fw.o:(.ARM.attributes)
+       0        0       f0     4 .symtab
+       0        0       f0     4         <internal>:(.symtab)
+       0        0       65     1 .shstrtab
+       0        0       65     1         <internal>:(.shstrtab)
+       0        0       67     1 .strtab
+       0        0       67     1         <internal>:(.strtab)

@@ -20,6 +20,7 @@ from ..analysis.sources import SourceFileResolver
 from ..analysis.symbols import SymbolExtractor
 from ..analysis.sections import SectionAnalyzer
 from ..analysis.mapfile import MapFileResolver, OutputSectionFilter
+from ..analysis.alignment import detect_alignment_padding
 from ..linker.elf_info import ELFParser, Architecture
 
 
@@ -67,9 +68,11 @@ class ELFAnalyzer:  # pylint: disable=too-many-instance-attributes
         elffile: The underlying pyelftools ELFFile object.
     """
 
-    def __init__(self, elf_path: str, skip_line_program: bool = False,
+    def __init__(self, elf_path: str,  # pylint: disable=too-many-arguments
+                 skip_line_program: bool = False,
                  map_file_path: Optional[str] = None,
-                 source_root: Optional[str] = None):
+                 source_root: Optional[str] = None,
+                 *, exclude_alignment: bool = False):
         """Initialize ELF analyzer with file path and component setup.
 
         Args:
@@ -77,17 +80,20 @@ class ELFAnalyzer:  # pylint: disable=too-many-instance-attributes
             skip_line_program: Skip DWARF line program processing for faster
                 analysis. This improves speed by ~24-31% but reduces source
                 file mapping coverage from ~97% to ~88% (ARM) or ~76% to ~65% (ESP32).
-            map_file_path: Optional path to a linker map file (GNU LD or IAR)
-                for archive/object file attribution on symbols.
+            map_file_path: Optional path to a linker map file (GNU LD, LLD
+                or IAR) for archive/object file attribution on symbols.
             source_root: Directory that symbols' source files are reported
                 relative to (e.g. the repository checkout). Files outside it,
                 or every file when None, are reported by basename.
+            exclude_alignment: Also read the ALIGN padding from the map
+                file, for :meth:`get_alignment_padding`.
 
         Raises:
             ELFAnalysisError: If the file doesn't exist or cannot be read.
         """
         self.elf_path = Path(elf_path)
         self.skip_line_program = skip_line_program
+        self.map_file_path = map_file_path
         self._validate_elf_file()
 
         # Open ELF file once and reuse throughout
@@ -127,7 +133,8 @@ class ELFAnalyzer:  # pylint: disable=too-many-instance-attributes
                 self._map_resolver = MapFileResolver.from_file(
                     map_file_path,
                     OutputSectionFilter(
-                        self._section_analyzer.section_alloc_flags()))
+                        self._section_analyzer.section_alloc_flags()),
+                    alignment=exclude_alignment)
             else:
                 self._map_resolver = MapFileResolver.null()
         except Exception:
@@ -217,6 +224,19 @@ class ELFAnalyzer:  # pylint: disable=too-many-instance-attributes
             name, address, size, type, end_address.
         """
         return self._section_analyzer.analyze_sections()
+
+    def get_alignment_padding(self) -> Dict[str, int]:
+        """Return section name -> bytes of explicit ``ALIGN`` padding.
+
+        Exact from a GNU LD or LLD map file, none for IAR, estimated from
+        the ELF symbols (with a warning) otherwise. The map file's padding
+        is read when the analyzer is created with ``exclude_alignment``.
+        See :mod:`membrowse.analysis.alignment`.
+        """
+        return detect_alignment_padding(
+            self.elffile, self._map_resolver.alignment_padding,
+            self._section_analyzer.detect_toolchain(),
+            map_given=bool(self.map_file_path))
 
     def get_all_section_names(self) -> set:
         """Return names of every section in the ELF, including non-ALLOC
