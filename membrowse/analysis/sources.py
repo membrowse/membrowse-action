@@ -165,26 +165,61 @@ class SourceFileResolver:  # pylint: disable=too-few-public-methods,too-many-ins
             return ""
         return result
 
-    def extract_source_line(self, symbol_address: Optional[int]) -> int:
-        """Return the source line for a symbol address from the DWARF line program.
+    def extract_source_line(self, symbol_address: Optional[int],
+                            symbol_name: Optional[str] = None,
+                            source_file: Optional[str] = None) -> int:
+        """Return the source line of a symbol, a line in source_file.
 
-        Returns 0 when no line program entry covers the address. The lookup is
-        address-based only — for inlined or moved code, this is the line the
-        line program ultimately landed on, which is the same answer ``nm -l``
-        gives.
+        The line of the line program row covering the address, the same
+        answer ``nm -l`` gives, when that row is in source_file (the name
+        extract_source_file reported). Otherwise, as for data, code without
+        line rows, or a function whose first row is inlined from another
+        file, the DW_AT_decl_line of the symbol's DIE when it declares the
+        symbol in source_file. 0 when neither is known, and when source_file
+        is empty (no file found). When source_file is None the row's line is
+        returned whatever its file.
         """
         if not self.dwarf_data or symbol_address is None:
             return 0
+        row = self._line_row(symbol_address)
+        if row is not None:
+            row_file, row_line = row
+            if row_line and (source_file is None
+                             or self._source_name(row_file) == source_file):
+                return row_line
+        if symbol_name and source_file:
+            decl = self._symbol_decl(symbol_name, symbol_address)
+            if decl is not None and self._source_name(decl[0]) == source_file:
+                return decl[1]
+        return 0
+
+    def _line_row(self, address: int) -> Optional[tuple]:
+        """(file, line) of the line row covering address, None if no row does."""
         addr_to_line = self.dwarf_data.get('address_to_line')
         if not addr_to_line:
-            return 0
-        line = addr_to_line.get(symbol_address)
-        if line:
-            return line
-        covering = self._covering_row(symbol_address)
-        if covering is not None:
-            return addr_to_line.get(covering, 0)
-        return 0
+            return None
+        if address not in addr_to_line:
+            address = self._covering_row(address)
+            if address is None:
+                return None
+        return self.dwarf_data['address_to_file'].get(address), addr_to_line.get(address, 0)
+
+    def _symbol_decl(self, symbol_name: str, symbol_address: int) -> Optional[tuple]:
+        """(DW_AT_decl_file, DW_AT_decl_line) of the symbol's DIE, None if unknown.
+
+        The DIE at the symbol's address, else a defining DIE without an
+        address (stored under address 0), such as a weak stub's.
+        """
+        symbol_to_decl = self.dwarf_data.get('symbol_to_decl')
+        if not symbol_to_decl:
+            return None
+        names = (symbol_name, strip_compiler_suffix(symbol_name))
+        for address in (symbol_address, 0):
+            for name in names:
+                decl = symbol_to_decl.get((name, address))
+                if decl is not None:
+                    return decl
+        return None
 
     def _resolve_source_file(  # pylint: disable=too-many-return-statements,too-many-branches
             self,

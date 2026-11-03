@@ -1,0 +1,168 @@
+{
+ "FLASH": {
+  "address": 268435456,
+  "limit_size": 1568768,
+  "type": "rx",
+  "used_size": 1226356,
+  "free_size": 342412,
+  "utilization_percent": 78.17319068211488,
+  "sections": [
+   {
+    "name": ".boot2",
+    "address": 268435456,
+    "size": 256,
+    "type": "code",
+    "end_address": 268435712
+   },
+   {
+    "name": ".ota",
+    "address": 268435712,
+    "size": 10032,
+    "type": "data",
+    "end_address": 268445744
+   },
+   {
+    "name": ".partition",
+    "address": 268445744,
+    "size": 2000,
+    "type": "data",
+    "end_address": 268447744
+   },
+   {
+    "name": ".text",
+    "address": 268447744,
+    "size": 766008,
+    "type": "code",
+    "end_address": 269213752
+   },
+   {
+    "name": ".rodata",
+    "address": 269213752,
+    "size": 385716,
+    "type": "rodata",
+    "end_address": 269599468
+   },
+   {
+    "name": ".ARM.extab",
+    "address": 269599468,
+    "size": 19688,
+    "type": "rodata",
+    "end_address": 269619156
+   },
+   {
+    "name": ".ARM.exidx",
+    "address": 269619156,
+    "size": 31040,
+    "type": "rodata",
+    "end_address": 269650196
+   },
+   {
+    "name": ".data",
+    "address": 269650196,
+    "size": 11616,
+    "type": "code",
+    "end_address": 269661812
+   },
+   {
+    "name": ".tdata",
+    "address": 269661812,
+    "size": 0,
+    "type": "data",
+    "end_address": 269661812
+   }
+  ]
+ },
+ "RAM": {
+  "address": 536870912,
+  "limit_size": 262144,
+  "type": "rwx",
+  "used_size": 262144,
+  "free_size": 0,
+  "utilization_percent": 100.0,
+  "sections": [
+   {
+    "name": ".ram_vector_table",
+    "address": 536870912,
+    "size": 192,
+    "type": "data",
+    "end_address": 536871104
+   },
+   {
+    "name": ".data",
+    "address": 536871104,
+    "size": 11616,
+    "type": "code",
+    "end_address": 536882720
+   },
+   {
+    "name": ".tdata",
+    "address": 536882720,
+    "size": 0,
+    "type": "data",
+    "end_address": 536882720
+   },
+   {
+    "name": ".tbss",
+    "address": 536882720,
+    "size": 0,
+    "type": "data",
+    "end_address": 536882720
+   },
+   {
+    "name": ".bss",
+    "address": 536882720,
+    "size": 137020,
+    "type": "data",
+    "end_address": 537019740
+   },
+   {
+    "name": ".uninitialized_data",
+    "address": 537019740,
+    "size": 36,
+    "type": "data",
+    "end_address": 537019776
+   },
+   {
+    "name": ".heap",
+    "address": 537019776,
+    "size": 113280,
+    "type": "rodata",
+    "end_address": 537133056
+   }
+  ]
+ },
+ "SCRATCH_X": {
+  "address": 537133056,
+  "limit_size": 4096,
+  "type": "rwx",
+  "used_size": 2048,
+  "free_size": 2048,
+  "utilization_percent": 50.0,
+  "sections": [
+   {
+    "name": ".stack1_dummy",
+    "address": 537133056,
+    "size": 2048,
+    "type": "data",
+    "end_address": 537135104
+   }
+  ]
+ },
+ "SCRATCH_Y": {
+  "address": 537137152,
+  "limit_size": 4096,
+  "type": "rwx",
+  "used_size": 2048,
+  "free_size": 2048,
+  "utilization_percent": 50.0,
+  "sections": [
+   {
+    "name": ".stack_dummy",
+    "address": 537137152,
+    "size": 2048,
+    "type": "rodata",
+    "end_address": 537139200
+   }
+  ]
+ }
+}

@@ -1,0 +1,57 @@
+{
+ "flash": {
+  "address": 134217728,
+  "limit_size": 131072,
+  "type": "rx",
+  "used_size": 33811,
+  "free_size": 97261,
+  "utilization_percent": 25.795745849609375,
+  "sections": [
+   {
+    "name": ".text",
+    "address": 134217728,
+    "size": 33319,
+    "type": "code",
+    "end_address": 134251047
+   },
+   {
+    "name": ".ARM.exidx",
+    "address": 134251048,
+    "size": 8,
+    "type": "rodata",
+    "end_address": 134251056
+   },
+   {
+    "name": ".data",
+    "address": 134251056,
+    "size": 484,
+    "type": "data",
+    "end_address": 134251540
+   }
+  ]
+ },
+ "sram": {
+  "address": 536870912,
+  "limit_size": 20480,
+  "type": "rwx",
+  "used_size": 2472,
+  "free_size": 18008,
+  "utilization_percent": 12.0703125,
+  "sections": [
+   {
+    "name": ".data",
+    "address": 536870912,
+    "size": 484,
+    "type": "data",
+    "end_address": 536871396
+   },
+   {
+    "name": ".bss",
+    "address": 536871408,
+    "size": 1988,
+    "type": "data",
+    "end_address": 536873396
+   }
+  ]
+ }
+}

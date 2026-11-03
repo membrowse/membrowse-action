@@ -280,7 +280,8 @@ class SymbolExtractor:  # pylint: disable=too-few-public-methods
                 source_file = source_resolver.extract_source_file(
                     symbol_name, symbol_type, symbol_address
                 )
-                source_line = source_resolver.extract_source_line(symbol_address)
+                source_line = source_resolver.extract_source_line(
+                    symbol_address, symbol_name, source_file)
 
                 # Get symbol visibility
                 visibility = 'DEFAULT'  # Default value

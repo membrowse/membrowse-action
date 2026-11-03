@@ -1,0 +1,785 @@
+{
+ "FLASH": {
+  "address": 0,
+  "limit_size": 262144,
+  "type": "wx",
+  "used_size": 67673,
+  "free_size": 194471,
+  "utilization_percent": 25.815200805664062,
+  "sections": [
+   {
+    "name": ".vectors",
+    "address": 0,
+    "size": 64,
+    "type": "rodata",
+    "end_address": 64
+   },
+   {
+    "name": ".sys",
+    "address": 64,
+    "size": 292,
+    "type": "code",
+    "end_address": 356
+   },
+   {
+    "name": ".text",
+    "address": 384,
+    "size": 62544,
+    "type": "code",
+    "end_address": 62928
+   },
+   {
+    "name": ".init",
+    "address": 62928,
+    "size": 12,
+    "type": "code",
+    "end_address": 62940
+   },
+   {
+    "name": ".fini",
+    "address": 62940,
+    "size": 12,
+    "type": "code",
+    "end_address": 62952
+   },
+   {
+    "name": ".rodata",
+    "address": 62952,
+    "size": 340,
+    "type": "rodata",
+    "end_address": 63292
+   },
+   {
+    "name": ".eh_frame",
+    "address": 63292,
+    "size": 140,
+    "type": "rodata",
+    "end_address": 63432
+   },
+   {
+    "name": ".ARM.exidx",
+    "address": 63432,
+    "size": 8,
+    "type": "rodata",
+    "end_address": 63440
+   },
+   {
+    "name": ".rodata.daysPerMonth.0",
+    "address": 63440,
+    "size": 12,
+    "type": "rodata",
+    "end_address": 63452
+   },
+   {
+    "name": ".rodata.str1.1",
+    "address": 63452,
+    "size": 746,
+    "type": "rodata",
+    "end_address": 64198
+   },
+   {
+    "name": ".rodata.wc_ecc_get_curve_idx_from_name.str1.1",
+    "address": 64198,
+    "size": 10,
+    "type": "rodata",
+    "end_address": 64208
+   },
+   {
+    "name": ".rodata.ecc_sets",
+    "address": 64208,
+    "size": 104,
+    "type": "rodata",
+    "end_address": 64312
+   },
+   {
+    "name": ".rodata.ecc_oid_secp256r1",
+    "address": 64312,
+    "size": 8,
+    "type": "rodata",
+    "end_address": 64320
+   },
+   {
+    "name": ".rodata.CSWTCH.63",
+    "address": 64320,
+    "size": 8,
+    "type": "rodata",
+    "end_address": 64328
+   },
+   {
+    "name": ".rodata.outputB_data",
+    "address": 64328,
+    "size": 128,
+    "type": "rodata",
+    "end_address": 64456
+   },
+   {
+    "name": ".rodata.seedB_data",
+    "address": 64456,
+    "size": 48,
+    "type": "rodata",
+    "end_address": 64504
+   },
+   {
+    "name": ".rodata.outputA_data",
+    "address": 64504,
+    "size": 128,
+    "type": "rodata",
+    "end_address": 64632
+   },
+   {
+    "name": ".rodata.reseedSeedA_data",
+    "address": 64632,
+    "size": 32,
+    "type": "rodata",
+    "end_address": 64664
+   },
+   {
+    "name": ".rodata.seedA_data",
+    "address": 64664,
+    "size": 48,
+    "type": "rodata",
+    "end_address": 64712
+   },
+   {
+    "name": ".rodata.aptAllCutoffDelta",
+    "address": 64712,
+    "size": 512,
+    "type": "rodata",
+    "end_address": 65224
+   },
+   {
+    "name": ".rodata.aptCutoffDelta",
+    "address": 65224,
+    "size": 512,
+    "type": "rodata",
+    "end_address": 65736
+   },
+   {
+    "name": ".rodata.K",
+    "address": 65736,
+    "size": 256,
+    "type": "rodata",
+    "end_address": 65992
+   },
+   {
+    "name": ".rodata.GetRDN.isra.0.str1.1",
+    "address": 65992,
+    "size": 126,
+    "type": "rodata",
+    "end_address": 66118
+   },
+   {
+    "name": ".rodata.CSWTCH.851",
+    "address": 66118,
+    "size": 49,
+    "type": "rodata",
+    "end_address": 66167
+   },
+   {
+    "name": ".rodata.nameHashASN",
+    "address": 66167,
+    "size": 8,
+    "type": "rodata",
+    "end_address": 66175
+   },
+   {
+    "name": ".rodata.eccKeyASN",
+    "address": 66175,
+    "size": 32,
+    "type": "rodata",
+    "end_address": 66207
+   },
+   {
+    "name": ".rodata.dsaSigASN",
+    "address": 66207,
+    "size": 12,
+    "type": "rodata",
+    "end_address": 66219
+   },
+   {
+    "name": ".rodata.x509CertASN",
+    "address": 66219,
+    "size": 116,
+    "type": "rodata",
+    "end_address": 66335
+   },
+   {
+    "name": ".rodata.certExtASN",
+    "address": 66335,
+    "size": 16,
+    "type": "rodata",
+    "end_address": 66351
+   },
+   {
+    "name": ".rodata.certExtHdrASN",
+    "address": 66351,
+    "size": 8,
+    "type": "rodata",
+    "end_address": 66359
+   },
+   {
+    "name": ".rodata.nameConstraintsASN",
+    "address": 66359,
+    "size": 12,
+    "type": "rodata",
+    "end_address": 66371
+   },
+   {
+    "name": ".rodata.subTreeASN",
+    "address": 66371,
+    "size": 16,
+    "type": "rodata",
+    "end_address": 66387
+   },
+   {
+    "name": ".rodata.keyPurposeIdASN",
+    "address": 66387,
+    "size": 4,
+    "type": "rodata",
+    "end_address": 66391
+   },
+   {
+    "name": ".rodata.keyUsageASN",
+    "address": 66391,
+    "size": 4,
+    "type": "rodata",
+    "end_address": 66395
+   },
+   {
+    "name": ".rodata.authKeyIdASN",
+    "address": 66395,
+    "size": 16,
+    "type": "rodata",
+    "end_address": 66411
+   },
+   {
+    "name": ".rodata.accessDescASN",
+    "address": 66411,
+    "size": 12,
+    "type": "rodata",
+    "end_address": 66423
+   },
+   {
+    "name": ".rodata.crlDistASN",
+    "address": 66423,
+    "size": 32,
+    "type": "rodata",
+    "end_address": 66455
+   },
+   {
+    "name": ".rodata.basicConsASN",
+    "address": 66455,
+    "size": 12,
+    "type": "rodata",
+    "end_address": 66467
+   },
+   {
+    "name": ".rodata.altNameASN",
+    "address": 66467,
+    "size": 4,
+    "type": "rodata",
+    "end_address": 66471
+   },
+   {
+    "name": ".rodata.generalNameChoice",
+    "address": 66471,
+    "size": 10,
+    "type": "rodata",
+    "end_address": 66481
+   },
+   {
+    "name": ".rodata.digestInfoASN",
+    "address": 66481,
+    "size": 20,
+    "type": "rodata",
+    "end_address": 66501
+   },
+   {
+    "name": ".rodata.dateASN",
+    "address": 66501,
+    "size": 8,
+    "type": "rodata",
+    "end_address": 66509
+   },
+   {
+    "name": ".rodata.certNameASN",
+    "address": 66509,
+    "size": 8,
+    "type": "rodata",
+    "end_address": 66517
+   },
+   {
+    "name": ".rodata.rdnChoice",
+    "address": 66517,
+    "size": 8,
+    "type": "rodata",
+    "end_address": 66525
+   },
+   {
+    "name": ".rodata.avaASN",
+    "address": 66525,
+    "size": 12,
+    "type": "rodata",
+    "end_address": 66537
+   },
+   {
+    "name": ".rodata.rdnASN",
+    "address": 66537,
+    "size": 16,
+    "type": "rodata",
+    "end_address": 66553
+   },
+   {
+    "name": ".rodata.certNameSubject",
+    "address": 66556,
+    "size": 128,
+    "type": "rodata",
+    "end_address": 66684
+   },
+   {
+    "name": ".rodata.eccCertKeyASN",
+    "address": 66684,
+    "size": 12,
+    "type": "rodata",
+    "end_address": 66696
+   },
+   {
+    "name": ".rodata.eccPublicKeyASN",
+    "address": 66696,
+    "size": 24,
+    "type": "rodata",
+    "end_address": 66720
+   },
+   {
+    "name": ".rodata.pkcs8KeyASN",
+    "address": 66720,
+    "size": 36,
+    "type": "rodata",
+    "end_address": 66756
+   },
+   {
+    "name": ".rodata.algoIdASN",
+    "address": 66756,
+    "size": 12,
+    "type": "rodata",
+    "end_address": 66768
+   },
+   {
+    "name": ".rodata.objectIdASN",
+    "address": 66768,
+    "size": 4,
+    "type": "rodata",
+    "end_address": 66772
+   },
+   {
+    "name": ".rodata.dcOid",
+    "address": 66772,
+    "size": 10,
+    "type": "rodata",
+    "end_address": 66782
+   },
+   {
+    "name": ".rodata.fvrtDrk",
+    "address": 66782,
+    "size": 10,
+    "type": "rodata",
+    "end_address": 66792
+   },
+   {
+    "name": ".rodata.rfc822Mlbx",
+    "address": 66792,
+    "size": 10,
+    "type": "rodata",
+    "end_address": 66802
+   },
+   {
+    "name": ".rodata.uidOid",
+    "address": 66802,
+    "size": 10,
+    "type": "rodata",
+    "end_address": 66812
+   },
+   {
+    "name": ".rodata.pbes2",
+    "address": 66812,
+    "size": 9,
+    "type": "rodata",
+    "end_address": 66821
+   },
+   {
+    "name": ".rodata.pbkdf2Oid",
+    "address": 66821,
+    "size": 9,
+    "type": "rodata",
+    "end_address": 66830
+   },
+   {
+    "name": ".rodata.attrEmailOid",
+    "address": 66830,
+    "size": 9,
+    "type": "rodata",
+    "end_address": 66839
+   },
+   {
+    "name": ".rodata.extExtKeyUsageOcspSignOid",
+    "address": 66839,
+    "size": 8,
+    "type": "rodata",
+    "end_address": 66847
+   },
+   {
+    "name": ".rodata.extExtKeyUsageTimestampOid",
+    "address": 66847,
+    "size": 8,
+    "type": "rodata",
+    "end_address": 66855
+   },
+   {
+    "name": ".rodata.extExtKeyUsageEmailProtectOid",
+    "address": 66855,
+    "size": 8,
+    "type": "rodata",
+    "end_address": 66863
+   },
+   {
+    "name": ".rodata.extExtKeyUsageCodeSigningOid",
+    "address": 66863,
+    "size": 8,
+    "type": "rodata",
+    "end_address": 66871
+   },
+   {
+    "name": ".rodata.extExtKeyUsageClientAuthOid",
+    "address": 66871,
+    "size": 8,
+    "type": "rodata",
+    "end_address": 66879
+   },
+   {
+    "name": ".rodata.extExtKeyUsageServerAuthOid",
+    "address": 66879,
+    "size": 8,
+    "type": "rodata",
+    "end_address": 66887
+   },
+   {
+    "name": ".rodata.extExtKeyUsageAnyOid",
+    "address": 66887,
+    "size": 4,
+    "type": "rodata",
+    "end_address": 66891
+   },
+   {
+    "name": ".rodata.extAltNamesHwNameOid",
+    "address": 66891,
+    "size": 8,
+    "type": "rodata",
+    "end_address": 66899
+   },
+   {
+    "name": ".rodata.extCertPolicyIsrgDomainValid",
+    "address": 66899,
+    "size": 11,
+    "type": "rodata",
+    "end_address": 66910
+   },
+   {
+    "name": ".rodata.extCertPolicyAnyOid",
+    "address": 66910,
+    "size": 4,
+    "type": "rodata",
+    "end_address": 66914
+   },
+   {
+    "name": ".rodata.extAuthInfoCaIssuerOid",
+    "address": 66914,
+    "size": 8,
+    "type": "rodata",
+    "end_address": 66922
+   },
+   {
+    "name": ".rodata.extAuthInfoOcspOid",
+    "address": 66922,
+    "size": 8,
+    "type": "rodata",
+    "end_address": 66930
+   },
+   {
+    "name": ".rodata.extNameConsOid",
+    "address": 66930,
+    "size": 3,
+    "type": "rodata",
+    "end_address": 66933
+   },
+   {
+    "name": ".rodata.extExtKeyUsageOid",
+    "address": 66933,
+    "size": 3,
+    "type": "rodata",
+    "end_address": 66936
+   },
+   {
+    "name": ".rodata.extInhibitAnyOid",
+    "address": 66936,
+    "size": 3,
+    "type": "rodata",
+    "end_address": 66939
+   },
+   {
+    "name": ".rodata.extKeyUsageOid",
+    "address": 66939,
+    "size": 3,
+    "type": "rodata",
+    "end_address": 66942
+   },
+   {
+    "name": ".rodata.extCertPolicyOid",
+    "address": 66942,
+    "size": 3,
+    "type": "rodata",
+    "end_address": 66945
+   },
+   {
+    "name": ".rodata.extSubjKeyOid",
+    "address": 66945,
+    "size": 3,
+    "type": "rodata",
+    "end_address": 66948
+   },
+   {
+    "name": ".rodata.extAuthKeyOid",
+    "address": 66948,
+    "size": 3,
+    "type": "rodata",
+    "end_address": 66951
+   },
+   {
+    "name": ".rodata.extAuthInfoOid",
+    "address": 66951,
+    "size": 8,
+    "type": "rodata",
+    "end_address": 66959
+   },
+   {
+    "name": ".rodata.extCrlDistOid",
+    "address": 66959,
+    "size": 3,
+    "type": "rodata",
+    "end_address": 66962
+   },
+   {
+    "name": ".rodata.extAltNamesOid",
+    "address": 66962,
+    "size": 3,
+    "type": "rodata",
+    "end_address": 66965
+   },
+   {
+    "name": ".rodata.extBasicCaOid",
+    "address": 66965,
+    "size": 3,
+    "type": "rodata",
+    "end_address": 66968
+   },
+   {
+    "name": ".rodata.dhSinglePass_stdDH_sha256kdf_Oid",
+    "address": 66968,
+    "size": 6,
+    "type": "rodata",
+    "end_address": 66974
+   },
+   {
+    "name": ".rodata.keyEcdsaOid",
+    "address": 66974,
+    "size": 7,
+    "type": "rodata",
+    "end_address": 66981
+   },
+   {
+    "name": ".rodata.sigSha256wEcdsaOid",
+    "address": 66981,
+    "size": 8,
+    "type": "rodata",
+    "end_address": 66989
+   },
+   {
+    "name": ".rodata.hmacSha256Oid",
+    "address": 66989,
+    "size": 8,
+    "type": "rodata",
+    "end_address": 66997
+   },
+   {
+    "name": ".rodata.hashSha256hOid",
+    "address": 66997,
+    "size": 9,
+    "type": "rodata",
+    "end_address": 67006
+   },
+   {
+    "name": ".rodata.bitStringASN",
+    "address": 67006,
+    "size": 4,
+    "type": "rodata",
+    "end_address": 67010
+   },
+   {
+    "name": ".rodata.intASN",
+    "address": 67010,
+    "size": 4,
+    "type": "rodata",
+    "end_address": 67014
+   },
+   {
+    "name": ".rodata.sigUnknownName",
+    "address": 67014,
+    "size": 8,
+    "type": "rodata",
+    "end_address": 67022
+   },
+   {
+    "name": ".rodata.sigSha256wEcdsaName",
+    "address": 67022,
+    "size": 13,
+    "type": "rodata",
+    "end_address": 67035
+   },
+   {
+    "name": ".rodata.base64Decode_table",
+    "address": 67035,
+    "size": 80,
+    "type": "rodata",
+    "end_address": 67115
+   },
+   {
+    "name": ".rodata.p256_order_minus_2",
+    "address": 67116,
+    "size": 32,
+    "type": "rodata",
+    "end_address": 67148
+   },
+   {
+    "name": ".rodata.p256_mod_minus_2",
+    "address": 67148,
+    "size": 32,
+    "type": "rodata",
+    "end_address": 67180
+   },
+   {
+    "name": ".rodata.p256_b",
+    "address": 67180,
+    "size": 36,
+    "type": "rodata",
+    "end_address": 67216
+   },
+   {
+    "name": ".rodata.p256_base",
+    "address": 67216,
+    "size": 220,
+    "type": "rodata",
+    "end_address": 67436
+   },
+   {
+    "name": ".rodata.p256_norm_order",
+    "address": 67436,
+    "size": 36,
+    "type": "rodata",
+    "end_address": 67472
+   },
+   {
+    "name": ".rodata.p256_order2",
+    "address": 67472,
+    "size": 36,
+    "type": "rodata",
+    "end_address": 67508
+   },
+   {
+    "name": ".rodata.p256_order",
+    "address": 67508,
+    "size": 36,
+    "type": "rodata",
+    "end_address": 67544
+   },
+   {
+    "name": ".rodata.p256_norm_mod",
+    "address": 67544,
+    "size": 36,
+    "type": "rodata",
+    "end_address": 67580
+   },
+   {
+    "name": ".rodata.p256_mod",
+    "address": 67580,
+    "size": 36,
+    "type": "rodata",
+    "end_address": 67616
+   },
+   {
+    "name": ".rodata.addr_mask",
+    "address": 67616,
+    "size": 8,
+    "type": "rodata",
+    "end_address": 67624
+   },
+   {
+    "name": ".rodata.kHexChar.0",
+    "address": 67624,
+    "size": 16,
+    "type": "rodata",
+    "end_address": 67640
+   },
+   {
+    "name": ".rodata.wc_off_on_addr",
+    "address": 67640,
+    "size": 8,
+    "type": "rodata",
+    "end_address": 67648
+   },
+   {
+    "name": ".rodata.str1.4",
+    "address": 67648,
+    "size": 57,
+    "type": "rodata",
+    "end_address": 67705
+   }
+  ]
+ },
+ "RAM": {
+  "address": 536870912,
+  "limit_size": 65536,
+  "type": "wx",
+  "used_size": 676,
+  "free_size": 64860,
+  "utilization_percent": 1.031494140625,
+  "sections": [
+   {
+    "name": ".data",
+    "address": 536870912,
+    "size": 104,
+    "type": "data",
+    "end_address": 536871016
+   },
+   {
+    "name": ".init_array",
+    "address": 536871016,
+    "size": 4,
+    "type": "data",
+    "end_address": 536871020
+   },
+   {
+    "name": ".fini_array",
+    "address": 536871020,
+    "size": 4,
+    "type": "data",
+    "end_address": 536871024
+   },
+   {
+    "name": ".bss",
+    "address": 536871024,
+    "size": 564,
+    "type": "data",
+    "end_address": 536871588
+   }
+  ]
+ }
+}

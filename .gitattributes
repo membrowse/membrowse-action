@@ -1,3 +1,8 @@
 # Git LFS Configuration
 # Track ELF binary files used for testing
 tests/fixtures/**/*.elf filter=lfs diff=lfs merge=lfs -text
+# Map files of the project fixtures (meshtastic's is several MB)
+tests/fixtures/meshtastic/**/*.map filter=lfs diff=lfs merge=lfs -text
+tests/fixtures/tinyusb/**/*.map filter=lfs diff=lfs merge=lfs -text
+tests/fixtures/nuttx/**/*.map filter=lfs diff=lfs merge=lfs -text
+tests/fixtures/wolfssl/**/*.map filter=lfs diff=lfs merge=lfs -text

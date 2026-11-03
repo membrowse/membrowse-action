@@ -23,11 +23,24 @@ fixtures/
     └── linker/                   # TinyGo linker scripts for both targets
 └── stripped/
     └── main.elf                  # x86-64 gcc -g -O2, then strip: .eh_frame but no .debug_info
+└── meshtastic/picow/             # firmware 2.8.2.c63238c, PlatformIO (arduino-pico, gcc 16.1)
+└── tinyusb/                      # examples/device/cdc_msc, CMake, arm-none-eabi gcc 10.3
+    ├── stm32f407disco/
+    └── feather_nrf52840_express/ # nrf52840_s140_v6.ld INCLUDEs nrf_common.ld
+└── nuttx/                        # nuttx 6bc061ed27 + apps 96a0030, configure.sh -l <board>:nsh
+    ├── nucleo-f103rb/            # arm-none-eabi gcc 10.3
+    └── arduino-mega2560/         # avr-gcc 5.4, no debug info
+└── wolfssl/cortex-m4-min-ecc/    # 258f06e524, gcc-arm-cortex-m4-min-ecc target of
+                                  # .github/membrowse-targets.json (gcc 13.2, -flto, no -g)
 ```
+
+Each project fixture directory holds the ELF, its linker scripts, the GNU LD
+map file and `memory_layout.json`, the memory layout the report gave when the
+fixture was added. They are used by `test_project_firmware.py`.
 
 ## Git LFS
 
-Large binary files (`.elf` files) are stored using **Git Large File Storage (Git LFS)** to avoid bloating the repository.
+Large binary files (`.elf` files, and the map files of the project fixtures) are stored using **Git Large File Storage (Git LFS)** to avoid bloating the repository.
 
 ### Initial Setup
 

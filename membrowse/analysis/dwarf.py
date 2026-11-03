@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# pylint: disable=too-many-lines
 """
 DWARF debug information processing for source file mapping.
 
@@ -44,6 +45,28 @@ DW_OP_GNU_ADDR_INDEX = 0xfb
 
 # unit_length values 0xfffffff0-0xfffffffe are reserved, DWARF 5 section 7.4
 _DWARF_RESERVED_LENGTH = 0xfffffff0
+
+# DIEs whose address is code, which may carry the Thumb bit in the symbol table
+_CODE_TAGS = frozenset({'DW_TAG_subprogram', 'DW_TAG_inlined_subroutine'})
+
+# Scopes whose variables and functions are file-level definitions
+_FILE_SCOPE_TAGS = frozenset({
+    'DW_TAG_compile_unit', 'DW_TAG_partial_unit', 'DW_TAG_namespace'})
+
+
+def _is_file_scope_definition(die, spec_die) -> bool:
+    """A variable or function defined at file (or namespace) scope, not a
+    local, a parameter or a member: a DIE a symbol of its name may be.
+
+    C++ definitions named through DW_AT_specification or DW_AT_abstract_origin
+    (spec_die), or with a linkage name, have a symbol named otherwise.
+    """
+    if die.tag not in ('DW_TAG_variable', 'DW_TAG_subprogram') or spec_die is not None:
+        return False
+    if 'DW_AT_linkage_name' in die.attributes or 'DW_AT_MIPS_linkage_name' in die.attributes:
+        return False
+    parent = die.get_parent()
+    return parent is None or parent.tag in _FILE_SCOPE_TAGS
 
 
 def _read_uleb128(data, pos: int) -> Tuple[Optional[int], int]:
@@ -172,6 +195,9 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
             'line_sequences': [],
             # (symbol_name, address) -> filename
             'symbol_to_file': {},
+            # (symbol_name, address) -> (DW_AT_decl_file, DW_AT_decl_line)
+            # of the DIE that names the declaration file
+            'symbol_to_decl': {},
             'address_to_cu_file': {},       # address -> cu_filename
             'processed_cus': set(),         # Cache of processed CUs to avoid duplicates
             # List of (symbol_name, cu_source_file, decl_file) for static vars
@@ -615,9 +641,13 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
 
         return None, spec_die
 
-    def _get_die_decl_file(
-            self, die, spec_die, file_entries: Dict[int, str]) -> Optional[str]:
-        """Extract declaration file from DIE or its specification DIE.
+    def _get_die_decl(
+            self, die, spec_die, file_entries: Dict[int, str]
+    ) -> Tuple[Optional[str], int]:
+        """Declaration file and line from DIE or its specification DIE.
+
+        Both come from the first DIE with a known DW_AT_decl_file, so the
+        line is in that file.
 
         Args:
             die: Primary DIE to check
@@ -625,7 +655,8 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
             file_entries: Mapping of file indices to file paths
 
         Returns:
-            Declaration file path or None
+            (declaration file path, line), (None, 0) if no DIE names a
+            known file; line is 0 when the DIE has no DW_AT_decl_line
         """
         # Check primary DIE first
         for check_die in [die, spec_die]:
@@ -634,8 +665,10 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
                 if decl_file_attr and hasattr(decl_file_attr, 'value'):
                     file_idx = decl_file_attr.value
                     if file_idx in file_entries:
-                        return file_entries[file_idx]
-        return None
+                        line_attr = check_die.attributes.get('DW_AT_decl_line')
+                        line = getattr(line_attr, 'value', 0)
+                        return file_entries[file_idx], line if isinstance(line, int) else 0
+        return None, 0
 
     def _parse_location_expression(
             self, location_value, address_size: Optional[int] = None,
@@ -901,7 +934,7 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
                 return
 
             # Get declaration file (checks DIE and spec_die)
-            decl_file = self._get_die_decl_file(die, spec_die, file_entries)
+            decl_file, decl_line = self._get_die_decl(die, spec_die, file_entries)
 
             # Determine best source file
             is_declaration = 'DW_AT_declaration' in attrs
@@ -941,12 +974,16 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
                     symbol_key = (die_name, die_address)
                     self.dwarf_data['symbol_to_file'][symbol_key] = best_source_file
                     self.dwarf_data['address_to_cu_file'][die_address] = best_source_file
+                    symbol_to_decl = self.dwarf_data['symbol_to_decl']
+                    if decl_line:
+                        symbol_to_decl[symbol_key] = (decl_file, decl_line)
 
-                    # For ARM architectures, also store with tolerance-adjusted addresses
-                    # ARM Thumb: LSB of function address indicates mode (0=ARM, 1=Thumb)
-                    # DIEs store actual instruction addresses, ELF symbols
-                    # include mode bit
-                    if self.address_tolerance > 0:
+                    # For ARM architectures, also store code with tolerance-adjusted
+                    # addresses. ARM Thumb: LSB of function address indicates mode
+                    # (0=ARM, 1=Thumb); DIEs store actual instruction addresses, ELF
+                    # symbols include mode bit. Data addresses are exact: a
+                    # variable's neighbour is another symbol.
+                    if self.address_tolerance > 0 and die.tag in _CODE_TAGS:
                         symbol_to_file = self.dwarf_data['symbol_to_file']
                         address_to_cu = self.dwarf_data['address_to_cu_file']
                         for offset in range(-self.address_tolerance,
@@ -958,6 +995,9 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
                                 # check + set
                                 symbol_to_file.setdefault(
                                     adjusted_key, best_source_file)
+                                if decl_line:
+                                    symbol_to_decl.setdefault(
+                                        adjusted_key, (decl_file, decl_line))
                                 address_to_cu.setdefault(
                                     adjusted_addr, best_source_file)
 
@@ -972,8 +1012,11 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
                             if die_address + offset in self.symbol_addresses:
                                 self.found_symbols.add(die_address + offset)
                                 break
-                else:
-                    # For symbols without DIE addresses (like static variables)
+                elif not is_declaration and _is_file_scope_definition(die, spec_die):
+                    # Definitions without DIE addresses (such as weak stubs
+                    # described without code). Matched by name only, so
+                    # declarations, locals and parameters, which name other
+                    # symbols' neighbours or nothing at all, are left out.
                     # Store in our static symbol mappings list for special
                     # handling
                     self.dwarf_data['static_symbol_mappings'].append(
@@ -983,6 +1026,11 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
                     symbol_key = (die_name, 0)
                     if symbol_key not in self.dwarf_data['symbol_to_file']:
                         self.dwarf_data['symbol_to_file'][symbol_key] = best_source_file
+                    # Function definitions only: a variable without an
+                    # address is not the one in the symbol table
+                    if decl_line and die.tag == 'DW_TAG_subprogram':
+                        self.dwarf_data['symbol_to_decl'].setdefault(
+                            symbol_key, (decl_file, decl_line))
 
         except Exception as e:
             symbol_label = die_name if 'die_name' in locals() else 'unknown'
