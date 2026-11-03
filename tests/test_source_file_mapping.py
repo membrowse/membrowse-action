@@ -16,6 +16,9 @@ from membrowse.core import ELFAnalyzer
 sys.path.insert(0, str(Path(__file__).parent.parent / 'shared'))
 
 
+# Mocked ELFFile without DWARF, so the analyzer skips DWARF parsing
+NO_DWARF = {'return_value.has_dwarf_info.return_value': False}
+
 class TestSourceFileMapping(unittest.TestCase):
     """Test source file mapping with focus on duplicate symbol handling"""
 
@@ -31,7 +34,7 @@ class TestSourceFileMapping(unittest.TestCase):
         mock_access.return_value = True
 
         with patch('builtins.open', mock_open()):
-            with patch('membrowse.core.analyzer.ELFFile'):
+            with patch('membrowse.core.analyzer.ELFFile', **NO_DWARF):
                 analyzer = ELFAnalyzer(self.test_elf_path)
 
         # Check DWARF data structure exists
@@ -52,7 +55,7 @@ class TestSourceFileMapping(unittest.TestCase):
         mock_access.return_value = True
 
         with patch('builtins.open', mock_open()):
-            with patch('membrowse.core.analyzer.ELFFile'):
+            with patch('membrowse.core.analyzer.ELFFile', **NO_DWARF):
                 analyzer = ELFAnalyzer(self.test_elf_path)
 
         # Initialize DWARF data structure
@@ -88,7 +91,7 @@ class TestSourceFileMapping(unittest.TestCase):
         mock_access.return_value = True
 
         with patch('builtins.open', mock_open()):
-            with patch('membrowse.core.analyzer.ELFFile'):
+            with patch('membrowse.core.analyzer.ELFFile', **NO_DWARF):
                 analyzer = ELFAnalyzer(self.test_elf_path)
 
         # Initialize DWARF data structure
@@ -122,7 +125,7 @@ class TestSourceFileMapping(unittest.TestCase):
         mock_access.return_value = True
 
         with patch('builtins.open', mock_open()):
-            with patch('membrowse.core.analyzer.ELFFile'):
+            with patch('membrowse.core.analyzer.ELFFile', **NO_DWARF):
                 analyzer = ELFAnalyzer(self.test_elf_path)
 
         # Initialize DWARF data structure
@@ -156,7 +159,7 @@ class TestSourceFileMapping(unittest.TestCase):
         mock_access.return_value = True
 
         with patch('builtins.open', mock_open()):
-            with patch('membrowse.core.analyzer.ELFFile'):
+            with patch('membrowse.core.analyzer.ELFFile', **NO_DWARF):
                 analyzer = ELFAnalyzer(self.test_elf_path)
 
         # Initialize DWARF data structure
@@ -195,7 +198,7 @@ class TestSourceFileMapping(unittest.TestCase):
         mock_access.return_value = True
 
         with patch('builtins.open', mock_open()):
-            with patch('membrowse.core.analyzer.ELFFile'):
+            with patch('membrowse.core.analyzer.ELFFile', **NO_DWARF):
                 analyzer = ELFAnalyzer(self.test_elf_path)
 
         # No mappings exist
@@ -211,7 +214,7 @@ class TestSourceFileMapping(unittest.TestCase):
         mock_access.return_value = True
 
         with patch('builtins.open', mock_open()):
-            with patch('membrowse.core.analyzer.ELFFile'):
+            with patch('membrowse.core.analyzer.ELFFile', **NO_DWARF):
                 analyzer = ELFAnalyzer(self.test_elf_path)
 
         # Initialize DWARF data structure
@@ -243,7 +246,7 @@ class TestSourceFileMapping(unittest.TestCase):
         mock_access.return_value = True
 
         with patch('builtins.open', mock_open()):
-            with patch('membrowse.core.analyzer.ELFFile'):
+            with patch('membrowse.core.analyzer.ELFFile', **NO_DWARF):
                 analyzer = ELFAnalyzer(self.test_elf_path)
 
         analyzer._dwarf_data = {
@@ -281,7 +284,7 @@ class TestSourceFileMapping(unittest.TestCase):
         mock_access.return_value = True
 
         with patch('builtins.open', mock_open()):
-            with patch('membrowse.core.analyzer.ELFFile'):
+            with patch('membrowse.core.analyzer.ELFFile', **NO_DWARF):
                 analyzer = ELFAnalyzer(self.test_elf_path)
 
         analyzer._dwarf_data = {

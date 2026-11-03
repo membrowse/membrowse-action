@@ -17,6 +17,12 @@ fixtures/
             ├── esp-idf/          # ESP-IDF system linker scripts
             ├── esp_rom/          # ESP32 ROM linker scripts
             └── soc/              # ESP32 SOC linker scripts
+└── tinygo/                       # examples/blinky1 built with TinyGo 0.44.0
+    ├── pca10040.elf              # nRF52832, linked with --emit-relocs
+    ├── arduino.elf               # ATmega328P, 2 byte DWARF addresses
+    └── linker/                   # TinyGo linker scripts for both targets
+└── stripped/
+    └── main.elf                  # x86-64 gcc -g -O2, then strip: .eh_frame but no .debug_info
 ```
 
 ## Git LFS
