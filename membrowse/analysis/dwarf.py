@@ -733,7 +733,9 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
                 return
 
             for entry in entries:
-                if entry.state is None:
+                # An end_sequence row marks the first address after the
+                # sequence, which may belong to another CU (DWARF 5 section 6.2.2)
+                if entry.state is None or getattr(entry.state, 'end_sequence', False):
                     continue
 
                 if hasattr(

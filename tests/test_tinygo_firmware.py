@@ -49,6 +49,11 @@ class TestTinyGoARM(unittest.TestCase):
             symbols['internal/task.currentTask']['source_file'], 'task_stack_unicore.go')
         self.assertEqual(symbols['runtime.gcNumGC']['source_file'], 'gc_blocks.go')
 
+        # Functions that start where another CU's line sequence ends
+        self.assertEqual(
+            symbols['tinygo_startTask']['source_file'], 'task_stack_cortexm.S')
+        self.assertEqual(symbols['time.Sleep']['source_file'], 'scheduler_cooperative.go')
+
         # TinyGo names every CU "<unknown>", which is not a source file
         self.assertFalse(any(s['source_file'] == '<unknown>' for s in report['symbols']))
 
