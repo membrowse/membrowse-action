@@ -130,5 +130,38 @@ class TestDWARFLocationExpression(unittest.TestCase):
             "Both should produce same result")
 
 
+    def test_parse_location_expression_plus_uconst(self):
+        """Test DW_OP_addr followed by DW_OP_plus_uconst, as LLVM emits for merged globals"""
+        processor = DWARFProcessor(None, set(), skip_line_program=True)
+
+        # 0x20000890 + 4
+        self.assertEqual(
+            processor._parse_location_expression([3, 0x90, 0x08, 0x00, 0x20, 0x23, 4], 4),
+            0x20000894)
+        # 0x20000890 + 200, ULEB128 [0xc8, 0x01]
+        self.assertEqual(
+            processor._parse_location_expression(
+                [3, 0x90, 0x08, 0x00, 0x20, 0x23, 0xc8, 0x01], 4),
+            0x20000958)
+        # Plain DW_OP_addr with an address size
+        self.assertEqual(
+            processor._parse_location_expression([3, 0x90, 0x08, 0x00, 0x20], 4),
+            0x20000890)
+
+    def test_parse_location_expression_unsupported_trailing_op(self):
+        """Test that other operations after DW_OP_addr are rejected"""
+        processor = DWARFProcessor(None, set(), skip_line_program=True)
+
+        # DW_OP_addr then DW_OP_deref (0x06)
+        self.assertIsNone(
+            processor._parse_location_expression([3, 0x90, 0x08, 0x00, 0x20, 0x06], 4))
+        # Truncated ULEB128 operand
+        self.assertIsNone(
+            processor._parse_location_expression([3, 0x90, 0x08, 0x00, 0x20, 0x23, 0x80], 4))
+        # Address shorter than the address size
+        self.assertIsNone(
+            processor._parse_location_expression([3, 0x90, 0x08], 4))
+
+
 if __name__ == '__main__':
     unittest.main()
