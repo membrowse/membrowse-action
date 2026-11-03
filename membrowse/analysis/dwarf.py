@@ -15,6 +15,8 @@ from elftools.common.exceptions import ELFError, ELFRelocationError
 from elftools.common.utils import struct_parse
 from elftools.dwarf.structs import DWARFStructs
 from ..core.exceptions import DWARFParsingError, DWARFCUProcessingError, DWARFAttributeError
+from .line_sequences import (
+    has_function_at_zero, is_dead_sequence, line_sequences, rows_by_address)
 from .paths import is_abs, to_posix
 
 # Configure logger
@@ -140,6 +142,7 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
         self.skip_line_program = skip_line_program
         self.machine = machine
         self.little_endian = getattr(elffile, 'little_endian', True)
+        self._function_at_zero = None  # see _has_function_at_zero
 
         # Determine if we need address tolerance based on architecture
         # ARM Thumb mode requires ±2 byte tolerance, other architectures use
@@ -163,6 +166,8 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
             'address_to_file': {},
             # address -> line number (from line programs)
             'address_to_line': {},
+            # (start, end, CU offset) of every live line sequence, end exclusive
+            'line_sequences': [],
             # (symbol_name, address) -> filename
             'symbol_to_file': {},
             'address_to_cu_file': {},       # address -> cu_filename
@@ -711,7 +716,7 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
                 return None
         return resolve
 
-    def _extract_line_program_data(  # pylint: disable=too-many-nested-blocks
+    def _extract_line_program_data(
             self, cu, dwarfinfo, file_paths: Dict[int, str]) -> None:
         """Extract line program data to map addresses to source files.
 
@@ -719,51 +724,40 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
         which is particularly useful for function symbols and handling compiler
         optimizations like inlining.
 
+        Rows are taken one sequence at a time (see line_sequences), and
+        sequences of code the linker discarded are dropped as a whole. When
+        sequences of different CUs name the same address, the first one
+        stored keeps it.
+
         Args:
             cu: Compilation unit containing the line program
             dwarfinfo: DWARF debug information object
             file_paths: The CU's file table from _line_program_file_paths
         """
-        try:  # pylint: disable=too-many-nested-blocks
+        try:
             line_program = dwarfinfo.line_program_for_CU(cu)
             if not line_program:
                 return
             entries = line_program.get_entries()
             if not entries:
                 return
+            try:
+                address_size = cu['address_size']
+            except KeyError:
+                address_size = 4
 
-            for entry in entries:
-                # An end_sequence row marks the first address after the
-                # sequence, which may belong to another CU (DWARF 5 section 6.2.2)
-                if entry.state is None or getattr(entry.state, 'end_sequence', False):
+            address_to_file = self.dwarf_data['address_to_file']
+            for rows, end in line_sequences(entries, file_paths):
+                start = rows[0][0]
+                if end <= start or is_dead_sequence(
+                        start, address_size, self._has_function_at_zero()):
                     continue
-
-                if hasattr(
-                        entry.state,
-                        'address') and hasattr(
-                        entry.state,
-                        'file'):
-                    try:
-                        address = entry.state.address
-                        file_index = entry.state.file
-                        line_number = getattr(entry.state, 'line', 0) or 0
-
-                        if address == 0:
-                            continue
-
-                        # Get file from line program file table
-                        filename = file_paths.get(file_index)
-                        if filename:
-                            # Store in dictionary
-                            self.dwarf_data['address_to_file'][address] = filename
-                            if line_number:
-                                self.dwarf_data['address_to_line'][address] = line_number
-
-                    except (IndexError, AttributeError) as e:
-                        logger.error(
-                            "Failed to process line program entry: %s", e)
-                        raise DWARFAttributeError(
-                            f"Failed to process line program entry: {e}") from e
+                for address, (filename, line) in rows_by_address(rows, end).items():
+                    if address not in address_to_file:
+                        address_to_file[address] = filename
+                        if line:
+                            self.dwarf_data['address_to_line'][address] = line
+                self.dwarf_data['line_sequences'].append((start, end, cu.cu_offset))
 
         except Exception as e:
             logger.error(
@@ -771,6 +765,12 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
                 cu.cu_offset, e)
             raise DWARFCUProcessingError(
                 f"Failed to extract line program data for CU at offset {cu.cu_offset}: {e}") from e
+
+    def _has_function_at_zero(self) -> bool:
+        """has_function_at_zero for this ELF, computed once."""
+        if self._function_at_zero is None:
+            self._function_at_zero = has_function_at_zero(self.elffile)
+        return self._function_at_zero
 
     def _extract_die_symbol_data_optimized(  # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals,too-many-branches,too-many-statements
             self,

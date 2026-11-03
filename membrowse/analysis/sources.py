@@ -69,6 +69,18 @@ def relative_source_path(path: str, roots: Iterable[str]) -> Optional[str]:
     return None
 
 
+def _merge_ranges(ranges: Iterable) -> list:
+    """Sorted, non-overlapping union of [start, end) ranges."""
+    merged = []
+    for start, end in sorted(ranges):
+        if merged and start <= merged[-1][1]:
+            if end > merged[-1][1]:
+                merged[-1] = (merged[-1][0], end)
+        else:
+            merged.append((start, end))
+    return merged
+
+
 class SourceFileResolver:  # pylint: disable=too-few-public-methods,too-many-instance-attributes
     """Handles source file resolution logic for symbols using DWARF debug information"""
 
@@ -96,7 +108,12 @@ class SourceFileResolver:  # pylint: disable=too-few-public-methods,too-many-ins
         self._source_name_cache = {}  # DWARF path -> reported name
         self._paths_under_root = 0  # distinct DWARF paths the root matched
         self._paths_outside_root = 0  # distinct absolute DWARF paths it missed
-        self._sorted_addresses = None  # Lazy initialization for address lookup
+        # Lazily built by _find_nearby_address
+        self._sorted_addresses = None
+        self._sequences = []  # (start, end, CU offset) by start
+        self._sequence_starts = []
+        self._sequence_ranges = []  # merged [start, end) of the sequences
+        self._range_starts = []
         if 'static_symbol_mappings' in dwarf_data:
             for mapping in dwarf_data['static_symbol_mappings']:
                 symbol_name = mapping[0]
@@ -176,9 +193,9 @@ class SourceFileResolver:  # pylint: disable=too-few-public-methods,too-many-ins
         line = addr_to_line.get(symbol_address)
         if line:
             return line
-        nearby = self._find_nearby_address(symbol_address)
-        if nearby is not None:
-            return addr_to_line.get(nearby, 0)
+        covering = self._covering_row(symbol_address)
+        if covering is not None:
+            return addr_to_line.get(covering, 0)
         return 0
 
     def _resolve_source_file(  # pylint: disable=too-many-return-statements,too-many-branches
@@ -324,41 +341,56 @@ class SourceFileResolver:  # pylint: disable=too-few-public-methods,too-many-ins
         # No source file information found
         return ""
 
+    def _build_address_index(self) -> None:
+        """Sorted row addresses and line sequences for the address lookups."""
+        if self._sorted_addresses is not None:
+            return
+        self._sorted_addresses = sorted(self.dwarf_data['address_to_file'])
+        self._sequences = sorted(self.dwarf_data.get('line_sequences', ()))
+        self._sequence_starts = [seq[0] for seq in self._sequences]
+        self._sequence_ranges = _merge_ranges(seq[:2] for seq in self._sequences)
+        self._range_starts = [start for start, _ in self._sequence_ranges]
+
+    def _row_at_or_before(self, address: int, floor: int) -> Optional[int]:
+        """The last row address in [floor, address], None if there is none."""
+        j = bisect.bisect_right(self._sorted_addresses, address) - 1
+        if j < 0 or self._sorted_addresses[j] < floor:
+            return None
+        return self._sorted_addresses[j]
+
+    def _covering_row(self, target_address: int) -> Optional[int]:
+        """Address of the line row that covers target_address, None if no row does.
+
+        That is the last row at or before the address, provided a line
+        sequence contains the address.
+        """
+        self._build_address_index()
+        i = bisect.bisect_right(self._range_starts, target_address) - 1
+        if i < 0 or target_address >= self._sequence_ranges[i][1]:
+            return None
+        return self._row_at_or_before(target_address, self._sequence_ranges[i][0])
+
     def _find_nearby_address(
             self,
             target_address: int,
             max_distance: int = 100) -> Optional[int]:
-        """Find nearby address using dictionary-based search."""
-        if not self.dwarf_data['address_to_file']:
+        """Address of a line row whose file can stand for target_address.
+
+        The covering row when a line sequence contains the address. In a gap
+        between two sequences of the same CU (functions without line rows,
+        such as empty weak handlers), the last row before the gap if it is
+        within max_distance. Past the end of a CU's code, or before its
+        start, the nearest row belongs to other code and is not used.
+        """
+        row = self._covering_row(target_address)
+        if row is not None:
+            return row
+        i = bisect.bisect_right(self._sequence_starts, target_address) - 1
+        if i < 0 or i + 1 >= len(self._sequences):
             return None
-
-        # Create sorted list from dictionary keys for efficient search
-        if self._sorted_addresses is None:
-            addresses = self.dwarf_data['address_to_file'].keys()
-            self._sorted_addresses = sorted(addresses)
-
-        # Binary search to find closest address
-        idx = bisect.bisect_left(self._sorted_addresses, target_address)
-
-        candidates = []
-
-        # Check address at or after target
-        if idx < len(self._sorted_addresses):
-            addr = self._sorted_addresses[idx]
-            distance = abs(addr - target_address)
-            if distance <= max_distance:
-                candidates.append((distance, addr))
-
-        # Check address before target
-        if idx > 0:
-            addr = self._sorted_addresses[idx - 1]
-            distance = abs(addr - target_address)
-            if distance <= max_distance:
-                candidates.append((distance, addr))
-
-        # Return closest address
-        if candidates:
-            candidates.sort()  # Sort by distance
-            return candidates[0][1]  # Return address with minimum distance
-
-        return None
+        before, after = self._sequences[i], self._sequences[i + 1]
+        if before[2] == after[2]:
+            row = self._row_at_or_before(target_address, before[0])
+        if row is None or target_address - row > max_distance:
+            return None
+        return row

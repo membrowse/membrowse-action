@@ -31,10 +31,11 @@ class FakeLineProgram:
         self._rows = rows
 
     def get_entries(self):
-        """Rows as (address, file, line) states."""
+        """Rows as (address, file, line[, end_sequence]) states."""
         return [SimpleNamespace(state=SimpleNamespace(
-            address=address, file=file_index, line=line))
-            for address, file_index, line in self._rows]
+            address=row[0], file=row[1], line=row[2],
+            end_sequence=len(row) > 3 and row[3]))
+            for row in self._rows]
 
 
 class FakeCU(dict):

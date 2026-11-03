@@ -214,6 +214,7 @@ membrowse/                          # Main Python package
 ├── analysis/                       # Analysis components
 │   ├── __init__.py
 │   ├── dwarf.py                    # DWARF debug information processing
+│   ├── line_sequences.py           # DWARF line rows grouped into sequences
 │   ├── sources.py                  # Source file resolution
 │   ├── symbols.py                  # ELF symbol extraction
 │   ├── sections.py                 # ELF section analysis
