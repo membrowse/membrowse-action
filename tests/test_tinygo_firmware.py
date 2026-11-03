@@ -12,7 +12,7 @@ from pathlib import Path
 
 from elftools.elf.elffile import ELFFile
 
-from membrowse.analysis.dwarf import _cu_address_sizes
+from membrowse.analysis.dwarf import _iter_cu_headers
 from membrowse.core import ReportGenerator
 from membrowse.linker.parser import LinkerScriptParser
 
@@ -56,7 +56,8 @@ class TestTinyGoARM(unittest.TestCase):
         """CU headers declare 4 byte addresses"""
         with open(FIXTURES / "pca10040.elf", 'rb') as f:
             dwarfinfo = ELFFile(f).get_dwarf_info(relocate_dwarf_sections=False)
-            self.assertEqual(_cu_address_sizes(dwarfinfo), {4})
+            sizes = {h['address_size'] for _, h in _iter_cu_headers(dwarfinfo)}
+            self.assertEqual(sizes, {4})
 
 
 class TestTinyGoAVR(unittest.TestCase):
@@ -80,8 +81,9 @@ class TestTinyGoAVR(unittest.TestCase):
     def test_address_sizes(self):
         """CU headers declare 2 byte addresses"""
         with open(FIXTURES / "arduino.elf", 'rb') as f:
-            dwarfinfo = ELFFile(f).get_dwarf_info(relocate_dwarf_sections=False)
-            self.assertEqual(_cu_address_sizes(dwarfinfo), {2})
+            dwarfinfo = ELFFile(f).get_dwarf_info()
+            sizes = {h['address_size'] for _, h in _iter_cu_headers(dwarfinfo)}
+            self.assertEqual(sizes, {2})
 
 
 if __name__ == '__main__':

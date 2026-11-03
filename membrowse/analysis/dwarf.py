@@ -9,10 +9,11 @@ to map symbols to their source files with intelligent optimizations.
 import posixpath
 import logging
 import bisect
-import struct
 from typing import Dict, List, Optional, Any, Tuple
 from collections import deque
-from elftools.common.exceptions import ELFError
+from elftools.common.exceptions import ELFError, ELFRelocationError
+from elftools.common.utils import struct_parse
+from elftools.dwarf.structs import DWARFStructs
 from ..core.exceptions import DWARFParsingError, DWARFCUProcessingError, DWARFAttributeError
 from .paths import is_abs, to_posix
 
@@ -32,41 +33,66 @@ ARM_MACHINES = {
 # pyelftools only parses CUs with 4 or 8 byte addresses (AVR uses 2)
 SUPPORTED_ADDRESS_SIZES = (4, 8)
 
+# DWARF expression opcodes, DWARF 5 section 7.7.1
+DW_OP_ADDR = 0x03
+DW_OP_PLUS_UCONST = 0x23
+DW_OP_ADDRX = 0xa1
+DW_OP_GNU_ADDR_INDEX = 0xfb
 
-def _cu_address_sizes(dwarfinfo) -> set:
-    """Address sizes declared by the CU headers in .debug_info.
+# unit_length values 0xfffffff0-0xfffffffe are reserved, DWARF 5 section 7.4
+_DWARF_RESERVED_LENGTH = 0xfffffff0
 
-    Read from the raw bytes because pyelftools fails on a CU whose address
-    size it does not support. Header layout per DWARF 5 section 7.5.1.1.
+
+def _read_uleb128(data, pos: int) -> Tuple[Optional[int], int]:
+    """ULEB128 value at data[pos] and the position after it, (None, pos) if truncated."""
+    value = 0
+    for i, byte_val in enumerate(data[pos:]):
+        value |= (byte_val & 0x7F) << (7 * i)
+        if not byte_val & 0x80:
+            return value, pos + i + 1
+    return None, pos
+
+
+def _iter_cu_headers(dwarfinfo):
+    """Yield (offset, header) for every CU header in .debug_info.
+
+    Parsed with pyelftools' own header struct but without building the CU,
+    because pyelftools fails on a CU whose address size it does not support.
     """
     section = dwarfinfo.debug_info_sec
-    data = section.stream.getvalue()[:section.size]
-    endian = '<' if dwarfinfo.config.little_endian else '>'
-    sizes = set()
+    if section is None:
+        # has_dwarf_info() is also true for a stripped ELF with only .eh_frame
+        return
     offset = 0
-    while offset + 4 <= len(data):
-        (unit_length,) = struct.unpack_from(endian + 'I', data, offset)
-        header = offset + 4
-        if unit_length == 0xFFFFFFFF:
-            if header + 8 > len(data):
-                break
-            (unit_length,) = struct.unpack_from(endian + 'Q', data, header)
-            header += 8
-            offset_size = 8
-        else:
-            offset_size = 4
-        if header + 2 > len(data):
-            break
-        (version,) = struct.unpack_from(endian + 'H', data, header)
-        if version >= 5:
-            address_size_at = header + 3
-        else:
-            address_size_at = header + 2 + offset_size
-        if address_size_at >= len(data):
-            break
-        sizes.add(data[address_size_at])
-        offset = header + unit_length
-    return sizes
+    while offset + 4 <= section.size:
+        initial_length = struct_parse(
+            dwarfinfo.structs.the_Dwarf_uint32, section.stream, offset)
+        if _DWARF_RESERVED_LENGTH <= initial_length < 0xFFFFFFFF:
+            logger.warning(
+                "Stopping at CU with reserved unit length 0x%x at offset %d",
+                initial_length, offset)
+            return
+        structs = DWARFStructs(
+            little_endian=dwarfinfo.config.little_endian,
+            dwarf_format=64 if initial_length == 0xFFFFFFFF else 32,
+            address_size=4,
+            dwarf_version=2)
+        header = struct_parse(structs.Dwarf_CU_header, section.stream, offset)
+        yield offset, header
+        offset += header['unit_length'] + structs.initial_length_field_size()
+
+
+def _iter_supported_cus(dwarfinfo):
+    """Yield the CUs pyelftools can parse, warning once per skipped address size."""
+    skipped = set()
+    for offset, header in _iter_cu_headers(dwarfinfo):
+        if header['address_size'] in SUPPORTED_ADDRESS_SIZES:
+            yield dwarfinfo.get_CU_at(offset)
+        elif header['address_size'] not in skipped:
+            skipped.add(header['address_size'])
+            logger.warning(
+                "Skipping DWARF source mapping for CUs with unsupported address size %d",
+                header['address_size'])
 
 
 def _file_index_base(line_program) -> int:
@@ -113,6 +139,7 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
         self.symbol_addresses = symbol_addresses
         self.skip_line_program = skip_line_program
         self.machine = machine
+        self.little_endian = getattr(elffile, 'little_endian', True)
 
         # Determine if we need address tolerance based on architecture
         # ARM Thumb mode requires ±2 byte tolerance, other architectures use
@@ -177,17 +204,14 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
             return self.dwarf_data
 
         try:
-            # Linked binaries already have resolved DWARF. Relocations left by
-            # --emit-relocs may use types pyelftools rejects (R_ARM_NONE).
-            dwarfinfo = self.elffile.get_dwarf_info(
-                relocate_dwarf_sections=self.elffile['e_type'] == 'ET_REL')
-
-            unsupported = _cu_address_sizes(dwarfinfo) - set(SUPPORTED_ADDRESS_SIZES)
-            if unsupported:
-                logger.warning(
-                    "Skipping DWARF source mapping: unsupported address size %s",
-                    ", ".join(str(size) for size in sorted(unsupported)))
-                return self.dwarf_data
+            try:
+                dwarfinfo = self.elffile.get_dwarf_info()
+            except ELFRelocationError as e:
+                # --emit-relocs leaves .rel.debug_* entries in linked binaries,
+                # some of a type pyelftools rejects (TinyGo R_ARM_NONE). Their
+                # DWARF is already resolved, so read it as stored.
+                logger.debug("Reading DWARF without relocation: %s", e)
+                dwarfinfo = self.elffile.get_dwarf_info(relocate_dwarf_sections=False)
 
             # Build CU address range index
             cu_address_index = self._build_cu_address_index(dwarfinfo)
@@ -327,7 +351,7 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
         """
         cu_index = []
 
-        for cu in dwarfinfo.iter_CUs():
+        for cu in _iter_supported_cus(dwarfinfo):
             low_pc, high_pc = self._extract_cu_address_range(cu)
             cu_index.append((low_pc, high_pc, cu))
 
@@ -604,68 +628,57 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
                         return file_entries[file_idx]
         return None
 
-    def _parse_location_expression(  # pylint: disable=too-many-return-statements
-            self, location_value, address_size: Optional[int] = None) -> Optional[int]:
-        """Parse DWARF location expression to extract address from DW_OP_addr.
+    def _parse_location_expression(
+            self, location_value, address_size: Optional[int] = None,
+            resolve_addr_index=None) -> Optional[int]:
+        """Extract a static address from a DWARF location expression.
 
-        DWARF location expressions are bytecode sequences that describe where
-        a variable is located. For global/static variables, the most common
-        form is DW_OP_addr (opcode 0x03) followed by an address.
+        Handles DW_OP_addr (0x03), DW_OP_addrx (0xa1) and DW_OP_GNU_addr_index
+        (0xfb). Other expressions return None.
 
         Args:
             location_value: DWARF location expression (list or bytes)
             address_size: CU address size. When given, a trailing
                 DW_OP_plus_uconst (0x23) offset is added, as LLVM emits for
                 variables inside merged globals.
+            resolve_addr_index: Callable mapping a .debug_addr index to an
+                address, needed for DW_OP_addrx and DW_OP_GNU_addr_index.
 
         Returns:
-            Extracted address or None if parsing fails or not a DW_OP_addr expression
-
-        Note:
-            This parser handles DW_OP_addr (0x03), optionally followed by
-            DW_OP_plus_uconst. Other expressions return None.
+            Extracted address or None if the expression is not supported
         """
         try:
             # Handle both list (from ListContainer) and bytes formats
-            if hasattr(location_value, '__iter__'):
-                expr_bytes = list(location_value) if not isinstance(
-                    location_value, list) else location_value
-            else:
+            if not hasattr(location_value, '__iter__'):
                 return None
-
-            # Check if this is a DW_OP_addr (0x03) expression
-            # DW_OP_addr format: [0x03, addr_byte1, addr_byte2, ...]
-            if not expr_bytes or expr_bytes[0] != 0x03:
+            address, rest = self._expression_address(
+                list(location_value), address_size, resolve_addr_index)
+            if address is None:
                 return None
-
-            # Extract address bytes (skip the opcode at index 0)
-            if address_size:
-                addr_bytes = expr_bytes[1:1 + address_size]
-                if len(addr_bytes) < address_size:
-                    return None
-                offset = self._parse_plus_uconst(expr_bytes[1 + address_size:])
-                if offset is None:
-                    return None
-            else:
-                addr_bytes = expr_bytes[1:]
-                offset = 0
-
-            if not addr_bytes:
-                return None
-
-            # Convert bytes to address (little-endian, typical for most architectures)
-            # For 32-bit: [b0, b1, b2, b3] -> b0 + (b1<<8) + (b2<<16) +
-            # (b3<<24)
-            address = 0
-            for i, byte_val in enumerate(addr_bytes):
-                address |= (byte_val << (i * 8))
-
-            return address + offset
-
-        except (TypeError, AttributeError, IndexError) as e:
-            logger.debug(
-                "Failed to parse location expression: %s", e)
+            offset = self._parse_plus_uconst(rest)
+            return None if offset is None else address + offset
+        except (TypeError, AttributeError, IndexError, ValueError) as e:
+            logger.debug("Failed to parse location expression: %s", e)
             return None
+
+    def _expression_address(self, expr_bytes, address_size, resolve_addr_index):
+        """Address from the leading operation and the operations after it, (None, []) if none."""
+        opcode = expr_bytes[0] if expr_bytes else None
+        if opcode == DW_OP_ADDR:
+            if not address_size:
+                # Unknown address size: the rest of the expression is the address
+                address_size = len(expr_bytes) - 1
+            addr_bytes = expr_bytes[1:1 + address_size]
+            if not addr_bytes or len(addr_bytes) < address_size:
+                return None, []
+            byteorder = 'little' if self.little_endian else 'big'
+            return (int.from_bytes(bytes(addr_bytes), byteorder),
+                    expr_bytes[1 + address_size:])
+        if opcode in (DW_OP_ADDRX, DW_OP_GNU_ADDR_INDEX) and resolve_addr_index:
+            index, pos = _read_uleb128(expr_bytes, 1)
+            if index is not None:
+                return resolve_addr_index(index), expr_bytes[pos:]
+        return None, []
 
     @staticmethod
     def _parse_plus_uconst(rest) -> Optional[int]:
@@ -675,14 +688,28 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
         """
         if not rest:
             return 0
-        if rest[0] != 0x23 or len(rest) < 2:
+        if rest[0] != DW_OP_PLUS_UCONST:
             return None
-        value = 0
-        for i, byte_val in enumerate(rest[1:]):
-            value |= (byte_val & 0x7F) << (7 * i)
-            if not byte_val & 0x80:
-                return value if i == len(rest) - 2 else None
-        return None
+        value, pos = _read_uleb128(rest, 1)
+        return value if value is not None and pos == len(rest) else None
+
+    @staticmethod
+    def _addr_index_resolver(cu):
+        """Callable mapping a .debug_addr index of this CU to an address, None on failure."""
+        def resolve(index: int) -> Optional[int]:
+            debug_addr = cu.dwarfinfo.debug_addr_sec
+            attrs = cu.get_top_DIE().attributes
+            base = attrs.get('DW_AT_addr_base') or attrs.get('DW_AT_GNU_addr_base')
+            if not debug_addr or not base:
+                return None
+            try:
+                return struct_parse(
+                    cu.structs.the_Dwarf_target_addr, debug_addr.stream,
+                    base.value + index * cu['address_size'])
+            except Exception as e:  # pylint: disable=broad-exception-caught
+                logger.debug("Failed to read .debug_addr index %d: %s", index, e)
+                return None
+        return resolve
 
     def _extract_line_program_data(  # pylint: disable=too-many-nested-blocks
             self, cu, dwarfinfo, file_paths: Dict[int, str]) -> None:
@@ -861,7 +888,8 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
                 location_attr = attrs.get('DW_AT_location')
                 if location_attr and hasattr(location_attr, 'value'):
                     die_address = self._parse_location_expression(
-                        location_attr.value, die.cu['address_size'])
+                        location_attr.value, die.cu['address_size'],
+                        self._addr_index_resolver(die.cu))
 
             # Only process if this address is in our symbol table
             if die_address and not self._is_address_in_symbol_set_with_tolerance(
