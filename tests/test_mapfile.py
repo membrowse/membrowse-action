@@ -316,6 +316,36 @@ Linker script and memory map
             resolver.resolve(0x080000ad), ('libapp.a', 'main.o'))
 
 
+class TestMapFileParserMergeSections(unittest.TestCase):
+    """SHF_MERGE input sections (.str1.N, .cstN) in GNU LD maps"""
+
+    def test_merge_sections_give_way_to_a_section_at_their_address(self):
+        """Merged string/constant sections are listed at the address where
+        merging started with their unmerged size: the input section placed
+        there owns it, wrapped or not (Meshtastic picow)."""
+        content = """\
+Linker script and memory map
+
+ .rodata._GLOBAL__sub_I__ZN9__gnu_cxx9__freeresEv.str1.4
+                0x1011bd58       0x3c libstdc++.a(eh_alloc.o)
+ .rodata.str1.4
+                0x1011bd58       0x47 libc.a(libc_a-rand.o)
+ .rodata        0x1011bd58       0x60 libc.a(libc_a-mktime.o)
+ .rodata._ZL9powerIdlev.part.0.str1.1
+                0x100d187e       0x1f src/PowerFSM.cpp.o
+ .rodata.CSWTCH.56
+                0x100d187e       0x15 src/RedirectablePrint.cpp.o
+ .rodata.cst8   0x100d1900        0x8 src/a.o
+ .rodata.cst8   0x100d1900        0x8 src/b.o
+"""
+        resolver = MapFileResolver(ranges=MapFileParser().parse(content))
+        self.assertEqual(resolver.resolve(0x1011bd58), ('libc.a', 'libc_a-mktime.o'))
+        self.assertEqual(resolver.resolve(0x1011bd88), ('libc.a', 'libc_a-mktime.o'))
+        self.assertEqual(resolver.resolve(0x100d187e), ('', 'src/RedirectablePrint.cpp.o'))
+        # Among merge sections the first listed still wins
+        self.assertEqual(resolver.resolve(0x100d1900), ('', 'src/a.o'))
+
+
 class TestMapFileParserSkipOutputSections(unittest.TestCase):
     """GNU LD input sections under skipped (non-ALLOC) output sections."""
 

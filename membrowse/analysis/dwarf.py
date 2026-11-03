@@ -46,6 +46,28 @@ DW_OP_GNU_ADDR_INDEX = 0xfb
 # unit_length values 0xfffffff0-0xfffffffe are reserved, DWARF 5 section 7.4
 _DWARF_RESERVED_LENGTH = 0xfffffff0
 
+# DIEs whose address is code, which may carry the Thumb bit in the symbol table
+_CODE_TAGS = frozenset({'DW_TAG_subprogram', 'DW_TAG_inlined_subroutine'})
+
+# Scopes whose variables and functions are file-level definitions
+_FILE_SCOPE_TAGS = frozenset({
+    'DW_TAG_compile_unit', 'DW_TAG_partial_unit', 'DW_TAG_namespace'})
+
+
+def _is_file_scope_definition(die, spec_die) -> bool:
+    """A variable or function defined at file (or namespace) scope, not a
+    local, a parameter or a member: a DIE a symbol of its name may be.
+
+    C++ definitions named through DW_AT_specification or DW_AT_abstract_origin
+    (spec_die), or with a linkage name, have a symbol named otherwise.
+    """
+    if die.tag not in ('DW_TAG_variable', 'DW_TAG_subprogram') or spec_die is not None:
+        return False
+    if 'DW_AT_linkage_name' in die.attributes or 'DW_AT_MIPS_linkage_name' in die.attributes:
+        return False
+    parent = die.get_parent()
+    return parent is None or parent.tag in _FILE_SCOPE_TAGS
+
 
 def _read_uleb128(data, pos: int) -> Tuple[Optional[int], int]:
     """ULEB128 value at data[pos] and the position after it, (None, pos) if truncated."""
@@ -956,11 +978,12 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
                     if decl_line:
                         symbol_to_decl[symbol_key] = (decl_file, decl_line)
 
-                    # For ARM architectures, also store with tolerance-adjusted addresses
-                    # ARM Thumb: LSB of function address indicates mode (0=ARM, 1=Thumb)
-                    # DIEs store actual instruction addresses, ELF symbols
-                    # include mode bit
-                    if self.address_tolerance > 0:
+                    # For ARM architectures, also store code with tolerance-adjusted
+                    # addresses. ARM Thumb: LSB of function address indicates mode
+                    # (0=ARM, 1=Thumb); DIEs store actual instruction addresses, ELF
+                    # symbols include mode bit. Data addresses are exact: a
+                    # variable's neighbour is another symbol.
+                    if self.address_tolerance > 0 and die.tag in _CODE_TAGS:
                         symbol_to_file = self.dwarf_data['symbol_to_file']
                         address_to_cu = self.dwarf_data['address_to_cu_file']
                         for offset in range(-self.address_tolerance,
@@ -989,8 +1012,11 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
                             if die_address + offset in self.symbol_addresses:
                                 self.found_symbols.add(die_address + offset)
                                 break
-                else:
-                    # For symbols without DIE addresses (like static variables)
+                elif not is_declaration and _is_file_scope_definition(die, spec_die):
+                    # Definitions without DIE addresses (such as weak stubs
+                    # described without code). Matched by name only, so
+                    # declarations, locals and parameters, which name other
+                    # symbols' neighbours or nothing at all, are left out.
                     # Store in our static symbol mappings list for special
                     # handling
                     self.dwarf_data['static_symbol_mappings'].append(
@@ -1000,11 +1026,9 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
                     symbol_key = (die_name, 0)
                     if symbol_key not in self.dwarf_data['symbol_to_file']:
                         self.dwarf_data['symbol_to_file'][symbol_key] = best_source_file
-                    # Function definitions only: a prototype's line is not
-                    # the symbol's, and a name alone also matches locals,
-                    # parameters and members of other symbols
-                    if (decl_line and not is_declaration
-                            and die.tag == 'DW_TAG_subprogram'):
+                    # Function definitions only: a variable without an
+                    # address is not the one in the symbol table
+                    if decl_line and die.tag == 'DW_TAG_subprogram':
                         self.dwarf_data['symbol_to_decl'].setdefault(
                             symbol_key, (decl_file, decl_line))
 

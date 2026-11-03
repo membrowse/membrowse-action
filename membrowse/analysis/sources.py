@@ -175,15 +175,17 @@ class SourceFileResolver:  # pylint: disable=too-few-public-methods,too-many-ins
         extract_source_file reported). Otherwise, as for data, code without
         line rows, or a function whose first row is inlined from another
         file, the DW_AT_decl_line of the symbol's DIE when it declares the
-        symbol in source_file. 0 when neither is known. Without source_file
-        the row's line is returned whatever its file.
+        symbol in source_file. 0 when neither is known, and when source_file
+        is empty (no file found). When source_file is None the row's line is
+        returned whatever its file.
         """
         if not self.dwarf_data or symbol_address is None:
             return 0
         row = self._line_row(symbol_address)
         if row is not None:
             row_file, row_line = row
-            if row_line and (not source_file or self._source_name(row_file) == source_file):
+            if row_line and (source_file is None
+                             or self._source_name(row_file) == source_file):
                 return row_line
         if symbol_name and source_file:
             decl = self._symbol_decl(symbol_name, symbol_address)

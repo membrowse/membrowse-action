@@ -89,6 +89,15 @@ _FILL_RE = re.compile(
 _PLACED_RE = re.compile(
     r'^\s+(?:[^\s*]\S*\s+)?0x[0-9a-fA-F]+\s+(0x[0-9a-fA-F]+)(?:\s|$)')
 
+# Mergeable string and constant input sections (SHF_MERGE): .rodata.str1.4,
+# .rodata.<function>.str1.1, .rodata.cst8. GNU LD merges their contents into
+# the first of them and lists every one at the address where merging started
+# with its size before merging, so a row's range may hold another input
+# section's bytes:
+#  .rodata.str1.4 0x1011bd58       0x47 libc.a(libc_a-rand.o)
+#  .rodata        0x1011bd58       0x60 libc.a(libc_a-mktime.o)
+_MERGE_SECTION_RE = re.compile(r'\.(?:str\d+\.\d+|cst\d+)$')
+
 
 class _OutputSectionState:
     """Track the current output section and whether its rows are dropped."""
@@ -174,22 +183,25 @@ class MapFileParser:  # pylint: disable=too-few-public-methods
             ``start``. ``archive`` is "" for bare .o files. Zero-size and
             zero-address entries are skipped.
         """
-        ranges: List[Tuple[int, int, str, str]] = []
-        seen_starts = set()
+        # start -> ((start, end, archive, object), from a merge section)
+        by_start: Dict[int, Tuple[Tuple[int, int, str, str], bool]] = {}
         pending_section = None
         output = _OutputSectionState(section_filter)
 
-        def emit(address: int, size: int, file_field: str) -> None:
+        def emit(section: str, address: int, size: int, file_field: str) -> None:
             if address == 0 or size == 0:
                 return
-            if address in seen_starts:
-                # First occurrence wins (GNU LD lists in link order).
+            merge = bool(_MERGE_SECTION_RE.search(section))
+            seen = by_start.get(address)
+            if seen is not None and (merge or not seen[1]):
+                # First occurrence wins (GNU LD lists in link order), but
+                # a merge section gives way to an input section placed
+                # where it is listed.
                 return
             archive, obj = self._parse_file_field(file_field.strip())
             if not obj:
                 return
-            seen_starts.add(address)
-            ranges.append((address, address + size, archive, obj))
+            by_start[address] = ((address, address + size, archive, obj), merge)
 
         for line in content.splitlines():
             if line and not line[0].isspace():
@@ -204,7 +216,8 @@ class MapFileParser:  # pylint: disable=too-few-public-methods
             match = _SECTION_CONTRIB_RE.match(line)
             if match:
                 pending_section = None
-                emit(int(match.group(2), 16),
+                emit(match.group(1),
+                     int(match.group(2), 16),
                      int(match.group(3), 16),
                      match.group(4))
                 continue
@@ -214,8 +227,9 @@ class MapFileParser:  # pylint: disable=too-few-public-methods
             if pending_section is not None:
                 cont_match = _CONTINUATION_RE.match(line)
                 if cont_match:
-                    pending_section = None
-                    emit(int(cont_match.group(1), 16),
+                    section, pending_section = pending_section, None
+                    emit(section,
+                         int(cont_match.group(1), 16),
                          int(cont_match.group(2), 16),
                          cont_match.group(3))
                     continue
@@ -230,8 +244,7 @@ class MapFileParser:  # pylint: disable=too-few-public-methods
                 pending_section = name_match.group(1)
                 continue
 
-        ranges.sort(key=lambda r: r[0])
-        return ranges
+        return sorted(entry for entry, _ in by_start.values())
 
     @staticmethod
     def alignment_fill(content: str) -> Dict[str, int]:
