@@ -1,0 +1,66 @@
+{
+ "flash": {
+  "address": 0,
+  "limit_size": 262144,
+  "type": "rx",
+  "used_size": 64673,
+  "free_size": 197471,
+  "utilization_percent": 24.670791625976562,
+  "sections": [
+   {
+    "name": ".text",
+    "address": 0,
+    "size": 62934,
+    "type": "code",
+    "end_address": 62934
+   },
+   {
+    "name": ".trampolines",
+    "address": 62934,
+    "size": 272,
+    "type": "code",
+    "end_address": 63206
+   },
+   {
+    "name": ".data",
+    "address": 63206,
+    "size": 1467,
+    "type": "data",
+    "end_address": 64673
+   }
+  ]
+ },
+ "sram": {
+  "address": 8389120,
+  "limit_size": 8192,
+  "type": "rw!x",
+  "used_size": 2745,
+  "free_size": 5447,
+  "utilization_percent": 33.50830078125,
+  "sections": [
+   {
+    "name": ".data",
+    "address": 8389120,
+    "size": 1467,
+    "type": "data",
+    "end_address": 8390587
+   },
+   {
+    "name": ".bss",
+    "address": 8390592,
+    "size": 1278,
+    "type": "data",
+    "end_address": 8391870
+   }
+  ]
+ },
+ "eeprom": {
+  "address": 8454144,
+  "limit_size": 4096,
+  "type": "rw!x",
+  "used_size": 0,
+  "free_size": 4096,
+  "utilization_percent": 0.0,
+  "sections": []
+ }
+}

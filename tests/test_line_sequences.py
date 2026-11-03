@@ -386,6 +386,64 @@ class TestAddressLookup(unittest.TestCase):
         self.assertEqual(lookup._resolve_source_file('weak_ref', 'FUNC', 0), '')
 
 
+class TestSourceLinePairing(unittest.TestCase):
+    """extract_source_line gives a line of the reported source file."""
+
+    def setUp(self):
+        # A function at 0x100 whose first row is inlined from stddef.h, then
+        # its own rows in heap_4.c
+        self.data = run_cus([(0x100, STDDEF, 40), (0x104, HEAP, 12),
+                             (0x110, HEAP, 13, END)])
+        self.heap = self.data['address_to_file'][0x104]
+        self.stddef = self.data['address_to_file'][0x100]
+        self.data['symbol_to_decl'] = {
+            ('pvPortMalloc', 0x100): (self.heap, 10),
+            ('xHeapStructSize', 0x20000000): (self.heap, 7),
+            ('vApplicationIdleHook', 0): (self.heap, 30),
+            ('prvHeapInit', 0x104): (self.stddef, 99),
+        }
+        self.resolver = resolver(self.data)
+
+    def test_row_in_the_reported_file(self):
+        """The row's line when the row is in the reported file."""
+        self.assertEqual(
+            self.resolver.extract_source_line(0x104, 'other', 'heap_4.c'), 12)
+
+    def test_row_in_another_file_takes_the_decl_line(self):
+        """An inlined header row at the start: the DIE's line instead."""
+        self.assertEqual(
+            self.resolver.extract_source_line(0x100, 'pvPortMalloc', 'heap_4.c'), 10)
+
+    def test_neither_row_nor_decl_in_the_file(self):
+        """No line from another file, from the row or from the DIE."""
+        self.assertEqual(
+            self.resolver.extract_source_line(0x100, 'other', 'heap_4.c'), 0)
+        self.assertEqual(
+            self.resolver.extract_source_line(0x104, 'prvHeapInit', 'tasks.c'), 0)
+
+    def test_data_takes_the_decl_line(self):
+        """No row covers data; its DIE gives the line."""
+        self.assertEqual(self.resolver.extract_source_line(
+            0x20000000, 'xHeapStructSize', 'heap_4.c'), 7)
+
+    def test_decl_without_address(self):
+        """A defining DIE without an address is found by name."""
+        self.assertEqual(self.resolver.extract_source_line(
+            0x200, 'vApplicationIdleHook', 'heap_4.c'), 30)
+
+    def test_compiler_suffix(self):
+        """A .constprop/.isra clone takes the DIE of its base name."""
+        self.data['symbol_to_decl'][('prvInsertBlockIntoFreeList', 0x108)] = (self.heap, 50)
+        self.assertEqual(self.resolver.extract_source_line(
+            0x108, 'prvInsertBlockIntoFreeList.constprop.0', 'tasks.c'), 0)
+        self.assertEqual(self.resolver.extract_source_line(
+            0x100, 'pvPortMalloc.isra.0', 'heap_4.c'), 10)
+
+    def test_without_source_file_takes_the_row(self):
+        """Callers that pass no file get the row's line, whatever its file."""
+        self.assertEqual(self.resolver.extract_source_line(0x100), 40)
+
+
 class TestLayout(unittest.TestCase):
     """CodeLayout read from the ELF sections and symbol table."""
 

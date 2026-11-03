@@ -1,0 +1,87 @@
+{
+ "RAM": {
+  "address": 536870912,
+  "limit_size": 131072,
+  "type": "xrw",
+  "used_size": 30400,
+  "free_size": 100672,
+  "utilization_percent": 23.193359375,
+  "sections": [
+   {
+    "name": ".data",
+    "address": 536870912,
+    "size": 8456,
+    "type": "data",
+    "end_address": 536879368
+   },
+   {
+    "name": ".bss",
+    "address": 536879368,
+    "size": 1460,
+    "type": "data",
+    "end_address": 536880828
+   },
+   {
+    "name": "._user_heap_stack",
+    "address": 536880828,
+    "size": 20484,
+    "type": "data",
+    "end_address": 536901312
+   }
+  ]
+ },
+ "CCMRAM": {
+  "address": 268435456,
+  "limit_size": 65536,
+  "type": "rw",
+  "used_size": 0,
+  "free_size": 65536,
+  "utilization_percent": 0.0,
+  "sections": []
+ },
+ "FLASH": {
+  "address": 134217728,
+  "limit_size": 1048576,
+  "type": "rx",
+  "used_size": 28812,
+  "free_size": 1019764,
+  "utilization_percent": 2.7477264404296875,
+  "sections": [
+   {
+    "name": ".isr_vector",
+    "address": 134217728,
+    "size": 392,
+    "type": "rodata",
+    "end_address": 134218120
+   },
+   {
+    "name": ".text",
+    "address": 134218176,
+    "size": 19588,
+    "type": "code",
+    "end_address": 134237764
+   },
+   {
+    "name": ".rodata",
+    "address": 134237764,
+    "size": 368,
+    "type": "rodata",
+    "end_address": 134238132
+   },
+   {
+    "name": ".ARM",
+    "address": 134238132,
+    "size": 8,
+    "type": "rodata",
+    "end_address": 134238140
+   },
+   {
+    "name": ".data",
+    "address": 134238140,
+    "size": 8456,
+    "type": "data",
+    "end_address": 134246596
+   }
+  ]
+ }
+}
