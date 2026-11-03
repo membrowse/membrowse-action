@@ -16,7 +16,7 @@ is, and select_live_sequences keeps the sequences that fit it.
 
 import bisect
 import logging
-from typing import Dict, Iterable, Iterator, List, NamedTuple, Optional, Tuple
+from typing import Dict, Iterable, Iterator, List, NamedTuple, Optional, Set, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -87,13 +87,16 @@ class CodeLayout:
     contents, None when the ELF has no section headers to tell.
     code_starts: addresses of defined FUNC and NOTYPE symbols in those
     ranges (Thumb bit cleared), None without a symbol table.
+    functions: (start, size) of the FUNC symbols among them with a size.
     """
 
     def __init__(self, code_ranges: Optional[List[Tuple[int, int]]] = None,
-                 code_starts: Optional[Iterable[int]] = None):
+                 code_starts: Optional[Iterable[int]] = None,
+                 functions: Iterable[Tuple[int, int]] = ()):
         self.code_ranges = sorted(code_ranges) if code_ranges is not None else None
         self._range_starts = [start for start, _ in self.code_ranges or ()]
         self.code_starts = set(code_starts) if code_starts is not None else None
+        self.functions: Set[Tuple[int, int]] = set(functions)
 
     @classmethod
     def from_elf(cls, elffile) -> 'CodeLayout':
@@ -119,12 +122,16 @@ class CodeLayout:
             return cls()
         layout = cls(code_ranges)
         if symtab is not None:
-            layout.code_starts = {
-                sym['st_value'] & ~1 for sym in symtab.iter_symbols()
+            code_symbols = [
+                sym for sym in symtab.iter_symbols()
                 if sym['st_info']['type'] in ('STT_FUNC', 'STT_NOTYPE')
                 and sym['st_shndx'] not in ('SHN_UNDEF', 'SHN_ABS')
                 and sym.name and not _is_mapping_symbol(sym.name)
-                and layout.is_code(sym['st_value'] & ~1)}
+                and layout.is_code(sym['st_value'] & ~1)]
+            layout.code_starts = {sym['st_value'] & ~1 for sym in code_symbols}
+            layout.functions = {
+                (sym['st_value'] & ~1, sym['st_size']) for sym in code_symbols
+                if sym['st_info']['type'] == 'STT_FUNC' and sym['st_size']}
         return layout
 
     def is_code(self, address: int) -> bool:
@@ -139,6 +146,10 @@ class CodeLayout:
         if self.code_starts is None:
             return None
         return address in self.code_starts
+
+    def is_function(self, start: int, size: int) -> bool:
+        """Whether a FUNC symbol of this size starts at start."""
+        return (start, size) in self.functions
 
 
 def is_dead_sequence(start: int, address_size: int, layout: CodeLayout) -> bool:
@@ -155,11 +166,21 @@ def is_dead_sequence(start: int, address_size: int, layout: CodeLayout) -> bool:
     return start == 0 and not layout.starts_code(0)
 
 
+def _by_start(seq: Sequence) -> Tuple[int, int, int]:
+    """Sort key: start, then end, then CU offset."""
+    return seq.start, seq.end, seq.cu_offset
+
+
+def _overlap(a: Sequence, b: Sequence) -> bool:
+    """Whether two sequences share an address."""
+    return a.start < b.end and b.start < a.end
+
+
 def _overlap_clusters(sequences: List[Sequence]) -> Iterator[List[Sequence]]:
     """Groups of sequences, sorted by start, whose ranges overlap in a chain."""
     cluster = []
     cluster_end = None
-    for seq in sorted(sequences, key=lambda s: (s.start, s.end, s.cu_offset)):
+    for seq in sorted(sequences, key=_by_start):
         if cluster and seq.start < cluster_end:
             cluster.append(seq)
             cluster_end = max(cluster_end, seq.end)
@@ -171,9 +192,17 @@ def _overlap_clusters(sequences: List[Sequence]) -> Iterator[List[Sequence]]:
         yield cluster
 
 
-def _disjoint(sequences: List[Sequence]) -> bool:
-    """Whether sequences sorted by start do not overlap each other."""
-    return all(a.end <= b.start for a, b in zip(sequences, sequences[1:]))
+def _without_overlaps(sequences: List[Sequence]) -> List[Sequence]:
+    """The sequences, sorted by start, that overlap none of the others."""
+    alone = []
+    end_before = None  # largest end of the sequences before seq
+    for i, seq in enumerate(sequences):
+        after = sequences[i + 1] if i + 1 < len(sequences) else None
+        if ((end_before is None or end_before <= seq.start)
+                and (after is None or seq.end <= after.start)):
+            alone.append(seq)
+        end_before = seq.end if end_before is None else max(end_before, seq.end)
+    return alone
 
 
 def _one_per_range(sequences: Iterable[Sequence]) -> List[Sequence]:
@@ -192,23 +221,32 @@ def select_live_sequences(sequences: List[Sequence], layout: CodeLayout) -> List
     code that landed on live code (ld.bfd: 0 plus an offset). Sequences
     with the same range are one function: ld.bfd points the debug info of a
     discarded COMDAT copy (a C++ inline function) at the copy it kept, and
-    the one of the first CU stands for both. Of the overlapping ones, the
-    ones starting where a code symbol starts are kept if they do not
-    overlap each other; otherwise none is kept, since which one is live
-    cannot be told and a wrong file is worse than none. The result does not
-    depend on the order the CUs were read in.
+    the one of the first CU stands for both. Of the overlapping ones, only
+    those starting where a code symbol starts can be live. Among them, one
+    whose length is the size of a FUNC symbol starting there is the
+    function's own, and the others overlapping it are discarded code. The
+    rest are kept where they overlap no other candidate left; where they
+    do, which one is live cannot be told and none is kept, since a wrong
+    file is worse than none. The result does not depend on the order the CUs were
+    read in.
     """
     live = []
     for cluster in _overlap_clusters(sequences):
         if len(cluster) == 1:
             live.extend(cluster)
             continue
-        kept = _one_per_range(seq for seq in cluster if layout.starts_code(seq.start))
-        if kept and _disjoint(kept):
-            live.extend(kept)
-        else:
-            logger.debug("Dropping %d overlapping line sequences at 0x%x",
-                         len(cluster), cluster[0].start)
+        candidates = _one_per_range(
+            seq for seq in cluster if layout.starts_code(seq.start))
+        sized = [seq for seq in candidates
+                 if layout.is_function(seq.start, seq.end - seq.start)]
+        rest = [seq for seq in candidates
+                if not layout.is_function(seq.start, seq.end - seq.start)
+                and not any(_overlap(seq, own) for own in sized)]
+        kept = sorted(_without_overlaps(sized) + _without_overlaps(rest), key=_by_start)
+        if len(kept) < len(cluster):
+            logger.debug("Dropping %d of %d overlapping line sequences at 0x%x",
+                         len(cluster) - len(kept), len(cluster), cluster[0].start)
+        live.extend(kept)
     return live
 
 

@@ -69,18 +69,6 @@ def relative_source_path(path: str, roots: Iterable[str]) -> Optional[str]:
     return None
 
 
-def _merge_ranges(ranges: Iterable) -> list:
-    """Sorted, non-overlapping union of [start, end) ranges."""
-    merged = []
-    for start, end in sorted(ranges):
-        if merged and start <= merged[-1][1]:
-            if end > merged[-1][1]:
-                merged[-1] = (merged[-1][0], end)
-        else:
-            merged.append((start, end))
-    return merged
-
-
 class SourceFileResolver:  # pylint: disable=too-few-public-methods,too-many-instance-attributes
     """Handles source file resolution logic for symbols using DWARF debug information"""
 
@@ -114,8 +102,6 @@ class SourceFileResolver:  # pylint: disable=too-few-public-methods,too-many-ins
         self._sequence_starts = []
         self._by_end = []  # the same sequences by end
         self._sequence_ends = []
-        self._sequence_ranges = []  # merged [start, end) of the sequences
-        self._range_starts = []
         if 'static_symbol_mappings' in dwarf_data:
             for mapping in dwarf_data['static_symbol_mappings']:
                 symbol_name = mapping[0]
@@ -187,7 +173,7 @@ class SourceFileResolver:  # pylint: disable=too-few-public-methods,too-many-ins
         line program ultimately landed on, which is the same answer ``nm -l``
         gives.
         """
-        if not self.dwarf_data or not symbol_address:
+        if not self.dwarf_data or symbol_address is None:
             return 0
         addr_to_line = self.dwarf_data.get('address_to_line')
         if not addr_to_line:
@@ -251,7 +237,9 @@ class SourceFileResolver:  # pylint: disable=too-few-public-methods,too-many-ins
                 return result
 
         # Priority 2: Address-based lookup for FUNC symbols (fallback)
-        if symbol_address is not None and symbol_address > 0 and symbol_type == 'FUNC':
+        # A function linked at 0 has rows only when a code symbol is there
+        # (see is_dead_sequence), so address 0 is looked up as well.
+        if symbol_address is not None and symbol_type == 'FUNC':
             return self._resolve_by_address(symbol_address)
 
         # Priority 3: Fallback lookups for OBJECT symbols and edge cases
@@ -358,8 +346,6 @@ class SourceFileResolver:  # pylint: disable=too-few-public-methods,too-many-ins
         self._sequence_starts = [seq[0] for seq in self._sequences]
         self._by_end = sorted(self._sequences, key=lambda seq: seq[1])
         self._sequence_ends = [seq[1] for seq in self._by_end]
-        self._sequence_ranges = _merge_ranges(seq[:2] for seq in self._sequences)
-        self._range_starts = [start for start, _ in self._sequence_ranges]
 
     def _row_at_or_before(self, address: int, floor: int) -> Optional[int]:
         """The last row address in [floor, address], None if there is none."""
@@ -371,14 +357,18 @@ class SourceFileResolver:  # pylint: disable=too-few-public-methods,too-many-ins
     def _covering_row(self, target_address: int) -> Optional[int]:
         """Address of the line row that covers target_address, None if no row does.
 
-        That is the last row at or before the address, provided a line
-        sequence contains the address.
+        That is the last row of the line sequence containing the address,
+        at or before it. The stored sequences do not overlap (see
+        select_live_sequences), so the one starting last at or before the
+        address is the only one that can contain it. A sequence whose first
+        rows name no known file has no row at its start, and a row before
+        its start is another sequence's, often another CU's: none is used.
         """
         self._build_address_index()
-        i = bisect.bisect_right(self._range_starts, target_address) - 1
-        if i < 0 or target_address >= self._sequence_ranges[i][1]:
+        i = bisect.bisect_right(self._sequence_starts, target_address) - 1
+        if i < 0 or target_address >= self._sequences[i][1]:
             return None
-        return self._row_at_or_before(target_address, self._sequence_ranges[i][0])
+        return self._row_at_or_before(target_address, self._sequences[i][0])
 
     def _find_nearby_address(
             self,

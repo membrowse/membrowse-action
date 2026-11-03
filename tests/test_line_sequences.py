@@ -56,8 +56,9 @@ class FakeSection(dict):
 class FakeSymbol(dict):
     """A pyelftools symbol with a name."""
 
-    def __init__(self, name, sym_type, value, shndx=1):
-        super().__init__(st_info={'type': sym_type}, st_value=value, st_shndx=shndx)
+    def __init__(self, name, sym_type, value, shndx=1, size=0):  # pylint: disable=too-many-arguments,too-many-positional-arguments
+        super().__init__(st_info={'type': sym_type}, st_value=value, st_shndx=shndx,
+                         st_size=size)
         self.name = name
 
 
@@ -160,6 +161,54 @@ class TestRowCollisions(unittest.TestCase):
                        [(0x100, STDDEF, 3), (0x104, STDDEF, 4, END)])
         self.assertEqual(data['address_to_file'], {})
 
+
+    def test_function_size_tells_the_live_sequence_at_zero(self):
+        """--gc-sections with Reset_Handler (0x16 bytes) at 0: two discarded
+        functions also start at 0 and run over live_a and live_b. The
+        sequence as long as Reset_Handler is its own; every live function
+        keeps its rows, whichever CU is read first."""
+        layout = CodeLayout([(0x0, 0x60)], {0x0, 0x18, 0x34},
+                            {(0x0, 0x16), (0x18, 0x1c), (0x34, 0x1c)})
+        reset = [(0x0, HEAP, 7), (0x10, HEAP, 8), (0x16, HEAP, 8, END)]
+        dead_mid = [(0x0, STDDEF, 1), (0x20, STDDEF, 2), (0x38, STDDEF, 3, END)]
+        dead_big = [(0x0, TYPES, 1), (0x40, TYPES, 2), (0x60, TYPES, 3, END)]
+        live_a = [(0x18, HEAP, 4), (0x34, HEAP, 4, END)]
+        live_b = [(0x34, HEAP, 5), (0x50, HEAP, 5, END)]
+        cus = [reset, dead_mid, dead_big, live_a, live_b]
+        for order in (cus, cus[::-1]):
+            data = run_cus(*order, layout=layout)
+            self.assertEqual(set(data['address_to_file'].values()), {'heap_4.c'})
+            self.assertEqual([seq[:2] for seq in data['line_sequences']],
+                             [(0x0, 0x16), (0x18, 0x34), (0x34, 0x50)])
+
+    def test_label_at_zero_keeps_the_functions_after_it(self):
+        """A vector table label (NOTYPE, no size) at 0 lets the discarded
+        sequences at 0 through as candidates; they overlap live functions
+        of the size of their sequences and are dropped, not the live ones."""
+        layout = CodeLayout([(0x0, 0x66)], {0x0, 0x8, 0x24, 0x40},
+                            {(0x8, 0x1c), (0x24, 0x1c), (0x40, 0x10)})
+        data = run_cus([(0x0, STDDEF, 1), (0x38, STDDEF, 2, END)],
+                       [(0x0, TYPES, 1), (0x60, TYPES, 2, END)],
+                       [(0x8, HEAP, 4), (0x24, HEAP, 4, END)],
+                       [(0x24, HEAP, 5), (0x40, HEAP, 5, END)],
+                       [(0x40, HEAP, 6), (0x50, HEAP, 6, END)],
+                       layout=layout)
+        self.assertEqual(data['address_to_line'], {0x8: 4, 0x24: 5, 0x40: 6})
+        self.assertEqual([seq[:2] for seq in data['line_sequences']],
+                         [(0x8, 0x24), (0x24, 0x40), (0x40, 0x50)])
+
+    def test_sequence_without_a_size_away_from_the_overlap_is_kept(self):
+        """No symbol sizes: the two sequences at 0 cannot be told apart and
+        are dropped, but the one at 0x50 is chained to them only through a
+        sequence that starts at no code symbol (discarded code at 0x44), so
+        it overlaps no other candidate and keeps its rows."""
+        layout = CodeLayout([(0x0, 0x100)], {0x0, 0x50})
+        data = run_cus([(0x0, HEAP, 1), (0x10, HEAP, 2, END)],
+                       [(0x0, STDDEF, 1), (0x48, STDDEF, 2, END)],
+                       [(0x44, STDDEF, 7), (0x52, STDDEF, 8, END)],
+                       [(0x50, TYPES, 1), (0x58, TYPES, 2, END)],
+                       layout=layout)
+        self.assertEqual(data['address_to_file'], {0x50: '_default_types.h'})
 
 class TestDeadSequences(unittest.TestCase):
     """Sequences of discarded code are dropped as a whole."""
@@ -309,6 +358,33 @@ class TestAddressLookup(unittest.TestCase):
         self.assertIsNone(self.resolver._find_nearby_address(0x130))
 
 
+    def test_sequence_without_a_row_at_its_start_takes_no_earlier_row(self):
+        """CU B's sequence starts right where CU A's ends, but its first
+        rows name no known file. A function at B's start is not given A's
+        last row, file or line."""
+        data = run_cus([(0x100, HEAP, 10), (0x1f0, HEAP, 20), (0x200, HEAP, 21, END)],
+                       [(0x200, MISSING, 1), (0x210, STDDEF, 5), (0x220, STDDEF, 6, END)])
+        lookup = resolver(data)
+        self.assertIsNone(lookup._find_nearby_address(0x200))
+        self.assertEqual(lookup._resolve_by_address(0x200), '')
+        self.assertEqual(lookup.extract_source_line(0x200), 0)
+        self.assertEqual(lookup._resolve_by_address(0x214), 'stddef.h')
+
+    def test_function_at_zero_takes_its_row(self):
+        """Code linked at 0 (x86, RISC-V: no Thumb bit) has a symbol at 0;
+        the row there gives its line, and its file when no DIE does."""
+        data = run_cus([(0x0, HEAP, 5), (0x4, HEAP, 6), (0x10, HEAP, 7, END)],
+                       layout=CODE_AT_ZERO)
+        lookup = resolver(data)
+        self.assertEqual(lookup.extract_source_line(0), 5)
+        self.assertEqual(lookup._resolve_source_file('_start', 'FUNC', 0), 'heap_4.c')
+
+    def test_address_zero_without_code_there_maps_nothing(self):
+        """With no live sequence at 0, a symbol at 0 gets no row."""
+        lookup = resolver(run_cus([(0x100, HEAP, 10), (0x110, HEAP, 11, END)]))
+        self.assertEqual(lookup.extract_source_line(0), 0)
+        self.assertEqual(lookup._resolve_source_file('weak_ref', 'FUNC', 0), '')
+
 
 class TestLayout(unittest.TestCase):
     """CodeLayout read from the ELF sections and symbol table."""
@@ -324,6 +400,16 @@ class TestLayout(unittest.TestCase):
         """A Thumb function at 0 has symbol value 1."""
         layout = CodeLayout.from_elf(fake_elf([FakeSymbol('Reset', 'STT_FUNC', 1)]))
         self.assertTrue(layout.starts_code(0))
+
+    def test_function_sizes_are_read(self):
+        """FUNC symbols with a size give (start, size); labels do not."""
+        layout = CodeLayout.from_elf(fake_elf([
+            FakeSymbol('Reset', 'STT_FUNC', 1, size=0x16),
+            FakeSymbol('__isr_vector', 'STT_NOTYPE', 0x20, size=0x8),
+            FakeSymbol('empty', 'STT_FUNC', 0x40)]))
+        self.assertTrue(layout.is_function(0, 0x16))
+        self.assertFalse(layout.is_function(0x20, 0x8))
+        self.assertEqual(layout.functions, {(0, 0x16)})
 
     def test_mapping_and_undefined_symbols_are_not_code(self):
         """$t/$d mark instruction sets, not code starts."""
