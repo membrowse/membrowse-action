@@ -112,6 +112,8 @@ class SourceFileResolver:  # pylint: disable=too-few-public-methods,too-many-ins
         self._sorted_addresses = None
         self._sequences = []  # (start, end, CU offset) by start
         self._sequence_starts = []
+        self._by_end = []  # the same sequences by end
+        self._sequence_ends = []
         self._sequence_ranges = []  # merged [start, end) of the sequences
         self._range_starts = []
         if 'static_symbol_mappings' in dwarf_data:
@@ -307,17 +309,23 @@ class SourceFileResolver:  # pylint: disable=too-few-public-methods,too-many-ins
         nearby_addr = self._find_nearby_address(symbol_address)
         if nearby_addr is not None:
             return self._prefer_cu_source(
-                self.dwarf_data['address_to_file'][nearby_addr], nearby_addr)
+                self.dwarf_data['address_to_file'][nearby_addr],
+                symbol_address, nearby_addr)
 
         return ""
 
-    def _prefer_cu_source(self, source_file: str, address: int) -> str:
-        """The reported name of a line-program file, preferring the address's
-        CU .c file over a header (inlined code)."""
-        if source_file.endswith('.h') and address in self.dwarf_data['address_to_cu_file']:
-            cu_source_file = self.dwarf_data['address_to_cu_file'][address]
-            if cu_source_file and cu_source_file.endswith('.c'):
-                return self._source_name(cu_source_file)
+    def _prefer_cu_source(self, source_file: str, *addresses: int) -> str:
+        """The reported name of a line-program file, preferring the CU .c
+        file of the first of addresses that has one over a header (inlined
+        code). The symbol's own address goes first, then the row's."""
+        if source_file.endswith('.h'):
+            address_to_cu_file = self.dwarf_data['address_to_cu_file']
+            for address in addresses:
+                cu_source_file = address_to_cu_file.get(address)
+                if cu_source_file:
+                    if cu_source_file.endswith('.c'):
+                        return self._source_name(cu_source_file)
+                    break
         return self._source_name(source_file)
 
     def _resolve_fallback(self, symbol_name: str, symbol_address: int) -> str:
@@ -348,6 +356,8 @@ class SourceFileResolver:  # pylint: disable=too-few-public-methods,too-many-ins
         self._sorted_addresses = sorted(self.dwarf_data['address_to_file'])
         self._sequences = sorted(self.dwarf_data.get('line_sequences', ()))
         self._sequence_starts = [seq[0] for seq in self._sequences]
+        self._by_end = sorted(self._sequences, key=lambda seq: seq[1])
+        self._sequence_ends = [seq[1] for seq in self._by_end]
         self._sequence_ranges = _merge_ranges(seq[:2] for seq in self._sequences)
         self._range_starts = [start for start, _ in self._sequence_ranges]
 
@@ -378,19 +388,21 @@ class SourceFileResolver:  # pylint: disable=too-few-public-methods,too-many-ins
 
         The covering row when a line sequence contains the address. In a gap
         between two sequences of the same CU (functions without line rows,
-        such as empty weak handlers), the last row before the gap if it is
-        within max_distance. Past the end of a CU's code, or before its
-        start, the nearest row belongs to other code and is not used.
+        such as empty weak handlers), the last row of the sequence ending
+        before the gap, if that sequence ends within max_distance of the
+        address. The neighbours are the sequence ending last at or before
+        the address and the one starting first after it. Past the end of a
+        CU's code, or before its start, the nearest row belongs to other
+        code and is not used.
         """
         row = self._covering_row(target_address)
         if row is not None:
             return row
-        i = bisect.bisect_right(self._sequence_starts, target_address) - 1
-        if i < 0 or i + 1 >= len(self._sequences):
+        i = bisect.bisect_right(self._sequence_ends, target_address) - 1
+        j = bisect.bisect_right(self._sequence_starts, target_address)
+        if i < 0 or j >= len(self._sequences):
             return None
-        before, after = self._sequences[i], self._sequences[i + 1]
-        if before[2] == after[2]:
-            row = self._row_at_or_before(target_address, before[0])
-        if row is None or target_address - row > max_distance:
+        before, after = self._by_end[i], self._sequences[j]
+        if before[2] != after[2] or target_address - before[1] > max_distance:
             return None
-        return row
+        return self._row_at_or_before(before[1] - 1, before[0])

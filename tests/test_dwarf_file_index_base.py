@@ -72,6 +72,7 @@ def line_program_files(line_version, rows):
     cu = FakeCU(5)
     file_paths = processor._line_program_file_paths(dwarfinfo, cu, None)
     processor._extract_line_program_data(cu, dwarfinfo, file_paths)
+    processor._store_line_sequences()
     return processor.dwarf_data['address_to_file']
 
 

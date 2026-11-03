@@ -16,7 +16,8 @@ from elftools.common.utils import struct_parse
 from elftools.dwarf.structs import DWARFStructs
 from ..core.exceptions import DWARFParsingError, DWARFCUProcessingError, DWARFAttributeError
 from .line_sequences import (
-    has_function_at_zero, is_dead_sequence, line_sequences, rows_by_address)
+    CodeLayout, Sequence, is_dead_sequence, line_sequences, rows_by_address,
+    store_live_sequences)
 from .paths import is_abs, to_posix
 
 # Configure logger
@@ -142,7 +143,8 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
         self.skip_line_program = skip_line_program
         self.machine = machine
         self.little_endian = getattr(elffile, 'little_endian', True)
-        self._function_at_zero = None  # see _has_function_at_zero
+        self._code_layout = None  # see _layout
+        self._candidate_sequences = []  # Sequence, until _store_line_sequences
 
         # Determine if we need address tolerance based on architecture
         # ARM Thumb mode requires ±2 byte tolerance, other architectures use
@@ -245,6 +247,8 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
                         "Failed to process CU at offset %d: %s", cu.cu_offset, e)
                     raise DWARFCUProcessingError(
                         f"Failed to process CU at offset {cu.cu_offset}: {e}") from e
+
+            self._store_line_sequences()
 
         except (IOError, OSError) as e:
             logger.error("Failed to read ELF file for DWARF parsing: %s", e)
@@ -725,9 +729,8 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
         optimizations like inlining.
 
         Rows are taken one sequence at a time (see line_sequences), and
-        sequences of code the linker discarded are dropped as a whole. When
-        sequences of different CUs name the same address, the first one
-        stored keeps it.
+        sequences of code the linker discarded are dropped as a whole. The
+        rest are stored by _store_line_sequences once every CU is read.
 
         Args:
             cu: Compilation unit containing the line program
@@ -746,18 +749,12 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
             except KeyError:
                 address_size = 4
 
-            address_to_file = self.dwarf_data['address_to_file']
-            for rows, end in line_sequences(entries, file_paths):
-                start = rows[0][0]
-                if end <= start or is_dead_sequence(
-                        start, address_size, self._has_function_at_zero()):
+            layout = self._layout()
+            for start, rows, end in line_sequences(entries, file_paths):
+                if end <= start or is_dead_sequence(start, address_size, layout):
                     continue
-                for address, (filename, line) in rows_by_address(rows, end).items():
-                    if address not in address_to_file:
-                        address_to_file[address] = filename
-                        if line:
-                            self.dwarf_data['address_to_line'][address] = line
-                self.dwarf_data['line_sequences'].append((start, end, cu.cu_offset))
+                self._candidate_sequences.append(
+                    Sequence(start, end, cu.cu_offset, rows_by_address(rows, end)))
 
         except Exception as e:
             logger.error(
@@ -766,11 +763,16 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
             raise DWARFCUProcessingError(
                 f"Failed to extract line program data for CU at offset {cu.cu_offset}: {e}") from e
 
-    def _has_function_at_zero(self) -> bool:
-        """has_function_at_zero for this ELF, computed once."""
-        if self._function_at_zero is None:
-            self._function_at_zero = has_function_at_zero(self.elffile)
-        return self._function_at_zero
+    def _layout(self) -> CodeLayout:
+        """CodeLayout of this ELF, computed once."""
+        if self._code_layout is None:
+            self._code_layout = CodeLayout.from_elf(self.elffile)
+        return self._code_layout
+
+    def _store_line_sequences(self) -> None:
+        """Store the live sequences of every CU read (see store_live_sequences)."""
+        store_live_sequences(self.dwarf_data, self._candidate_sequences, self._layout())
+        self._candidate_sequences = []
 
     def _extract_die_symbol_data_optimized(  # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals,too-many-branches,too-many-statements
             self,
