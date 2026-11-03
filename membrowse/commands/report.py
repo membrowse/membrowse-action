@@ -435,6 +435,15 @@ examples:
              'report.'
     )
     perf_group.add_argument(
+        '--exclude-alignment',
+        action='store_true',
+        help='Do not count padding from explicit ". = ALIGN(n)" statements '
+             'inside sections as used memory, so usage and PR diffs follow '
+             'the real code and data size. Exact with a GNU LD --map-file; '
+             'without one it is estimated from ELF symbols (a warning is '
+             'logged).'
+    )
+    perf_group.add_argument(
         '--limits',
         default=None,
         metavar='PATH',
@@ -512,6 +521,8 @@ def _apply_default_regions(generator: ReportGenerator, report: dict) -> None:
     if generator.skip_sections:
         sections, _ = generator._apply_section_skips(  # pylint: disable=protected-access
             sections, [])
+    if generator.exclude_alignment:
+        sections = generator.apply_alignment_exclusion(sections)
     default_regions_data = create_default_memory_regions(sections)
 
     if not default_regions_data:
@@ -553,6 +564,7 @@ def generate_report(  # pylint: disable=too-many-arguments,too-many-positional-a
     skip_sections: Optional[list] = None,
     source_root: Optional[str] = None,
     ld_include_dirs: Optional[List[str]] = None,
+    exclude_alignment: bool = False,
 ) -> dict:
     """
     Generate a memory footprint report from ELF and optionally linker scripts.
@@ -581,6 +593,9 @@ def generate_report(  # pylint: disable=too-many-arguments,too-many-positional-a
             default), are reported by basename.
         ld_include_dirs: Directories searched for linker script INCLUDE
             files, like the linker's -L directories.
+        exclude_alignment: Take the padding of explicit ``. = ALIGN(n)``
+            statements off section sizes. Exact with a GNU LD ``map_file``,
+            estimated from ELF symbols otherwise.
 
     Returns:
         dict: Memory analysis report (JSON-serializable)
@@ -615,6 +630,7 @@ def generate_report(  # pylint: disable=too-many-arguments,too-many-positional-a
             real_limits=real_limits,
             skip_sections=skip_sections,
             source_root=source_root,
+            exclude_alignment=exclude_alignment,
         )
         report = generator.generate_report()
 
@@ -1120,6 +1136,7 @@ def run_report(args: argparse.Namespace) -> int:
                 skip_sections=getattr(args, 'skip_sections', None),
                 source_root=getattr(args, 'source_root', None),
                 ld_include_dirs=getattr(args, 'ld_include_dirs', None),
+                exclude_alignment=getattr(args, 'exclude_alignment', False),
             )
         except ValueError as e:
             logger.error("Failed to generate report: %s", e)

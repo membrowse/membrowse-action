@@ -7,7 +7,7 @@ Parses map files generated via ``-Wl,-Map=output.map`` with ld.lld
 """
 
 import re
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from .mapfilter import OutputSectionFilter
 
@@ -35,6 +35,10 @@ _LLD_ROW_RE = re.compile(
     r'\d+( +)'                  # align + separator (group 3)
     r'(\S.*)$'                  # group 4: content
 )
+
+# A location-counter alignment row; its size column is the padding:
+#     8000123  8000123     1edd     1         . = ALIGN ( 0x2000 )
+_LLD_ALIGN_RE = re.compile(r'^\.\s*=\s*ALIGN\s*\(')
 
 # Like GNU LD's _ARCHIVE_RE but also accepts .rlib (Rust crate archives,
 # ar-format archives used by rustc).
@@ -112,6 +116,44 @@ class LLDMapFileParser:  # pylint: disable=too-few-public-methods
 
         ranges.sort(key=lambda r: r[0])
         return ranges
+
+    @staticmethod
+    def alignment_fill(content: str) -> Dict[str, int]:
+        """Sum the padding produced by explicit ``. = ALIGN (...)``
+        statements, per output section.
+
+        LLD prints each assignment as a row whose size column is the
+        number of bytes it advanced the location counter. Only ALIGN rows
+        count; reservations (``. = ( . + 0x400 )``) and gaps between
+        input sections stay part of the section. An ALIGN between output
+        sections is printed at output-section depth and pads no section::
+
+            8000123  8000123     1edd     1         . = ALIGN ( 0x2000 )
+            8002014  8002014      400     1         . = ( . + 0x400 )
+
+        Args:
+            content: Full text content of an ld.lld map file.
+
+        Returns:
+            Output section name -> padding bytes, for sections with any.
+        """
+        padding: Dict[str, int] = {}
+        section: Optional[str] = None
+        for line in content.splitlines():
+            match = _LLD_ROW_RE.match(line)
+            if not match:
+                continue
+            field = match.group(4).rstrip()
+            is_align = bool(_LLD_ALIGN_RE.match(field))
+            if len(match.group(3)) == 1:
+                # Output-section depth: a section header, or an
+                # assignment between sections.
+                section = None if is_align or '=' in field else field
+                continue
+            size = int(match.group(2), 16)
+            if is_align and section and size:
+                padding[section] = padding.get(section, 0) + size
+        return padding
 
     @staticmethod
     def _parse_file_field(field: str) -> Tuple[str, str]:

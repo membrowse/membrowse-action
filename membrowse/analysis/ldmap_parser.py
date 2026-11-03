@@ -6,7 +6,7 @@ Parses map files generated via ``-Wl,-Map=output.map`` (GCC, Clang, Rust).
 """
 
 import re
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from .mapfilter import OutputSectionFilter
 
@@ -67,6 +67,19 @@ _OUTPUT_ADDRESS_ONLY_RE = re.compile(r'^\s+' + _OUTPUT_ADDRESS_SIZE)
 # CMake builds (especially on Windows hosts) emit objects with a .obj suffix.
 _ARCHIVE_RE = re.compile(r'^(.+\.a)\((.+\.(?:o|obj))\)$')
 
+# An explicit alignment of the location counter inside an output section,
+# printed with the address it produced:
+#                 0x0c074000                        . = ALIGN (COREAPP_ALIGNMENT)
+#                 0x0c074000                        . = ALIGN (., 0x200)
+_ALIGN_ASSIGNMENT_RE = re.compile(
+    r'^\s+0x[0-9a-fA-F]+\s+\.\s*=\s*ALIGN\s*\(')
+
+# Padding the linker inserted; the fill pattern may follow the size:
+#  *fill*         0x0c073800      0x800
+#  *fill*         0x0c073800      0x800 ff
+_FILL_RE = re.compile(
+    r'^\s+\*fill\*\s+0x[0-9a-fA-F]+\s+(0x[0-9a-fA-F]+)')
+
 
 class _OutputSectionState:
     """Track the current output section and whether its rows are dropped."""
@@ -77,6 +90,11 @@ class _OutputSectionState:
         # True right after a wrapped header, whose address comes next.
         self._expect_address = False
         self.skip = False
+
+    @property
+    def name(self) -> Optional[str]:
+        """Name of the current output section, None before the first."""
+        return self._name
 
     def _enter(self, name: str, address: Optional[int]) -> None:
         self._name = name
@@ -205,6 +223,48 @@ class MapFileParser:  # pylint: disable=too-few-public-methods
 
         ranges.sort(key=lambda r: r[0])
         return ranges
+
+    @staticmethod
+    def alignment_fill(content: str) -> Dict[str, int]:
+        """Sum the padding produced by explicit ``. = ALIGN (...)``
+        statements, per output section.
+
+        GNU LD prints the assignment and, on the next line, the ``*fill*``
+        it produced. Only a fill directly below an ALIGN line counts:
+        fill between input sections (object alignment) and fill from
+        reservations such as ``. = (. + 0x400)`` stay part of the section.
+        Matching by proximity instead would take the reservation fill in::
+
+                            0x0c050600      . = (. + 0x400)
+             *fill*         0x0c050200      0x400
+                            0x0c050600      . = ALIGN (CODE_ALIGNMENT)
+
+        Args:
+            content: Full text content of a GNU LD map file.
+
+        Returns:
+            Output section name -> padding bytes, for sections with any.
+        """
+        padding: Dict[str, int] = {}
+        output = _OutputSectionState(None)
+        after_align = False
+        for line in content.splitlines():
+            if not line.strip():
+                continue
+            if not line[0].isspace():
+                output.column0(line)
+                after_align = False
+                continue
+            if output.wrapped_address(line):
+                after_align = False
+                continue
+            fill = _FILL_RE.match(line)
+            if fill and after_align and output.name:
+                size = int(fill.group(1), 16)
+                if size:
+                    padding[output.name] = padding.get(output.name, 0) + size
+            after_align = bool(_ALIGN_ASSIGNMENT_RE.match(line))
+        return padding
 
     @staticmethod
     def _parse_file_field(field: str) -> Tuple[str, str]:

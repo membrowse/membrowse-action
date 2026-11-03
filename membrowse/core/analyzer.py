@@ -20,6 +20,7 @@ from ..analysis.sources import SourceFileResolver
 from ..analysis.symbols import SymbolExtractor
 from ..analysis.sections import SectionAnalyzer
 from ..analysis.mapfile import MapFileResolver, OutputSectionFilter
+from ..analysis.alignment import detect_alignment_padding
 from ..linker.elf_info import ELFParser, Architecture
 
 
@@ -88,6 +89,7 @@ class ELFAnalyzer:  # pylint: disable=too-many-instance-attributes
         """
         self.elf_path = Path(elf_path)
         self.skip_line_program = skip_line_program
+        self.map_file_path = map_file_path
         self._validate_elf_file()
 
         # Open ELF file once and reuse throughout
@@ -217,6 +219,16 @@ class ELFAnalyzer:  # pylint: disable=too-many-instance-attributes
             name, address, size, type, end_address.
         """
         return self._section_analyzer.analyze_sections()
+
+    def get_alignment_padding(self) -> Dict[str, int]:
+        """Return section name -> bytes of explicit ``ALIGN`` padding.
+
+        Exact from a GNU LD or LLD map file, none for IAR, estimated from
+        the ELF symbols (with a warning) otherwise. See :mod:`membrowse.analysis.alignment`.
+        """
+        return detect_alignment_padding(
+            self.elffile, self.map_file_path,
+            self._section_analyzer.detect_toolchain())
 
     def get_all_section_names(self) -> set:
         """Return names of every section in the ELF, including non-ALLOC

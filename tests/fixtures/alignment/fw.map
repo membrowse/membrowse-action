@@ -1,0 +1,96 @@
+
+Memory Configuration
+
+Name             Origin             Length             Attributes
+FLASH            0x0000000008000000 0x0000000000040000 xr
+RAM              0x0000000020000000 0x0000000000010000 xrw
+*default*        0x0000000000000000 0xffffffffffffffff
+
+Linker script and memory map
+
+LOAD fw.o
+
+.kernel         0x0000000008000000     0x2000
+                0x0000000008000000                kernel_start = .
+ *(.kernel_blob)
+ .kernel_blob   0x0000000008000000      0x123 fw.o
+                0x0000000008000123                kernel_end = .
+                0x0000000008002000                . = ALIGN (0x2000)
+ *fill*         0x0000000008000123     0x1edd 
+
+.reserved       0x0000000008002000      0x600
+                0x0000000008002000        0x4 LONG 0xdeadbeef
+                0x0000000008002404                . = (. + 0x400)
+ *fill*         0x0000000008002004      0x400 
+                0x0000000008002600                . = ALIGN (0x200)
+ *fill*         0x0000000008002404      0x1fc 
+
+.flash          0x0000000008002600      0x200
+ *(.text*)
+ .text          0x0000000008002600        0x0 fw.o
+ .text.msg      0x0000000008002600        0x8 fw.o
+                0x0000000008002600                msg
+ .text.add      0x0000000008002608       0x1c fw.o
+                0x0000000008002608                add
+ .text.Reset_Handler
+                0x0000000008002624       0x20 fw.o
+                0x0000000008002624                Reset_Handler
+ *(.rodata*)
+ .rodata.msg.str1.4
+                0x0000000008002644       0x21 fw.o
+                0x0000000008002800                . = ALIGN (0x200)
+ *fill*         0x0000000008002665      0x19b 
+
+.glue_7         0x0000000008002800        0x0
+ .glue_7        0x0000000008002800        0x0 linker stubs
+
+.glue_7t        0x0000000008002800        0x0
+ .glue_7t       0x0000000008002800        0x0 linker stubs
+
+.vfp11_veneer   0x0000000008002800        0x0
+ .vfp11_veneer  0x0000000008002800        0x0 linker stubs
+
+.v4_bx          0x0000000008002800        0x0
+ .v4_bx         0x0000000008002800        0x0 linker stubs
+
+.iplt           0x0000000008002800        0x0
+ .iplt          0x0000000008002800        0x0 fw.o
+
+.rel.dyn        0x0000000008002800        0x0
+ .rel.iplt      0x0000000008002800        0x0 fw.o
+
+.data           0x0000000020000000      0x200 load address 0x0000000008002800
+                0x0000000020000000                _sdata = .
+ *(.data*)
+ .data          0x0000000020000000        0x0 fw.o
+ .data.counter  0x0000000020000000        0x4 fw.o
+                0x0000000020000000                counter
+ .data.table    0x0000000020000004        0xc fw.o
+                0x0000000020000004                table
+                0x0000000020000200                . = ALIGN (0x200)
+ *fill*         0x0000000020000010      0x1f0 
+                0x0000000020000200                _edata = .
+
+.igot.plt       0x0000000020000200        0x0 load address 0x0000000008002a00
+ .igot.plt      0x0000000020000200        0x0 fw.o
+
+.bss            0x0000000020000200        0x0 load address 0x0000000008002a00
+ *(.bss*)
+ .bss           0x0000000020000200        0x0 fw.o
+ *(COMMON)
+
+.stack          0x0000000020000200      0x800 load address 0x0000000008002a00
+                0x0000000020000a00                . = (. + 0x800)
+ *fill*         0x0000000020000200      0x800 
+                0x0000000020000a00                _estack = .
+OUTPUT(fw.elf elf32-littlearm)
+LOAD linker stubs
+
+.comment        0x0000000000000000       0x33
+ .comment       0x0000000000000000       0x33 fw.o
+                                         0x34 (size before relaxing)
+
+.ARM.attributes
+                0x0000000000000000       0x2e
+ .ARM.attributes
+                0x0000000000000000       0x2e fw.o
