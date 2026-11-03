@@ -14,6 +14,7 @@ from rust_demangler import demangle as rust_demangle
 from elftools.common.exceptions import ELFError
 from ..core.models import Symbol
 from ..core.exceptions import SymbolExtractionError
+from .symtab import symtab_symbols
 from . import _cpp_demangle  # pylint: disable=unused-import  # import installs the missing-production patch for itanium_demangler
 
 
@@ -255,14 +256,14 @@ class SymbolExtractor:  # pylint: disable=too-few-public-methods
         symbols = []
 
         try:
-            symbol_table_section = self.elffile.get_section_by_name('.symtab')
-            if not symbol_table_section:
+            elf_symbols = symtab_symbols(self.elffile)
+            if not elf_symbols:
                 return symbols
 
             # Build section name mapping for efficiency
             section_names = self._build_section_name_mapping()
 
-            for symbol in symbol_table_section.iter_symbols():
+            for symbol in elf_symbols:
                 if not self._is_valid_symbol(symbol):
                     continue
 

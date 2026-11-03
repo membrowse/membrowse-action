@@ -38,6 +38,7 @@ from elftools.common.exceptions import ELFError
 from .ldmap_parser import MapFileParser
 from .lldmap_parser import LLDMapFileParser
 from .sections import SHF_ALLOC
+from .symtab import symtab_symbols
 
 logger = logging.getLogger(__name__)
 
@@ -142,15 +143,15 @@ def estimate_alignment_padding(elffile) -> Dict[str, int]:
     Returns:
         Section name -> estimated padding bytes, for sections with any.
     """
-    symtab = elffile.get_section_by_name('.symtab')
-    if symtab is None:
+    symbols = symtab_symbols(elffile)
+    if symbols is None:
         logger.warning("--exclude-alignment: ELF has no symbol table; "
                        "no alignment padding excluded")
         return {}
 
     clear_thumb = elffile.header['e_machine'] == 'EM_ARM'
     by_section: Dict[int, List[Tuple[int, int]]] = {}
-    for symbol in symtab.iter_symbols():
+    for symbol in symbols:
         index = symbol['st_shndx']
         if not isinstance(index, int) or index == 0:
             continue

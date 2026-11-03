@@ -18,6 +18,8 @@ import bisect
 import logging
 from typing import Dict, Iterable, Iterator, List, NamedTuple, Optional, Set, Tuple
 
+from .symtab import symtab_symbols
+
 logger = logging.getLogger(__name__)
 
 Row = Tuple[int, str, int]  # address, file path, line (0: none)
@@ -123,7 +125,7 @@ class CodeLayout:
         layout = cls(code_ranges)
         if symtab is not None:
             code_symbols = [
-                sym for sym in symtab.iter_symbols()
+                sym for sym in symtab_symbols(elffile, symtab)
                 if sym['st_info']['type'] in ('STT_FUNC', 'STT_NOTYPE')
                 and sym['st_shndx'] not in ('SHN_UNDEF', 'SHN_ABS')
                 and sym.name and not _is_mapping_symbol(sym.name)

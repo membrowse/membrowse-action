@@ -18,6 +18,7 @@ from .exceptions import ELFAnalysisError
 from ..analysis.dwarf import DWARFProcessor
 from ..analysis.sources import SourceFileResolver
 from ..analysis.symbols import SymbolExtractor
+from ..analysis.symtab import symtab_symbols
 from ..analysis.sections import SectionAnalyzer
 from ..analysis.mapfile import MapFileResolver, OutputSectionFilter
 from ..analysis.alignment import detect_alignment_padding
@@ -158,11 +159,7 @@ class ELFAnalyzer:  # pylint: disable=too-many-instance-attributes
         """Get set of symbol addresses that we actually need to map."""
         symbol_addresses = set()
 
-        symbol_table_section = elffile.get_section_by_name('.symtab')
-        if not symbol_table_section:
-            return symbol_addresses
-
-        for symbol in symbol_table_section.iter_symbols():
+        for symbol in symtab_symbols(elffile) or ():
             if self._is_valid_symbol(symbol):
                 symbol_addresses.add(symbol['st_value'])
 
