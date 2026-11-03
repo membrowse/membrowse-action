@@ -21,6 +21,8 @@ fixtures/
     ├── pca10040.elf              # nRF52832, linked with --emit-relocs
     ├── arduino.elf               # ATmega328P, 2 byte DWARF addresses
     └── linker/                   # TinyGo linker scripts for both targets
+└── stripped/
+    └── main.elf                  # x86-64 gcc -g -O2, then strip: .eh_frame but no .debug_info
 ```
 
 ## Git LFS

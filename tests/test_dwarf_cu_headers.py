@@ -6,10 +6,7 @@ address sizes are skipped one by one, and a stripped ELF has no CUs.
 # pylint: disable=protected-access
 
 import io
-import shutil
 import struct
-import subprocess
-import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -19,6 +16,8 @@ from elftools.elf.elffile import ELFFile
 
 from membrowse.analysis.dwarf import (
     DWARFProcessor, _iter_cu_headers, _iter_supported_cus)
+
+FIXTURES = Path(__file__).parent / 'fixtures'
 
 
 def _cu_v4(address_size, body=b'\0'):
@@ -77,24 +76,16 @@ class TestCUHeaders(unittest.TestCase):
             list(_iter_cu_headers(SimpleNamespace(debug_info_sec=None))), [])
 
 
-@unittest.skipUnless(shutil.which('gcc') and shutil.which('strip'), 'needs gcc and strip')
 class TestStrippedELF(unittest.TestCase):
     """Stripped ELF that keeps .eh_frame, so pyelftools reports DWARF info"""
 
     def test_process_dwarf_info(self):
         """Processing returns empty mappings instead of raising"""
-        with tempfile.TemporaryDirectory() as tmp:
-            src = Path(tmp) / 'main.c'
-            elf = Path(tmp) / 'main'
-            src.write_text('int counter = 1;\nint main(void) { return counter; }\n')
-            subprocess.run(['gcc', '-g', '-o', str(elf), str(src)], check=True)
-            subprocess.run(['strip', str(elf)], check=True)
-
-            with open(elf, 'rb') as f:
-                elffile = ELFFile(f)
-                self.assertTrue(elffile.has_dwarf_info())
-                self.assertIsNone(elffile.get_dwarf_info().debug_info_sec)
-                data = DWARFProcessor(elffile, set()).process_dwarf_info()
+        with open(FIXTURES / 'stripped' / 'main.elf', 'rb') as f:
+            elffile = ELFFile(f)
+            self.assertTrue(elffile.has_dwarf_info())
+            self.assertIsNone(elffile.get_dwarf_info().debug_info_sec)
+            data = DWARFProcessor(elffile, set()).process_dwarf_info()
         self.assertEqual(data['symbol_to_file'], {})
 
 
