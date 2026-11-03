@@ -439,9 +439,11 @@ examples:
         action='store_true',
         help='Do not count padding from explicit ". = ALIGN(n)" statements '
              'inside sections as used memory, so usage and PR diffs follow '
-             'the real code and data size. Exact with a GNU LD --map-file; '
-             'without one it is estimated from ELF symbols (a warning is '
-             'logged).'
+             'the real code and data size. Exact with a GNU LD or LLD '
+             '--map-file; without one it is estimated from ELF symbols (a '
+             'warning is logged). Turning this on lowers the reported usage '
+             'from that commit on, which shows as a one-time drop in the '
+             'project\'s history.'
     )
     perf_group.add_argument(
         '--limits',
@@ -575,7 +577,8 @@ def generate_report(  # pylint: disable=too-many-arguments,too-many-positional-a
             uses default Code/Data regions based on ELF section flags)
         skip_line_program: Skip DWARF line program processing for faster analysis
         linker_variables: Optional dict of user-defined linker script variables
-        map_file: Optional path to GNU LD map file for archive/object file attribution
+        map_file: Optional path to a GNU LD, LLD or IAR map file for
+            archive/object file attribution
         limits_ld: Optional path to a separate linker script whose LENGTH
             values are the real per-region capacities. Use when the primary
             ``ld_scripts`` were built with inflated region sizes so the link
@@ -594,8 +597,9 @@ def generate_report(  # pylint: disable=too-many-arguments,too-many-positional-a
         ld_include_dirs: Directories searched for linker script INCLUDE
             files, like the linker's -L directories.
         exclude_alignment: Take the padding of explicit ``. = ALIGN(n)``
-            statements off section sizes. Exact with a GNU LD ``map_file``,
-            estimated from ELF symbols otherwise.
+            statements at the end of sections off their sizes. Exact with
+            a GNU LD or LLD ``map_file``, estimated from ELF symbols
+            otherwise.
 
     Returns:
         dict: Memory analysis report (JSON-serializable)

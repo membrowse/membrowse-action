@@ -20,6 +20,7 @@ from .ldmap_parser import MapFileParser
 from .iarmap_parser import IARMapFileParser
 from .lldmap_parser import LLDMapFileParser
 from .mapfilter import OutputSectionFilter
+from .alignment import map_alignment_padding
 
 logger = logging.getLogger(__name__)
 
@@ -87,10 +88,14 @@ class MapFileResolver:
         self._ranges = ranges
         self._range_starts = (
             [r[0] for r in ranges] if ranges else None)
+        # Section name -> explicit ALIGN padding, read by from_file when
+        # asked to; None when not asked or the format is not recognized.
+        self.alignment_padding: Optional[Dict[str, int]] = None
 
     @classmethod
     def from_file(cls, map_path: str,
-                  section_filter: Optional[OutputSectionFilter] = None
+                  section_filter: Optional[OutputSectionFilter] = None,
+                  alignment: bool = False
                   ) -> 'MapFileResolver':
         """Create a resolver by parsing a map file (GNU LD, LLD, or IAR).
 
@@ -101,6 +106,10 @@ class MapFileResolver:
             section_filter: Drops non-ALLOC output sections in GNU LD and
                 LLD maps (see :class:`OutputSectionFilter`). IAR placement
                 summaries never list them, so it is unused there.
+            alignment: Also read the padding of explicit ALIGN statements
+                into ``alignment_padding`` (see
+                :func:`membrowse.analysis.alignment.map_alignment_padding`),
+                so the file is read once.
 
         Returns:
             MapFileResolver with parsed mappings.
@@ -127,6 +136,8 @@ class MapFileResolver:
             logger.debug("Detected GNU LD map file format: %s", map_path)
         count = len(ranges)
         resolver = cls(ranges=ranges)
+        if alignment:
+            resolver.alignment_padding = map_alignment_padding(content, fmt)
 
         if count == 0 and content.strip():
             logger.warning(

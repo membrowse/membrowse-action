@@ -80,6 +80,15 @@ _ALIGN_ASSIGNMENT_RE = re.compile(
 _FILL_RE = re.compile(
     r'^\s+\*fill\*\s+0x[0-9a-fA-F]+\s+(0x[0-9a-fA-F]+)')
 
+# A row that places bytes: an input section (on one line or wrapped), a
+# data statement (``LONG 0xdeadbeef``); group 1 is its size. Symbol and
+# assignment rows carry only an address:
+#  .text.add      0x08002608       0x1c fw.o
+#                 0x08002624       0x20 fw.o
+#                 0x08002000        0x4 LONG 0xdeadbeef
+_PLACED_RE = re.compile(
+    r'^\s+(?:[^\s*]\S*\s+)?0x[0-9a-fA-F]+\s+(0x[0-9a-fA-F]+)(?:\s|$)')
+
 
 class _OutputSectionState:
     """Track the current output section and whether its rows are dropped."""
@@ -239,6 +248,11 @@ class MapFileParser:  # pylint: disable=too-few-public-methods
              *fill*         0x0c050200      0x400
                             0x0c050600      . = ALIGN (CODE_ALIGNMENT)
 
+        Only ALIGN fill at the end of the section counts: bytes placed
+        after it (an input section, a data statement, other fill) keep it
+        inside the section, where taking it off the size would leave that
+        content past the section's end.
+
         Args:
             content: Full text content of a GNU LD map file.
 
@@ -248,10 +262,18 @@ class MapFileParser:  # pylint: disable=too-few-public-methods
         padding: Dict[str, int] = {}
         output = _OutputSectionState(None)
         after_align = False
+        trailing = 0
+
+        def commit() -> None:
+            if trailing and output.name:
+                padding[output.name] = padding.get(output.name, 0) + trailing
+
         for line in content.splitlines():
             if not line.strip():
                 continue
             if not line[0].isspace():
+                commit()
+                trailing = 0
                 output.column0(line)
                 after_align = False
                 continue
@@ -259,11 +281,18 @@ class MapFileParser:  # pylint: disable=too-few-public-methods
                 after_align = False
                 continue
             fill = _FILL_RE.match(line)
-            if fill and after_align and output.name:
+            if fill:
                 size = int(fill.group(1), 16)
-                if size:
-                    padding[output.name] = padding.get(output.name, 0) + size
+                if after_align:
+                    trailing += size
+                elif size:
+                    trailing = 0
+            else:
+                placed = _PLACED_RE.match(line)
+                if placed and int(placed.group(1), 16):
+                    trailing = 0
             after_align = bool(_ALIGN_ASSIGNMENT_RE.match(line))
+        commit()
         return padding
 
     @staticmethod

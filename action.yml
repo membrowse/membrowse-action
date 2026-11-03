@@ -63,7 +63,9 @@ inputs:
       Set to 'true' to not count padding from explicit `. = ALIGN(n)`
       statements inside sections as used memory, so usage and PR diffs
       follow the real code and data size. Exact when `map_file` is a GNU LD
-      map; without one the padding is estimated from ELF symbols.
+      or LLD map; without one the padding is estimated from ELF symbols.
+      Turning it on lowers the reported usage from that commit on (a
+      one-time drop in the history); reports do not record the padding.
     required: false
     default: 'false'
   skip_sections:

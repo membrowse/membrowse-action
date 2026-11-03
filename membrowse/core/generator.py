@@ -72,8 +72,8 @@ class ReportGenerator:  # pylint: disable=too-few-public-methods,too-many-instan
                 will not include memory layout utilization data.
             skip_line_program: Skip DWARF line program processing for faster
                 analysis at the cost of reduced source file coverage (~24-31% faster).
-            map_file_path: Optional path to a linker map file (GNU LD or IAR)
-                for archive/object file attribution on symbols.
+            map_file_path: Optional path to a linker map file (GNU LD, LLD
+                or IAR) for archive/object file attribution on symbols.
             real_limits: Optional mapping of region name to the real
                 ``limit_size`` used as the denominator for utilization. The
                 ranges in ``memory_regions_data`` are used for section
@@ -90,13 +90,14 @@ class ReportGenerator:  # pylint: disable=too-few-public-methods,too-many-instan
                 reported by basename.
             exclude_alignment: Take the padding of explicit ``. = ALIGN(n)``
                 statements off each section's size before utilization is
-                computed. Read from the GNU LD map file when
-                ``map_file_path`` is one, estimated from ELF symbols
-                otherwise.
+                computed. Read from the map file when ``map_file_path`` is a
+                GNU LD or LLD map (none for IAR), estimated from ELF symbols
+                otherwise. Only padding at the end of a section is taken.
         """
         self.elf_analyzer = ELFAnalyzer(
             elf_path, skip_line_program=skip_line_program,
-            map_file_path=map_file_path, source_root=source_root)
+            map_file_path=map_file_path, source_root=source_root,
+            exclude_alignment=exclude_alignment)
         self.memory_regions_data = memory_regions_data
         self.elf_path = elf_path
         self.skip_line_program = skip_line_program

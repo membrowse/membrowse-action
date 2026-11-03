@@ -40,6 +40,11 @@ _LLD_ROW_RE = re.compile(
 #     8000123  8000123     1edd     1         . = ALIGN ( 0x2000 )
 _LLD_ALIGN_RE = re.compile(r'^\.\s*=\s*ALIGN\s*\(')
 
+# An output section header's content: a bare section name. Other rows at
+# output-section depth (assignments, statements LLD prints there) are not
+# headers and end the current section.
+_LLD_SECTION_NAME_RE = re.compile(r'^[^\s=()]+$')
+
 # Like GNU LD's _ARCHIVE_RE but also accepts .rlib (Rust crate archives,
 # ar-format archives used by rustc).
 _LLD_ARCHIVE_RE = re.compile(r'^(.+\.(?:a|rlib))\((.+\.(?:o|obj))\)$')
@@ -131,6 +136,11 @@ class LLDMapFileParser:  # pylint: disable=too-few-public-methods
             8000123  8000123     1edd     1         . = ALIGN ( 0x2000 )
             8002014  8002014      400     1         . = ( . + 0x400 )
 
+        Only ALIGN rows at the end of the section count: a row that
+        places bytes after them (input section, data statement,
+        reservation) keeps them inside the section. Symbol rows, printed
+        one level deeper than input sections, place nothing.
+
         Args:
             content: Full text content of an ld.lld map file.
 
@@ -139,20 +149,38 @@ class LLDMapFileParser:  # pylint: disable=too-few-public-methods
         """
         padding: Dict[str, int] = {}
         section: Optional[str] = None
+        trailing = 0
+        # Indent of input-section rows; symbol rows are indented further.
+        input_depth: Optional[int] = None
+
+        def commit() -> None:
+            if trailing and section:
+                padding[section] = padding.get(section, 0) + trailing
+
         for line in content.splitlines():
             match = _LLD_ROW_RE.match(line)
             if not match:
                 continue
             field = match.group(4).rstrip()
-            is_align = bool(_LLD_ALIGN_RE.match(field))
-            if len(match.group(3)) == 1:
+            depth = len(match.group(3))
+            if depth == 1:
                 # Output-section depth: a section header, or an
-                # assignment between sections.
-                section = None if is_align or '=' in field else field
+                # assignment or other statement between sections.
+                commit()
+                trailing = 0
+                section = (field if _LLD_SECTION_NAME_RE.match(field)
+                           else None)
+                continue
+            if input_depth is None or depth < input_depth:
+                input_depth = depth
+            if depth > input_depth:
                 continue
             size = int(match.group(2), 16)
-            if is_align and section and size:
-                padding[section] = padding.get(section, 0) + size
+            if _LLD_ALIGN_RE.match(field):
+                trailing += size
+            elif size:
+                trailing = 0
+        commit()
         return padding
 
     @staticmethod

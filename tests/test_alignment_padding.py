@@ -19,12 +19,14 @@ from unittest import mock
 from elftools.elf.elffile import ELFFile
 
 from membrowse.analysis.alignment import (
+    _section_padding,
     detect_alignment_padding,
     estimate_alignment_padding,
     exclude_padding,
 )
 from membrowse.analysis.ldmap_parser import MapFileParser
 from membrowse.analysis.lldmap_parser import LLDMapFileParser
+from membrowse.analysis.mapfile import MapFileResolver
 from membrowse.commands.onboard import add_onboard_parser
 from membrowse.commands.report import add_report_parser, generate_report
 from membrowse.core.models import MemorySection
@@ -115,6 +117,41 @@ class TestMapAlignmentFill(unittest.TestCase):
         self.assertEqual(MapFileParser.alignment_fill(content), {})
 
 
+    def test_mid_section_align_is_not_padding(self):
+        """An ALIGN followed by more content pads the middle of the
+        section; only the trailing ALIGN is taken off."""
+        content = (
+            ".text           0x08000000      0x800\n"
+            " .isr_vector    0x08000000      0x100 startup.o\n"
+            "                0x08000400                . = ALIGN (0x400)\n"
+            " *fill*         0x08000100      0x300 \n"
+            " .text.main     0x08000400      0x210 main.o\n"
+            "                0x08000610                _etext = .\n"
+            "                0x08000800                . = ALIGN (0x200)\n"
+            " *fill*         0x08000610      0x1f0 \n"
+            "                0x08000800                . = ALIGN (0x4)\n"
+        )
+        self.assertEqual(MapFileParser.alignment_fill(content),
+                         {'.text': 0x1f0})
+
+    def test_align_before_data_statement_is_not_padding(self):
+        """A LONG (or a wrapped input section) after an ALIGN keeps it."""
+        content = (
+            ".text           0x08000000      0x204\n"
+            " .text.a        0x08000000       0x10 a.o\n"
+            "                0x08000200                . = ALIGN (0x200)\n"
+            " *fill*         0x08000010      0x1f0 \n"
+            "                0x08000200        0x4 LONG 0xdeadbeef\n"
+            ".data           0x20000000      0x204\n"
+            " .data.a        0x20000000       0x10 a.o\n"
+            "                0x20000200                . = ALIGN (0x200)\n"
+            " *fill*         0x20000010      0x1f0 \n"
+            " .data.a_very_long_input_section_name\n"
+            "                0x20000200        0x4 b.o\n"
+        )
+        self.assertEqual(MapFileParser.alignment_fill(content), {})
+
+
 class TestLldMapAlignmentFill(unittest.TestCase):
     """LLDMapFileParser.alignment_fill reads the size of ALIGN rows."""
 
@@ -134,6 +171,37 @@ class TestLldMapAlignmentFill(unittest.TestCase):
             " 8000010  8000010      1f0     1 . = ALIGN ( 0x200 )\n"
             " 8000200  8000200        4     4 .rodata\n"
             " 8000200  8000200        4     4         a.o:(.rodata)\n"
+        )
+        self.assertEqual(LLDMapFileParser.alignment_fill(content), {})
+
+    def test_mid_section_align_is_not_padding(self):
+        """An ALIGN followed by an input section or a reservation is not
+        trailing padding; sized symbol rows do not count as content."""
+        content = (
+            "     VMA      LMA     Size Align Out     In      Symbol\n"
+            " 8000000  8000000      800     4 .text\n"
+            " 8000000  8000000      100     4         a.o:(.isr_vector)\n"
+            " 8000100  8000100      300     1         . = ALIGN ( 0x400 )\n"
+            " 8000400  8000400      210     4         a.o:(.text)\n"
+            " 8000400  8000400      210     1                 main\n"
+            " 8000610  8000610      1f0     1         . = ALIGN ( 0x200 )\n"
+            "20000000 20000000      a00     8 .bss\n"
+            "20000000 20000000       10     4         a.o:(.bss)\n"
+            "20000010 20000010      1f0     1         . = ALIGN ( 0x200 )\n"
+            "20000200 20000200      800     1         . = . + 0x800\n"
+        )
+        self.assertEqual(LLDMapFileParser.alignment_fill(content),
+                         {'.text': 0x1f0})
+
+    def test_non_header_row_ends_section(self):
+        """A row at section depth that is not a header is not a section
+        name to credit padding to."""
+        content = (
+            "     VMA      LMA     Size Align Out     In      Symbol\n"
+            " 8000000  8000000       10     4 .text\n"
+            " 8000000  8000000       10     4         a.o:(.text)\n"
+            " 8000010  8000010        0     1 OVERLAY ( 0x8000010 )\n"
+            " 8000010  8000010      1f0     1         . = ALIGN ( 0x200 )\n"
         )
         self.assertEqual(LLDMapFileParser.alignment_fill(content), {})
 
@@ -158,12 +226,42 @@ class TestElfEstimate(unittest.TestCase):
         self.assertNotIn('.stack', padding)
 
 
+class TestNobitsEstimate(unittest.TestCase):
+    """A NOBITS section has no fill bytes to tell a reservation from
+    padding, so the ELF estimate leaves it alone."""
+
+    def test_reservation_ending_at_round_address(self):
+        """Objects then ``. = . + 0x800`` up to the top of RAM: the end is
+        0x10000-aligned and the gap smaller than that, but it is kept."""
+        header = {'sh_addr': 0x2000E000, 'sh_size': 0x2000,
+                  'sh_type': 'SHT_NOBITS'}
+        section = mock.Mock(**{'__getitem__': lambda _, key: header[key]})
+        self.assertEqual(_section_padding(section, [(0x2000E000, 0x17F0)]),
+                         0)
+
+
 class TestDetect(unittest.TestCase):
     """detect_alignment_padding picks the map or falls back to the ELF."""
 
-    def _detect(self, map_path):
-        with open(ELF, 'rb') as f:
-            return detect_alignment_padding(ELFFile(f), map_path)
+    @staticmethod
+    def _detect(map_path, elf=ELF, toolchain=None):
+        """Read the map as ELFAnalyzer does, then detect."""
+        map_padding = None
+        if map_path:
+            resolver = MapFileResolver.from_file(map_path, alignment=True)
+            map_padding = resolver.alignment_padding
+        with open(elf, 'rb') as f:
+            return detect_alignment_padding(
+                ELFFile(f), map_padding, toolchain,
+                map_given=bool(map_path))
+
+    @staticmethod
+    def _map(content):
+        """Write ``content`` to a temporary map file; return its path."""
+        with tempfile.NamedTemporaryFile(
+                'w', suffix='.map', delete=False) as f:
+            f.write(content)
+        return f.name
 
     def test_gnu_ld_map_is_exact(self):
         """A GNU LD map gives the exact fill, without a warning."""
@@ -179,28 +277,30 @@ class TestDetect(unittest.TestCase):
         self.assertIn('no map file given', logs.output[0])
         self.assertEqual(padding['.kernel'], MAP_PADDING['.kernel'])
 
-    def test_unreadable_map_falls_back(self):
-        """A map that cannot be read falls back to the ELF estimate."""
-        with self.assertLogs('membrowse.analysis.alignment',
-                             'WARNING') as logs:
-            padding = self._detect(os.path.join(FIXTURE_DIR, 'missing.map'))
-        self.assertIn('cannot read map file', logs.output[0])
-        self.assertIn('.data', padding)
+    def test_unrecognized_map_falls_back(self):
+        """A map in another format (armlink, TI, SEGGER) or an empty one
+        falls back to the ELF estimate with a warning, not to nothing."""
+        for content in ('', 'Component: ARM Compiler 6.19 Tool: armlink\n'):
+            path = self._map(content)
+            try:
+                with self.assertLogs('membrowse.analysis.alignment',
+                                     'WARNING') as logs:
+                    padding = self._detect(path)
+            finally:
+                os.unlink(path)
+            self.assertIn('map file format not recognized', logs.output[0])
+            self.assertIn('.data', padding)
 
     def test_lld_map_is_exact(self):
         """An LLD map gives the exact fill, without a warning."""
-        with open(LLD_ELF, 'rb') as f, mock.patch(
-                'membrowse.analysis.alignment.logger') as logger:
-            padding = detect_alignment_padding(ELFFile(f), LLD_MAP)
+        with mock.patch('membrowse.analysis.alignment.logger') as logger:
+            padding = self._detect(LLD_MAP, elf=LLD_ELF)
         self.assertEqual(padding, LLD_MAP_PADDING)
         logger.warning.assert_not_called()
 
     def test_iar_map_has_no_padding(self):
         """An IAR map: nothing to exclude, and no ELF guess."""
-        with tempfile.NamedTemporaryFile(
-                'w', suffix='.map', delete=False) as f:
-            f.write("*** PLACEMENT SUMMARY\n")
-            path = f.name
+        path = self._map("*** PLACEMENT SUMMARY\n")
         try:
             with mock.patch('membrowse.analysis.alignment.logger') as logger:
                 padding = self._detect(path)
@@ -211,12 +311,14 @@ class TestDetect(unittest.TestCase):
 
     def test_iar_toolchain_without_map_has_no_padding(self):
         """An IAR-built ELF without a map: nothing to exclude."""
-        with open(ELF, 'rb') as f, mock.patch(
-                'membrowse.analysis.alignment.logger') as logger:
-            padding = detect_alignment_padding(
-                ELFFile(f), None, toolchain='iar-9.40.1')
+        with mock.patch('membrowse.analysis.alignment.logger') as logger:
+            padding = self._detect(None, toolchain='iar-9.40.1')
         self.assertEqual(padding, {})
         logger.warning.assert_not_called()
+
+    def test_map_not_read_without_alignment(self):
+        """The resolver reads ALIGN padding only when asked to."""
+        self.assertIsNone(MapFileResolver.from_file(MAP).alignment_padding)
 
 
 class TestExcludePadding(unittest.TestCase):

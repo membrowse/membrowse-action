@@ -255,9 +255,10 @@ examples:
         dest='exclude_alignment',
         action='store_true',
         help='Do not count padding from explicit ". = ALIGN(n)" statements '
-             'inside sections as used memory. Exact with a GNU LD '
+             'inside sections as used memory. Exact with a GNU LD or LLD '
              '--map-file; estimated from ELF symbols without one. Applied '
-             'to every commit built during onboarding.'
+             'to every commit built during onboarding; commits uploaded '
+             'earlier without it keep the padding counted.'
     )
     parser.add_argument(
         '--limits',
