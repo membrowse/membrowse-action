@@ -67,7 +67,7 @@ It extracts detailed memory information from ELF files and linker scripts — do
 
 - **Architecture Agnostic**: Works with any toolchain that produces ELFs with DWARF debug info (ARM, Xtensa, RISC-V, and more)
 - **Source File Mapping**: Symbols are mapped back to their definition source files
-- **Memory Region Extraction**: Reads memory layout from GNU LD scripts, IAR ICF files, and SEGGER Embedded Studio `.emProject` files
+- **Memory Region Extraction**: Reads memory layout from GNU LD scripts, IAR ICF files, Keil scatter files, and SEGGER Embedded Studio `.emProject` files
 - **Cloud Integration**: Upload reports to [MemBrowse](https://membrowse.com) for historical tracking, PR diffs, monitoring, and CI gating
 
 ## Quick Start
@@ -156,7 +156,7 @@ If you use [Claude Code](https://claude.ai/code), install the MemBrowse plugin a
 ```
 /plugin marketplace add membrowse/membrowse-action
 /plugin install membrowse@membrowse-marketplace
-/membrowse-integrate
+/membrowse:membrowse-integrate
 ```
 
 This analyzes your build, verifies linker scripts, creates the config, and sets up the GitHub Actions workflows.
@@ -167,6 +167,7 @@ MemBrowse works with any toolchain that produces ELF files. Supported memory lay
 
 - **GNU LD** linker scripts (`*.ld`, `*.cmd`), including `INCLUDE`d sub-scripts
 - **IAR EWARM ICF** files (`*.icf`)
+- **Keil MDK (armlink)** scatter files (`*.sct`)
 - **SEGGER Embedded Studio** project files (`*.emProject`)
 
 Format detection is content-based, so the file extension doesn't have to match.
