@@ -13,7 +13,7 @@ inputs:
     description: 'Commit SHA to fetch summary for (requires api_key)'
     required: false
   pr_number:
-    description: 'PR number to post comment on (auto-detected from event context or commit SHA via GitHub API)'
+    description: 'PR number to post comment on (auto-detected from the event context or the MemBrowse summary)'
     required: false
   api_url:
     description: 'MemBrowse API base URL (default: https://api.membrowse.com)'

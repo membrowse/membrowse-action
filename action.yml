@@ -28,9 +28,9 @@ inputs:
     required: false
     default: ''
   verbose:
-    description: 'Enable verbose output including full API responses (default: WARNING)'
+    description: 'Set logging level: DEBUG, INFO, or WARNING (default: INFO)'
     required: false
-    default: 'WARNING'
+    default: 'INFO'
   pr_author_name:
     description: 'PR author name (auto-detected from GitHub event if not provided)'
     required: false
@@ -199,7 +199,7 @@ runs:
 
         # Global args (before subcommand)
         GLOBAL_ARGS=()
-        if [ "$INPUT_VERBOSE" != "WARNING" ]; then
+        if [ -n "$INPUT_VERBOSE" ]; then
           GLOBAL_ARGS+=(--verbose "$INPUT_VERBOSE")
         fi
 

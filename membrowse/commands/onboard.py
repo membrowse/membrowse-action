@@ -84,7 +84,8 @@ Requirements:
   - Tracked files must have no uncommitted changes (checkouts are forced);
     in CI such changes only produce a warning
   - Build command must produce the ELF file at the specified path
-  - All commits must be buildable (script stops on first build failure)
+  - A commit that fails to build is uploaded as a failed build and the
+    script continues with the next commit
         """,
         epilog="""
 examples:

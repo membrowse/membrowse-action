@@ -106,9 +106,9 @@ inputs:
     required: false
     default: ''
   verbose:
-    description: 'Set logging level: DEBUG, INFO, or WARNING (default: WARNING)'
+    description: 'Set logging level: DEBUG, INFO, or WARNING (default: INFO)'
     required: false
-    default: 'WARNING'
+    default: 'INFO'
 
 runs:
   using: 'composite'
@@ -210,7 +210,7 @@ runs:
       run: |
         # Global args (before subcommand)
         GLOBAL_ARGS=()
-        if [ "$INPUT_VERBOSE" != "WARNING" ]; then
+        if [ -n "$INPUT_VERBOSE" ]; then
           GLOBAL_ARGS+=(--verbose "$INPUT_VERBOSE")
         fi
 
