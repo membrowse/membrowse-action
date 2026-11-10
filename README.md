@@ -4,6 +4,8 @@
 
 <h1 align="center">MemBrowse</h1>
 
+<p align="center"><b>No more <code>MEMORY { FLASH, RAM }</code> surprises.</b></p>
+
 <p align="center">
   <a href="https://badge.fury.io/py/membrowse"><img src="https://badge.fury.io/py/membrowse.svg" alt="PyPI version"></a>
   <a href="https://pypi.org/project/membrowse/"><img src="https://img.shields.io/pypi/pyversions/membrowse.svg" alt="Python Versions"></a>
@@ -13,62 +15,73 @@
   <a href="https://github.com/membrowse/membrowse-action"><img src="https://img.shields.io/github/stars/membrowse/membrowse-action?style=social" alt="GitHub stars"></a>
 </p>
 
-**Catch memory regressions before they ship.** MemBrowse tracks the flash and RAM footprint of your firmware on every commit, comments the memory diff on every pull request, and fails the build when you blow your budget.
+MemBrowse is continuous memory footprint tracking for firmware: flash and RAM on every commit, for every target, with the full history.
 
-It extracts detailed memory information from ELF files and linker scripts — down to symbol-level analysis with source file mapping across multiple architectures. Use the CLI standalone for instant local analysis, or connect it to [MemBrowse](https://membrowse.com) for historical tracking, PR diffs, and CI gating.
+A size script or the linker tells you how big today's build is. MemBrowse keeps every build, so when flash climbs you can see which pull request used it, instead of bisecting weeks of commits after the linker fails.
 
-> **Get your free API key:** [Sign up](https://membrowse.com/signup) to unlock PR comments, historical tracking, and budget alerts. No account needed to use the CLI locally.
+- **Every pull request** gets a comment with the bytes it adds or removes per region, and the symbols that grew.
+- **Every target** keeps its history, so "where did the flash go last month?" has an answer.
+- **Every product** shows on one screen with how close it is to its limit, and budgets fail CI before a target runs out.
 
-📖 **Full documentation:** [docs.membrowse.com](https://docs.membrowse.com)
+The CLI works locally with no account. [Sign up free](https://membrowse.com/signup) for PR comments, history and budgets.
+
+📖 **Documentation:** [docs.membrowse.com](https://docs.membrowse.com)
 
 <p align="center">
-  <img src="screenshots/demo.gif" alt="MemBrowse dashboard: targets overview, memory timeline, commit-to-commit diff, and CI budget gating" width="960">
+  <img src="screenshots/demo.gif" alt="Flash usage per commit for one board, jumping from 77% to 93% on the commit 'Update TLS library' (+81.92 KB)" width="720">
 </p>
 
 ## Firmware teams tracking memory with MemBrowse
 
-
-
 <table align="center">
   <tr>
     <td align="center" width="130">
-      <a href="https://www.adafruit.com"><img src="logos/adafruit.png" alt="Adafruit" height="56"></a><br>Adafruit
+      <a href="https://docs.tinyusb.org"><img src="logos/tinyusb.png" alt="TinyUSB" height="56"></a><br>TinyUSB
+    </td>
+    <td align="center" width="130">
+      <a href="https://meshtastic.org"><img src="logos/meshtastic.svg" alt="Meshtastic" height="56"></a><br>Meshtastic
+    </td>
+    <td align="center" width="130">
+      <a href="https://nuttx.apache.org"><img src="logos/nuttx.png" alt="Apache NuttX" height="56"></a><br>Apache NuttX
     </td>
     <td align="center" width="130">
       <a href="https://flipperzero.one"><img src="logos/flipper.png" alt="Flipper Devices" height="56"></a><br>Flipper Devices
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="130">
+      <a href="https://github.com/ZSWatch/ZSWatch"><img src="logos/zswatch.png" alt="ZSWatch" height="56"></a><br>ZSWatch
     </td>
     <td align="center" width="130">
       <a href="https://www.wolfssl.com"><img src="logos/wolfssl.png" alt="wolfSSL" height="56"></a><br>wolfSSL
     </td>
     <td align="center" width="130">
-      <a href="https://nuttx.apache.org"><img src="logos/nuttx.png" alt="Apache NuttX" height="56"></a><br>Apache NuttX
+      <a href="https://www.rt-thread.io"><img src="logos/rtthread.png" alt="RT-Thread" height="56"></a><br>RT-Thread
+    </td>
+    <td align="center" width="130">
+      <a href="https://www.adafruit.com"><img src="logos/adafruit.png" alt="Adafruit" height="56"></a><br>Adafruit
     </td>
   </tr>
   <tr>
     <td align="center" width="130">
-      <a href="https://www.rt-thread.io"><img src="logos/rtthread.png" alt="RT-Thread" height="56"></a><br>RT-Thread
-    </td>
-    <td align="center" width="130">
-      <a href="https://docs.tinyusb.org"><img src="logos/tinyusb.png" alt="TinyUSB" height="56"></a><br>TinyUSB
+      <a href="https://github.com/ventZl/cmrx"><img src="logos/cmrx.png" alt="CMRX" height="56"></a><br>CMRX
     </td>
     <td align="center" width="130">
       <a href="https://github.com/SuperTinyKernel-RTOS"><img src="logos/stk.png" alt="SuperTinyKernel" height="56"></a><br>SuperTinyKernel
     </td>
     <td align="center" width="130">
-      <a href="https://github.com/ventZl/cmrx"><img src="logos/cmrx.png" alt="CMRX" height="56"></a><br>CMRX
+      <a href="https://www.wildernesslabs.co"><img src="logos/wildernesslabs.svg" alt="Wilderness Labs" height="56"></a><br>Wilderness Labs
+    </td>
+    <td align="center" width="130">
+      <a href="https://rabbitholecomputing.com"><img src="logos/rabbithole.png" alt="Rabbit Hole Computing" height="56"></a><br>Rabbit Hole Computing
     </td>
   </tr>
 </table>
 
-<p align="center">…and more.</p>
+> "Loving MemBrowse so far. We've been trying to hand-roll solutions to this for far too long, and they just kept breaking."
+> — Austin, [Meshtastic](https://membrowse.com/public/meshtastic/firmware)
 
-
-## Features
-
-- **Architecture Agnostic**: Works with any toolchain that produces ELFs with DWARF debug info (ARM, Xtensa, RISC-V, and more)
-- **Source File Mapping**: Symbols are mapped back to their definition source files
-- **Memory Region Extraction**: Reads memory layout from GNU LD scripts, IAR ICF files, and SEGGER Embedded Studio `.emProject` files
-- **Cloud Integration**: Upload reports to [MemBrowse](https://membrowse.com) for historical tracking, PR diffs, monitoring, and CI gating
+<p align="center"><a href="https://membrowse.com/showcase">See the public dashboards →</a></p>
 
 ## Quick Start
 
@@ -110,11 +123,11 @@ mp_execute_bytecode                      0x080392f9          4,208 bytes  FUNC  
 ...
 ```
 
-See the [CLI reference](https://docs.membrowse.com) for JSON output, symbol filtering, uploading, and historical onboarding.
+See the [CLI reference](https://docs.membrowse.com) for JSON output, symbol filtering, uploading and historical onboarding.
 
 ### Track memory in CI (GitHub Actions)
 
-Add a workflow that analyzes each push/PR and comments the diff on pull requests:
+Add a workflow that reports each push and comments the diff on pull requests:
 
 ```yaml
 name: Memory Analysis
@@ -124,7 +137,7 @@ jobs:
   analyze:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Build firmware
         run: make all # your build commands
@@ -145,13 +158,13 @@ jobs:
           commit: ${{ github.event.pull_request.head.sha }}
 ```
 
-Add your MemBrowse API key as a repository secret named `MEMBROWSE_API_KEY` ([get one free](https://membrowse.com/signup)). The action is [published on the GitHub Marketplace](https://github.com/marketplace/actions/binary-size-memory-footprint-tracking) by a verified creator.
+Add your API key as a repository secret named `MEMBROWSE_API_KEY` ([get one free](https://membrowse.com/signup)). The action is [published on the GitHub Marketplace](https://github.com/marketplace/actions/binary-size-memory-footprint-tracking) by a verified creator.
 
-For historical onboarding, custom comment templates, overflow tracking (`limits`), and all action inputs, see [docs.membrowse.com](https://docs.membrowse.com).
+To fill in the history for existing commits, see [onboarding](https://docs.membrowse.com). For budgets, custom comment templates and every action input, see [docs.membrowse.com](https://docs.membrowse.com).
 
 ### Set it up with Claude Code
 
-If you use [Claude Code](https://claude.ai/code), install the MemBrowse plugin and let it wire everything up for you:
+If you use [Claude Code](https://claude.ai/code), the MemBrowse plugin finds your build outputs, checks your linker scripts and writes the workflows:
 
 ```
 /plugin marketplace add membrowse/membrowse-action
@@ -159,19 +172,23 @@ If you use [Claude Code](https://claude.ai/code), install the MemBrowse plugin a
 /membrowse-integrate
 ```
 
-This analyzes your build, verifies linker scripts, creates the config, and sets up the GitHub Actions workflows.
+## What it reads
 
-## Platform Support
-
-MemBrowse works with any toolchain that produces ELF files. Supported memory layout sources:
+MemBrowse reads any ELF file: ARM, RISC-V, Xtensa and more. With DWARF debug info, each symbol is mapped to its source file. Memory regions come from:
 
 - **GNU LD** linker scripts (`*.ld`, `*.cmd`), including `INCLUDE`d sub-scripts
 - **IAR EWARM ICF** files (`*.icf`)
 - **SEGGER Embedded Studio** project files (`*.emProject`)
 
-Format detection is content-based, so the file extension doesn't have to match.
+Linker map files (GNU LD and IAR) add archive and object file attribution. Format detection is based on content, so file extensions don't have to match.
 
-Not getting optimal results? Contact us at support@membrowse.com — we're actively improving MemBrowse.
+Is your toolchain or layout file not covered? Email support@membrowse.com.
+
+## Your code stays in CI
+
+- Only the JSON report is uploaded. Source code and binaries stay in your CI.
+- The CLI and GitHub Action are open source under GPLv3, so you can read exactly what is sent.
+- On-premise deployment runs MemBrowse entirely inside your network. Point the action at it with `api_url`. [Contact us](https://membrowse.com/pricing).
 
 ## Documentation & Support
 
@@ -181,4 +198,4 @@ Not getting optimal results? Contact us at support@membrowse.com — we're activ
 
 ## License
 
-See [LICENSE](LICENSE) file for details.
+GPLv3. See [LICENSE](LICENSE).
