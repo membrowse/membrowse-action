@@ -81,7 +81,7 @@ The CLI works locally with no account. [Sign up free](https://membrowse.com/sign
 > "Loving MemBrowse so far. We've been trying to hand-roll solutions to this for far too long, and they just kept breaking."
 > — Austin, [Meshtastic](https://membrowse.com/public/meshtastic/firmware)
 
-<p align="center"><a href="https://membrowse.com/public">See the public dashboards →</a></p>
+<p align="center"><a href="https://membrowse.com/showcase">See the public dashboards →</a></p>
 
 ## Quick Start
 
