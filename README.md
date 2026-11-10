@@ -4,7 +4,7 @@
 
 <h1 align="center">MemBrowse</h1>
 
-<p align="center"><b>Know where your memory went.</b></p>
+<p align="center"><b>No more <code>MEMORY { FLASH, RAM }</code> surprises.</b></p>
 
 <p align="center">
   <a href="https://badge.fury.io/py/membrowse"><img src="https://badge.fury.io/py/membrowse.svg" alt="PyPI version"></a>
