@@ -203,6 +203,8 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
             # List of (symbol_name, cu_source_file, decl_file) for static vars
             'static_symbol_mappings': [],
         }
+        # CU offset -> (CU source file, file table), see _cu_sources
+        self._cu_sources_cache: Dict[int, Tuple[Optional[str], Dict[int, str]]] = {}
 
     def _is_arm_architecture(self, machine) -> bool:
         """Check if the architecture is ARM and requires Thumb mode tolerance.
@@ -454,36 +456,10 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
 
         # Get CU address range using the shared extraction method
         cu_low_pc, cu_high_pc = self._extract_cu_address_range(cu)
-        top_die = cu.get_top_DIE()
-
-        # Get CU basic info
-        cu_name = None
-        cu_source_file = None
-        comp_dir = None
-
-        if top_die.attributes:
-            name_attr = top_die.attributes.get('DW_AT_name')
-            if name_attr:
-                cu_name = self._extract_string_value(name_attr.value)
-
-            comp_dir_attr = top_die.attributes.get('DW_AT_comp_dir')
-            if comp_dir_attr:
-                comp_dir = self._extract_string_value(comp_dir_attr.value)
-
-        cu_name = to_posix(cu_name)
-        comp_dir = to_posix(comp_dir)
-        # Placeholder names such as TinyGo "<unknown>" or GCC LTO "<artificial>"
-        if cu_name and cu_name.startswith('<') and cu_name.endswith('>'):
-            cu_name = None
-        if cu_name:
-            if comp_dir and not is_abs(cu_name):
-                cu_source_file = posixpath.normpath(posixpath.join(comp_dir, cu_name))
-            else:
-                cu_source_file = posixpath.normpath(cu_name)
 
         # The line program's file table, joined with its directories, is
         # shared by the line rows (address_to_file) and DW_AT_decl_file
-        file_paths = self._line_program_file_paths(dwarfinfo, cu, comp_dir)
+        cu_source_file, file_paths = self._cu_sources(cu, dwarfinfo)
 
         # Process both line program and DIE data as they provide complementary information:
         # - Line program: Maps instruction addresses to source files (useful for functions)
@@ -518,6 +494,48 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
         self.dwarf_data['coverage_metrics']['die_symbols'] = die_coverage_after
         self.dwarf_data['coverage_metrics']['line_program_addresses'] = line_program_addresses
         self.dwarf_data['coverage_metrics']['cus_processed'] += 1
+
+    def _cu_sources(self, cu, dwarfinfo) -> Tuple[Optional[str], Dict[int, str]]:
+        """A CU's source file and its file table (_line_program_file_paths).
+
+        The source file is None for a CU named by a placeholder. Cached by CU
+        offset: a DIE reached through DW_AT_abstract_origin or
+        DW_AT_specification can live in another CU (GCC LTO), and its
+        DW_AT_decl_file indexes that CU's file table.
+        """
+        cached = self._cu_sources_cache.get(cu.cu_offset)
+        if cached is not None:
+            return cached
+        top_die = cu.get_top_DIE()
+
+        cu_name = None
+        cu_source_file = None
+        comp_dir = None
+
+        if top_die.attributes:
+            name_attr = top_die.attributes.get('DW_AT_name')
+            if name_attr:
+                cu_name = self._extract_string_value(name_attr.value)
+
+            comp_dir_attr = top_die.attributes.get('DW_AT_comp_dir')
+            if comp_dir_attr:
+                comp_dir = self._extract_string_value(comp_dir_attr.value)
+
+        cu_name = to_posix(cu_name)
+        comp_dir = to_posix(comp_dir)
+        # Placeholder names such as TinyGo "<unknown>" or GCC LTO "<artificial>"
+        if cu_name and cu_name.startswith('<') and cu_name.endswith('>'):
+            cu_name = None
+        if cu_name:
+            if comp_dir and not is_abs(cu_name):
+                cu_source_file = posixpath.normpath(posixpath.join(comp_dir, cu_name))
+            else:
+                cu_source_file = posixpath.normpath(cu_name)
+
+        sources = (cu_source_file,
+                   self._line_program_file_paths(dwarfinfo, cu, comp_dir))
+        self._cu_sources_cache[cu.cu_offset] = sources
+        return sources
 
     def _line_program_file_paths(self, dwarfinfo, cu,
                                  comp_dir: Optional[str]) -> Dict[int, str]:
@@ -652,7 +670,7 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
         Args:
             die: Primary DIE to check
             spec_die: Specification DIE (from _get_die_name_and_spec)
-            file_entries: Mapping of file indices to file paths
+            file_entries: File table of the primary DIE's CU
 
         Returns:
             (declaration file path, line), (None, 0) if no DIE names a
@@ -664,6 +682,10 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
                 decl_file_attr = check_die.attributes.get('DW_AT_decl_file')
                 if decl_file_attr and hasattr(decl_file_attr, 'value'):
                     file_idx = decl_file_attr.value
+                    # The index is into the file table of the DIE's own CU
+                    if check_die.cu.cu_offset != die.cu.cu_offset:
+                        file_entries = self._cu_sources(
+                            check_die.cu, check_die.cu.dwarfinfo)[1]
                     if file_idx in file_entries:
                         line_attr = check_die.attributes.get('DW_AT_decl_line')
                         line = getattr(line_attr, 'value', 0)
@@ -935,6 +957,13 @@ class DWARFProcessor:  # pylint: disable=too-many-instance-attributes,too-few-pu
 
             # Get declaration file (checks DIE and spec_die)
             decl_file, decl_line = self._get_die_decl(die, spec_die, file_entries)
+
+            # GCC LTO emits the code in an "<artificial>" CU, each DIE
+            # pointing back at the CU of the source file that defined it
+            if (not cu_source_file and spec_die
+                    and spec_die.cu.cu_offset != die.cu.cu_offset):
+                cu_source_file = self._cu_sources(
+                    spec_die.cu, spec_die.cu.dwarfinfo)[0]
 
             # Determine best source file
             is_declaration = 'DW_AT_declaration' in attrs

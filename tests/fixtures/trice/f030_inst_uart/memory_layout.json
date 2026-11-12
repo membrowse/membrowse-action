@@ -1,0 +1,85 @@
+{
+ "RAM": {
+  "address": 536870912,
+  "limit_size": 8192,
+  "type": "xrw",
+  "used_size": 2648,
+  "free_size": 5544,
+  "utilization_percent": 32.32421875,
+  "sections": [
+   {
+    "name": ".data",
+    "address": 536870912,
+    "size": 12,
+    "type": "data",
+    "end_address": 536870924
+   },
+   {
+    "name": ".bss",
+    "address": 536870924,
+    "size": 1100,
+    "type": "data",
+    "end_address": 536872024
+   },
+   {
+    "name": "._user_heap_stack",
+    "address": 536872024,
+    "size": 1536,
+    "type": "data",
+    "end_address": 536873560
+   }
+  ]
+ },
+ "FLASH": {
+  "address": 134217728,
+  "limit_size": 65536,
+  "type": "rx",
+  "used_size": 4988,
+  "free_size": 60548,
+  "utilization_percent": 7.611083984375,
+  "sections": [
+   {
+    "name": ".isr_vector",
+    "address": 134217728,
+    "size": 192,
+    "type": "rodata",
+    "end_address": 134217920
+   },
+   {
+    "name": ".text",
+    "address": 134217920,
+    "size": 4752,
+    "type": "code",
+    "end_address": 134222672
+   },
+   {
+    "name": ".rodata",
+    "address": 134222672,
+    "size": 24,
+    "type": "rodata",
+    "end_address": 134222696
+   },
+   {
+    "name": ".init_array",
+    "address": 134222696,
+    "size": 4,
+    "type": "data",
+    "end_address": 134222700
+   },
+   {
+    "name": ".fini_array",
+    "address": 134222700,
+    "size": 4,
+    "type": "data",
+    "end_address": 134222704
+   },
+   {
+    "name": ".data",
+    "address": 134222704,
+    "size": 12,
+    "type": "data",
+    "end_address": 134222716
+   }
+  ]
+ }
+}

@@ -32,6 +32,8 @@ fixtures/
     └── arduino-mega2560/         # avr-gcc 5.4, no debug info
 └── wolfssl/cortex-m4-min-ecc/    # 258f06e524, gcc-arm-cortex-m4-min-ecc target of
                                   # .github/membrowse-targets.json (gcc 13.2, -flto, no -g)
+└── trice/f030_inst_uart/         # rokath/trice ed7f4858c9, examples/F030_inst_uart with TCOBS framing,
+                                  # xPack arm-none-eabi gcc 15.2.1, -Og -flto -g -gdwarf-2
 ```
 
 Each project fixture directory holds the ELF, its linker scripts, the GNU LD
