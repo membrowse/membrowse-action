@@ -30,6 +30,9 @@ membrowse report firmware.elf "linker.ld" --json
 # Save JSON to file
 membrowse report firmware.elf "linker.ld" --json > report.json
 
+# Human-readable report on stdout and the full JSON in a file, in one run
+membrowse report firmware.elf "linker.ld" --json-file report.json
+
 # With verbose output to see progress
 membrowse -v INFO report firmware.elf "linker.ld"
 
