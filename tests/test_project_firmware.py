@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Reports for firmware of projects tracked on MemBrowse: Meshtastic,
-TinyUSB, NuttX and wolfSSL.
+TinyUSB, NuttX, wolfSSL and Trice.
 
 Each fixture directory holds the ELF, the linker scripts and the linker
 map file of one target, plus memory_layout.json: the memory layout the
@@ -35,6 +35,9 @@ TARGETS = {
     'wolfssl-cortex-m4-min-ecc': (
         'wolfssl/cortex-m4-min-ecc', 'WolfCryptTest.elf',
         ['linker.ld'], 'WolfCryptTest.map'),
+    'trice-f030_inst_uart': (
+        'trice/f030_inst_uart', 'F030_inst_uart.elf',
+        ['STM32F030R8Tx_FLASH.ld'], 'F030_inst_uart.map'),
 }
 
 
@@ -242,6 +245,44 @@ class TestWolfSSL(ProjectTestCase):
             'main': ('', 'Build/test_main.o'),
             'wc_ecc_sign_hash': ('', 'Build/ecc.o'),
             '_ctype_': ('libc_nano.a', 'libc_a-ctype_.o'),
+        })
+
+
+class TestTrice(ProjectTestCase):
+    """STM32F030 UART example built with -flto and -g (gcc 15.2, DWARF 2)
+
+    The code is in "<artificial>" CUs; each DIE names its declaration
+    through DW_AT_abstract_origin into the CU of the defining source file,
+    whose file table DW_AT_decl_file indexes (v1.2.18 used the
+    "<artificial>" CU's table and gave TCOBSEncode stm32f0xx_ll_exti.c).
+    """
+
+    TARGET = 'trice-f030_inst_uart'
+
+    def test_report(self):
+        """Toolchain and symbol count"""
+        report = _report(self.TARGET)
+        self.assertEqual(report['architecture'], 'ARM')
+        self.assertEqual(report['toolchain'], 'gcc-15.2.1')
+        self.assertEqual(len(report['symbols']), 130)
+
+    def test_source_locations(self):
+        """Functions and variables map to the file that defines them"""
+        self.assert_source(self.TARGET, {
+            'TCOBSEncode': ('tcobsv1Encode.c', 77),
+            'main': ('main.c', 67),
+            'SystemClock_Config': ('main.c', 115),
+            'TriceOutDepth': ('trice.c', 1018),
+            'LL_Init1msTick': ('stm32f0xx_ll_utils.c', 142),
+            # First instruction is inlined from a header
+            'TriceOutDepthUartA': ('triceUart.c', 54),
+            'RCC_GetHCLKClockFreq': ('stm32f0xx_ll_rcc.c', 527),
+            # Variables
+            'triceRingBuffer': ('triceRingBuffer.c', 93),
+            'triceOutBufferUartA': ('triceUart.c', 17),
+            'SystemCoreClock': ('system_stm32f0xx.c', 0),
+            # Assembly, outside the LTO units
+            'Reset_Handler': ('startup_stm32f030x8.s', 51),
         })
 
 

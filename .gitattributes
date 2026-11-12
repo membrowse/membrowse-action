@@ -6,3 +6,4 @@ tests/fixtures/meshtastic/**/*.map filter=lfs diff=lfs merge=lfs -text
 tests/fixtures/tinyusb/**/*.map filter=lfs diff=lfs merge=lfs -text
 tests/fixtures/nuttx/**/*.map filter=lfs diff=lfs merge=lfs -text
 tests/fixtures/wolfssl/**/*.map filter=lfs diff=lfs merge=lfs -text
+tests/fixtures/trice/**/*.map filter=lfs diff=lfs merge=lfs -text
