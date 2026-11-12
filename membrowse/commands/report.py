@@ -307,6 +307,9 @@ examples:
   # Save JSON to file
   membrowse report firmware.elf "linker.ld" --json > report.json
 
+  # Human-readable report on stdout and the full JSON in a file, in one run
+  membrowse report firmware.elf "linker.ld" --json-file report.json
+
   # Upload to MemBrowse (Git metadata auto-detected by default)
   membrowse report firmware.elf "linker.ld" --upload \\
       --api-key "$API_KEY" --target-name esp32 \\
@@ -473,6 +476,14 @@ examples:
         '--json',
         action='store_true',
         help='Output report as JSON (default is human-readable format)'
+    )
+    output_group.add_argument(
+        '--json-file',
+        default=None,
+        metavar='PATH',
+        help='Also write the full report (all symbols) as JSON to PATH. '
+             'Stdout is unchanged, so the human-readable report and the JSON '
+             'export come from a single run. Works with --upload as well.'
     )
     output_group.add_argument(
         '--all-symbols',
@@ -1099,6 +1110,19 @@ def _validate_args(args: argparse.Namespace) -> Optional[str]:
     return None
 
 
+def _write_report_json(report: dict, path: str) -> bool:
+    """Write the report as JSON to path (--json-file); False if it failed."""
+    try:
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(report, f, indent=2)
+            f.write('\n')
+    except OSError as e:
+        logger.error("Failed to write JSON report to %s: %s", path, e)
+        return False
+    logger.debug("JSON report written to %s", path)
+    return True
+
+
 def run_report(args: argparse.Namespace) -> int:
     """
     Execute the report subcommand.
@@ -1145,6 +1169,10 @@ def run_report(args: argparse.Namespace) -> int:
         except ValueError as e:
             logger.error("Failed to generate report: %s", e)
             return 1
+
+    json_file = getattr(args, 'json_file', None)
+    if json_file and not _write_report_json(report, json_file):
+        return 1
 
     # If not uploading, output report to stdout
     if not upload_mode:
