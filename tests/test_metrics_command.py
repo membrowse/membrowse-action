@@ -302,6 +302,25 @@ class TestRunMetrics(unittest.TestCase):
             _response({'success': False, 'error': 'Target not found'}, status=404))
         self.assertEqual(code, 1)
 
+    def test_negative_values_in_every_notation_reach_the_upload(self):
+        """argparse must not mistake -4e0 or -1.5e-3 for an option."""
+        for value, expected in (('-4', -4), ('-4.5', -4.5), ('-.5', -0.5),
+                                ('-4e0', -4.0), ('-1.5e-3', -0.0015),
+                                ('-4E2', -400.0)):
+            code, request, _ = self._run(
+                ['-m', 'Gain', value, 'dB', '-m', 'Offset', value,
+                 '--commit-sha', SHA] + BASE)
+            self.assertEqual(code, 0, value)
+            self.assertEqual(request.call_args[1]['json']['metrics'], {
+                'Gain': {'value': expected, 'unit': 'dB'},
+                'Offset': expected,
+            }, value)
+
+    def test_dash_options_are_still_options(self):
+        """Widening the number rule leaves real flags alone."""
+        with self.assertRaises(SystemExit), patch('sys.stderr', new_callable=io.StringIO):
+            create_parser().parse_args(['metrics', '-m', 'A', '1', '-x'] + BASE)
+
     def test_commit_flags_are_mutually_exclusive(self):
         """Commit flags are mutually exclusive."""
         with self.assertRaises(SystemExit), patch('sys.stderr', new_callable=io.StringIO):
