@@ -12,9 +12,10 @@ inputs:
   metrics:
     description: |
       Metrics, one per line, as NAME=VALUE or NAME=VALUE UNIT. Blank lines
-      and lines starting with # are ignored. Example:
-        Boot time=412 ms
-        CoreMark=389.5
+      and lines starting with # are ignored. Values usually come from an
+      earlier step's outputs. Example:
+        Boot time=${{ steps.bench.outputs.boot_ms }} ms
+        CoreMark=${{ steps.bench.outputs.coremark }}
     required: false
     default: ''
   metrics_file:
