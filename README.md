@@ -162,6 +162,34 @@ Add your API key as a repository secret named `MEMBROWSE_API_KEY` ([get one free
 
 To fill in the history for existing commits, see [onboarding](https://docs.membrowse.com). For budgets, custom comment templates and every action input, see [docs.membrowse.com](https://docs.membrowse.com).
 
+### Track benchmark metrics
+
+Attach benchmark results (cycle counts, timings, scores) to a commit; MemBrowse plots them next to the memory history and compares them between builds. The target must already have a memory report. Uploading a metric again replaces its value, so separate CI jobs can each post their own.
+
+```yaml
+      - name: Upload benchmark metrics
+        uses: membrowse/membrowse-action/metrics-action@v1
+        with:
+          target_name: stm32f4
+          api_key: ${{ secrets.MEMBROWSE_API_KEY }}
+          metrics: |
+            Boot time=412 ms
+            CoreMark=389.5
+          # or: metrics_file: bench.json
+```
+
+From any other CI system, or locally:
+
+```bash
+membrowse metrics "Boot time=412 ms" "CoreMark=389.5" \
+    --target-name stm32f4 --api-key "$MEMBROWSE_API_KEY"
+
+membrowse metrics --file bench.json \
+    --target-name stm32f4 --api-key "$MEMBROWSE_API_KEY"
+```
+
+`bench.json` maps names to numbers or `{"value": 412, "unit": "cycles"}`. Run `membrowse metrics --help` for commit selection (`--commit-sha`, `--github`) and removing metrics (`--delete`).
+
 ### Set it up with Claude Code
 
 If you use [Claude Code](https://claude.ai/code), the MemBrowse plugin finds your build outputs, checks your linker scripts and writes the workflows:
