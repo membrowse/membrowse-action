@@ -21,7 +21,9 @@ inputs:
   metrics_file:
     description: |
       Path to a JSON file of metrics, e.g. written by a benchmark harness:
-        {"Message Passing": {"value": 412, "unit": "cycles"}, "Synchronization": 389.5}
+        [{"name": "Message Passing", "unit": "cycles", "value": 412},
+         {"name": "Synchronization", "value": 389.5}]
+      This is the array github-action-benchmark takes for custom tools.
       Metrics from the `metrics` input override the same names from the file.
     required: false
     default: ''

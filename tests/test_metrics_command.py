@@ -107,40 +107,48 @@ class TestMetricsFile(unittest.TestCase):
         self.addCleanup(os.unlink, handle.name)
         return handle.name
 
-    def test_numbers_and_value_unit_objects(self):
-        """Numbers and value unit objects."""
-        path = self._file({
-            'Message Passing': {'value': 412, 'unit': 'cycles'},
-            'Synchronization': 389.5,
-            ' Padded ': {'value': 1},
-            'Cleared': {'value': 2, 'unit': None},
-        })
+    def test_array_of_name_value_unit(self):
+        """Entries become the API's metrics object; a missing unit is left alone."""
+        path = self._file([
+            {'name': 'Message Passing', 'unit': 'cycles', 'value': 412},
+            {'name': 'Synchronization', 'value': 389.5},
+            {'name': ' Padded ', 'value': 1, 'unit': ' ms '},
+            {'name': 'Cleared', 'value': 2, 'unit': None},
+            # github-action-benchmark's extra fields are accepted and ignored
+            {'name': 'Ranged', 'value': 3, 'unit': 'ns', 'range': '+/- 2',
+             'extra': 'iterations: 100'},
+        ])
         self.assertEqual(load_metrics_file(path), {
             'Message Passing': {'value': 412, 'unit': 'cycles'},
             'Synchronization': 389.5,
-            'Padded': {'value': 1},
+            'Padded': {'value': 1, 'unit': 'ms'},
             'Cleared': {'value': 2, 'unit': None},
+            'Ranged': {'value': 3, 'unit': 'ns'},
         })
 
     def test_stdin(self):
         """Stdin."""
-        with patch('sys.stdin', io.StringIO('{"A": 1}')):
+        with patch('sys.stdin', io.StringIO('[{"name": "A", "value": 1}]')):
             self.assertEqual(load_metrics_file('-'), {'A': 1})
 
     def test_rejects_bad_files(self):
         """Rejects bad files."""
         with self.assertRaises(MetricsError):
             load_metrics_file('/no/such/metrics.json')
-        for content in ('{not json', [1, 2], {'A': 'fast'}, {'A': True},
-                        {'A': {'unit': 'ms'}}, {'A': {'value': 1, 'extra': 2}},
-                        {'A': {'value': 1, 'unit': 5}}, {'': 1},
-                        {'A': float('inf')}):
+        for content in ('{not json', {'A': 1}, [1, 2], [{'name': 'A'}],
+                        [{'value': 1}], [{'name': 'A', 'value': 'fast'}],
+                        [{'name': 'A', 'value': True}],
+                        [{'name': 'A', 'value': 1, 'surprise': 2}],
+                        [{'name': 'A', 'value': 1, 'unit': 5}],
+                        [{'name': '', 'value': 1}],
+                        [{'name': 'A', 'value': 1}, {'name': 'A', 'value': 2}],
+                        [{'name': 'A', 'value': float('inf')}]):
             with self.assertRaises(MetricsError, msg=repr(content)):
                 load_metrics_file(self._file(content))
 
     def test_arguments_override_file_and_count_is_capped(self):
         """Arguments override file and count is capped."""
-        path = self._file({'A': 1, 'B': 2})
+        path = self._file([{'name': 'A', 'value': 1}, {'name': 'B', 'value': 2}])
         self.assertEqual(collect_metrics(['B=5 ms'], path),
                          {'A': 1, 'B': {'value': 5, 'unit': 'ms'}})
         self.assertEqual(
