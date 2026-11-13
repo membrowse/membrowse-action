@@ -188,7 +188,7 @@ membrowse metrics --file bench.json \
     --target-name stm32f4 --api-key "$MEMBROWSE_API_KEY"
 ```
 
-`bench.json` maps names to numbers or `{"value": 412, "unit": "cycles"}`. Run `membrowse metrics --help` for commit selection (`--commit-sha`, `--github`) and removing metrics (`--delete`).
+`bench.json` is an array of `{"name": "CoreMark", "unit": "score", "value": 389.5}` entries (`unit` is optional), the same array [github-action-benchmark](https://github.com/benchmark-action/github-action-benchmark) takes for custom tools. Run `membrowse metrics --help` for commit selection (`--commit-sha`, `--github`) and removing metrics (`--delete`).
 
 ### Set it up with Claude Code
 

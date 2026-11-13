@@ -30,6 +30,9 @@ MAX_METRICS = 200
 MAX_NAME_LENGTH = 100
 MAX_UNIT_LENGTH = 32
 
+# Entry fields github-action-benchmark allows that mean nothing here
+_IGNORED_FILE_FIELDS = {'range', 'extra'}
+
 # A number, then optionally a unit: "412", "3.2 ms", "1.5e3cycles", "-4 dB".
 # A unit cannot start with a digit, '.' or ',', so "1,5" and "1.5.2" are
 # rejected rather than read as 1 with a unit of ",5".
@@ -95,10 +98,13 @@ metric format:
   without a unit keep it.
 
 file format (--file, '-' reads standard input):
-  {
-    "Message Passing": {"value": 412, "unit": "cycles"},
-    "Synchronization": 389.5
-  }
+  [
+    {"name": "Message Passing", "unit": "cycles", "value": 412},
+    {"name": "Synchronization", "value": 389.5}
+  ]
+  The same array github-action-benchmark takes for custom tools, so one
+  file can feed both; its optional "range" and "extra" fields are ignored.
+  "unit" is optional.
   Metrics given on the command line override the same names from the file,
   and -m overrides a NAME=VALUE argument of the same name.
         """,
@@ -123,7 +129,7 @@ file format (--file, '-' reads standard input):
     parser.add_argument(
         '--file',
         metavar='PATH',
-        help="JSON file of metrics ({name: number | {value, unit}}); '-' for stdin",
+        help="JSON file of metrics, an array of {name, value, unit}; '-' for stdin",
     )
     parser.add_argument(
         '--target-name',
@@ -278,26 +284,33 @@ def load_metrics_file(path: str) -> Dict[str, Any]:
     except json.JSONDecodeError as e:
         raise MetricsError(f"{source} is not valid JSON: {e}") from e
 
-    if not isinstance(data, dict):
+    if not isinstance(data, list):
         raise MetricsError(
-            f"{source} must hold a JSON object of metric names to values")
+            f"{source} must hold a JSON array of "
+            '{"name": ..., "value": ..., "unit": ...} entries')
 
     metrics: Dict[str, Any] = {}
-    for raw_name, raw in data.items():
-        name = _check_name(raw_name)
-        if isinstance(raw, dict):
-            unknown = set(raw) - {'value', 'unit'}
-            if unknown or 'value' not in raw:
-                raise MetricsError(
-                    f"Metric {name!r}: expected a number or "
-                    '{"value": <number>, "unit": <text>}')
-            entry: Dict[str, Any] = {'value': _check_value(name, raw['value'])}
-            if 'unit' in raw:
-                # null and "" both clear the metric's unit; pass them through
-                entry['unit'] = _check_unit(name, raw['unit'])
+    for index, raw in enumerate(data):
+        if not isinstance(raw, dict):
+            raise MetricsError(
+                f"{source}: entry {index} must be an object with "
+                '"name" and "value"')
+        name = _check_name(raw.get('name'))
+        unknown = set(raw) - {'name', 'value', 'unit'} - _IGNORED_FILE_FIELDS
+        if unknown or 'value' not in raw:
+            raise MetricsError(
+                f"Metric {name!r}: expected "
+                '{"name": <text>, "value": <number>, "unit": <text>}'
+                + (f", got unknown field(s) {sorted(unknown)}" if unknown else ''))
+        if name in metrics:
+            raise MetricsError(f"{source} lists metric {name!r} more than once")
+        entry: Dict[str, Any] = {'value': _check_value(name, raw['value'])}
+        if 'unit' in raw:
+            # null and "" both clear the metric's unit; pass them through
+            entry['unit'] = _check_unit(name, raw['unit'])
             metrics[name] = entry
         else:
-            metrics[name] = _check_value(name, raw)
+            metrics[name] = entry['value']
     return metrics
 
 
