@@ -39,6 +39,9 @@ _IGNORED_FILE_FIELDS = {'range', 'extra'}
 _VALUE_RE = re.compile(
     r'^\s*([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)\s*([^\d\s.,].*?)?\s*$')
 _FULL_SHA_RE = re.compile(r'^(?:[0-9a-f]{40}|[0-9a-f]{64})$')
+# What argparse should accept as a negative number argument, scientific
+# notation included (see add_metrics_parser)
+_NEGATIVE_NUMBER_RE = re.compile(r'^-(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$')
 
 
 class MetricsError(ValueError):
@@ -174,6 +177,12 @@ file format (--file, '-' reads standard input):
         action='store_true',
         help='Output the raw JSON response from the API',
     )
+
+    # argparse only treats "-4" and "-4.5" as negative numbers; "-4e0" or
+    # "-1.5e-3" would be read as an unknown option and stop the command
+    # before -m ever sees it. No option of this parser looks like a number,
+    # so every number form can be read as a value.
+    parser._negative_number_matcher = _NEGATIVE_NUMBER_RE  # pylint: disable=protected-access
 
     return parser
 
