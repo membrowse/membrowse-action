@@ -61,7 +61,7 @@ examples:
   membrowse summary abc123 --api-key "$API_KEY"
 
   # Metrics - attach benchmark results to the current commit
-  membrowse metrics "Boot time=412 ms" "CoreMark=389.5" \\
+  membrowse metrics -m "Boot time" "$BOOT_MS" ms -m CoreMark "$SCORE" \\
       --target-name stm32f4 --api-key "$API_KEY"
 
 For more help on a subcommand:

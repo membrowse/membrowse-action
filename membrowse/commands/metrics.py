@@ -59,8 +59,12 @@ def add_metrics_parser(subparsers) -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 examples:
-  # One or more metrics for the current commit (git HEAD)
-  membrowse metrics "Boot time=412 ms" "CoreMark=389.5" \\
+  # Values measured by the CI job, for the current commit (git HEAD)
+  membrowse metrics -m "Boot time" "$BOOT_MS" ms -m CoreMark "$SCORE" \\
+      --target-name stm32f4 --api-key "$MEMBROWSE_API_KEY"
+
+  # The same as single NAME=VALUE arguments
+  membrowse metrics "Boot time=$BOOT_MS ms" "CoreMark=$SCORE" \\
       --target-name stm32f4 --api-key "$MEMBROWSE_API_KEY"
 
   # From a JSON file written by a benchmark harness
@@ -72,7 +76,7 @@ examples:
       --target-name stm32f4 --api-key "$MEMBROWSE_API_KEY"
 
   # For a specific commit
-  membrowse metrics "Latency=3.2 us" --commit-sha "$SHA" \\
+  membrowse metrics -m Latency "$LATENCY_US" us --commit-sha "$SHA" \\
       --target-name stm32f4 --api-key "$MEMBROWSE_API_KEY"
 
   # Remove one metric, or all of them, from a commit
@@ -82,7 +86,11 @@ examples:
       --target-name stm32f4 --api-key "$MEMBROWSE_API_KEY"
 
 metric format:
-  NAME=VALUE or NAME=VALUE UNIT, e.g. "Message Passing=412 cycles".
+  -m NAME VALUE [UNIT]   name, number and optional unit as separate
+                         arguments; repeat -m for each metric.
+  NAME=VALUE [UNIT]      the same in one argument, e.g.
+                         "Message Passing=412 cycles".
+  VALUE is any number: 412, 389.5, -4, 1.5e3.
   The unit belongs to the metric as a whole: set it once and later uploads
   without a unit keep it.
 
@@ -91,7 +99,8 @@ file format (--file, '-' reads standard input):
     "Message Passing": {"value": 412, "unit": "cycles"},
     "Synchronization": 389.5
   }
-  Metrics given on the command line override the same names from the file.
+  Metrics given on the command line override the same names from the file,
+  and -m overrides a NAME=VALUE argument of the same name.
         """,
     )
 
@@ -101,6 +110,15 @@ file format (--file, '-' reads standard input):
         metavar='NAME=VALUE',
         help='Metric as NAME=VALUE or "NAME=VALUE UNIT" '
              '(with --delete: the metric NAMEs to remove)',
+    )
+    parser.add_argument(
+        '-m', '--metric',
+        dest='metric_options',
+        action='append',
+        nargs='+',
+        default=[],
+        metavar=('NAME', 'VALUE'),
+        help='Metric as separate arguments: NAME VALUE [UNIT]. Repeatable.',
     )
     parser.add_argument(
         '--file',
@@ -214,6 +232,32 @@ def parse_metric_argument(argument: str) -> Dict[str, Any]:
     return {name: value}
 
 
+def parse_metric_option(parts: List[str]) -> Dict[str, Any]:
+    """Parse one -m/--metric option: [NAME, VALUE] or [NAME, VALUE, UNIT].
+
+    Returns the metric in the same shape as parse_metric_argument.
+
+    Raises:
+        MetricsError: If the option does not have two or three parts or the
+            value is not a number
+    """
+    if len(parts) not in (2, 3):
+        raise MetricsError(
+            f"-m/--metric takes NAME VALUE [UNIT], got {len(parts)} "
+            f"argument(s): {' '.join(parts)!r}")
+    name = _check_name(parts[0])
+    match = _VALUE_RE.match(parts[1])
+    if not match or match.group(2):
+        raise MetricsError(
+            f"Metric {name!r}: {parts[1]!r} is not a number")
+    number = match.group(1)
+    value = _check_value(
+        name, int(number) if re.fullmatch(r'[+-]?\d+', number) else float(number))
+    if len(parts) == 3 and parts[2].strip():
+        return {name: {'value': value, 'unit': _check_unit(name, parts[2])}}
+    return {name: value}
+
+
 def load_metrics_file(path: str) -> Dict[str, Any]:
     """Read and validate a metrics JSON file ('-' reads standard input).
 
@@ -257,14 +301,19 @@ def load_metrics_file(path: str) -> Dict[str, Any]:
     return metrics
 
 
-def collect_metrics(arguments: List[str], file_path: Optional[str]) -> Dict[str, Any]:
-    """Metrics from the file, overridden by the command-line arguments."""
+def collect_metrics(arguments: List[str], file_path: Optional[str],
+                    options: Optional[List[List[str]]] = None) -> Dict[str, Any]:
+    """Metrics from the file, overridden by NAME=VALUE arguments, then by
+    -m/--metric options."""
     metrics: Dict[str, Any] = load_metrics_file(file_path) if file_path else {}
     for argument in arguments:
         metrics.update(parse_metric_argument(argument))
+    for option in options or []:
+        metrics.update(parse_metric_option(option))
     if not metrics:
         raise MetricsError(
-            'No metrics given. Pass NAME=VALUE arguments or --file PATH.')
+            'No metrics given. Pass -m NAME VALUE [UNIT], NAME=VALUE '
+            'arguments or --file PATH.')
     if len(metrics) > MAX_METRICS:
         raise MetricsError(
             f"{len(metrics)} metrics given; one upload takes at most {MAX_METRICS}")
@@ -320,8 +369,9 @@ def run_metrics(args) -> int:
             raise MetricsError('--all is only valid with --delete')
 
         if args.delete:
-            if args.file:
-                raise MetricsError('--file cannot be used with --delete')
+            if args.file or args.metric_options:
+                raise MetricsError(
+                    '--file and -m/--metric cannot be used with --delete')
             if args.all and args.metrics:
                 raise MetricsError('Give metric names or --all, not both')
             if not args.all and not args.metrics:
@@ -330,7 +380,8 @@ def run_metrics(args) -> int:
                     'every metric of the commit')
             names = None if args.all else [_check_name(n) for n in args.metrics]
         else:
-            metrics = collect_metrics(args.metrics, args.file)
+            metrics = collect_metrics(
+                args.metrics, args.file, args.metric_options)
 
         commit_sha = resolve_commit_sha(args.commit_sha, args.github)
         client = MemBrowseClient(

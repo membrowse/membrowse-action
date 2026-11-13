@@ -173,15 +173,15 @@ Attach benchmark results (cycle counts, timings, scores) to a commit; MemBrowse 
           target_name: stm32f4
           api_key: ${{ secrets.MEMBROWSE_API_KEY }}
           metrics: |
-            Boot time=412 ms
-            CoreMark=389.5
+            Boot time=${{ steps.bench.outputs.boot_ms }} ms
+            CoreMark=${{ steps.bench.outputs.coremark }}
           # or: metrics_file: bench.json
 ```
 
 From any other CI system, or locally:
 
 ```bash
-membrowse metrics "Boot time=412 ms" "CoreMark=389.5" \
+membrowse metrics -m "Boot time" "$BOOT_MS" ms -m CoreMark "$SCORE" \
     --target-name stm32f4 --api-key "$MEMBROWSE_API_KEY"
 
 membrowse metrics --file bench.json \

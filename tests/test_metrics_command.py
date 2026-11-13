@@ -21,7 +21,7 @@ import requests
 from membrowse.cli import create_parser
 from membrowse.commands.metrics import (
     MetricsError, collect_metrics, load_metrics_file, parse_metric_argument,
-    resolve_commit_sha, run_metrics,
+    parse_metric_option, resolve_commit_sha, run_metrics,
 )
 
 SHA = 'a' * 40
@@ -75,6 +75,27 @@ class TestParseMetricArgument(unittest.TestCase):
                 parse_metric_argument(bad)
 
 
+class TestParseMetricOption(unittest.TestCase):
+    """-m NAME VALUE [UNIT] options."""
+
+    def test_name_value_and_optional_unit(self):
+        """Name, number and unit arrive as separate arguments."""
+        self.assertEqual(parse_metric_option(['CoreMark', '389.5']), {'CoreMark': 389.5})
+        self.assertEqual(parse_metric_option(['Boot time', '412', 'ms']),
+                         {'Boot time': {'value': 412, 'unit': 'ms'}})
+        self.assertEqual(parse_metric_option(['Gain', '-4e0', ' dB ']),
+                         {'Gain': {'value': -4.0, 'unit': 'dB'}})
+        # An empty unit, e.g. an unset shell variable, is no unit
+        self.assertEqual(parse_metric_option(['A', '1', '']), {'A': 1})
+
+    def test_rejects_malformed(self):
+        """Wrong arity, a non-numeric value, or a unit glued to the value."""
+        for bad in (['A'], ['A', '1', 'ms', 'extra'], ['A', 'fast'],
+                    ['A', ''], ['A', '412ms'], ['', '1'], ['A', 'nan']):
+            with self.assertRaises(MetricsError, msg=bad):
+                parse_metric_option(bad)
+
+
 class TestMetricsFile(unittest.TestCase):
     """--file JSON input."""
 
@@ -122,6 +143,9 @@ class TestMetricsFile(unittest.TestCase):
         path = self._file({'A': 1, 'B': 2})
         self.assertEqual(collect_metrics(['B=5 ms'], path),
                          {'A': 1, 'B': {'value': 5, 'unit': 'ms'}})
+        self.assertEqual(
+            collect_metrics(['B=5 ms'], path, [['B', '7'], ['C', '3', 'us']]),
+            {'A': 1, 'B': 7, 'C': {'value': 3, 'unit': 'us'}})
         with self.assertRaises(MetricsError):
             collect_metrics([], None)
         with self.assertRaises(MetricsError):
@@ -209,6 +233,18 @@ class TestRunMetrics(unittest.TestCase):
         self.assertIn('Uploaded 2 metric(s) for stm32f4', output)
         self.assertIn('Boot time, CoreMark', output)
 
+    def test_metric_options_are_uploaded(self):
+        """-m options and NAME=VALUE arguments end up in one upload."""
+        code, request, _ = self._run(
+            ['-m', 'Boot time', '412', 'ms', '--metric', 'CoreMark', '389.5',
+             '--commit-sha', SHA] + BASE + ['Extra=1'])
+        self.assertEqual(code, 0)
+        self.assertEqual(request.call_args[1]['json']['metrics'], {
+            'Boot time': {'value': 412, 'unit': 'ms'},
+            'CoreMark': 389.5,
+            'Extra': 1,
+        })
+
     def test_json_prints_the_raw_response(self):
         """Json prints the raw response."""
         payload = {'success': True, 'data': {'metrics_stored': ['A']}}
@@ -244,6 +280,8 @@ class TestRunMetrics(unittest.TestCase):
                 ['--delete', '--commit-sha', SHA],            # nothing named
                 ['--delete', '--all', 'A', '--commit-sha', SHA],
                 ['A=1', '--all', '--commit-sha', SHA],        # --all without --delete
+                ['-m', 'A', '--commit-sha', SHA],              # -m without a value
+                ['--delete', 'A', '-m', 'B', '1', '--commit-sha', SHA],
                 ['--delete', 'A', '--file', 'x.json', '--commit-sha', SHA]):
             code, request, _ = self._run(argv + BASE)
             self.assertEqual(code, 1, argv)
