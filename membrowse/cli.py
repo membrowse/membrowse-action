@@ -12,6 +12,7 @@ import argparse
 from .commands.report import add_report_parser, run_report
 from .commands.onboard import add_onboard_parser, run_onboard
 from .commands.summary import add_summary_parser, run_summary
+from .commands.metrics import add_metrics_parser, run_metrics
 
 LOG_LEVELS = {
     "INFO": logging.INFO,
@@ -35,6 +36,7 @@ subcommands:
   report    Generate memory footprint report (local or upload mode)
   onboard   Analyze and upload memory footprints across historical commits
   summary   Retrieve memory footprint summary for a commit
+  metrics   Attach benchmark metrics to a commit
 
 examples:
   # Local mode - human-readable output (default)
@@ -58,10 +60,15 @@ examples:
   # Summary - get memory footprint summary for a commit
   membrowse summary abc123 --api-key "$API_KEY"
 
+  # Metrics - attach benchmark results to the current commit
+  membrowse metrics "Boot time=412 ms" "CoreMark=389.5" \\
+      --target-name stm32f4 --api-key "$API_KEY"
+
 For more help on a subcommand:
   membrowse report --help
   membrowse onboard --help
   membrowse summary --help
+  membrowse metrics --help
         """
     )
 
@@ -85,6 +92,7 @@ For more help on a subcommand:
     add_report_parser(subparsers)
     add_onboard_parser(subparsers)
     add_summary_parser(subparsers)
+    add_metrics_parser(subparsers)
 
     return parser
 
@@ -112,6 +120,8 @@ def main() -> int:
         return run_onboard(args)
     if args.subcommand == 'summary':
         return run_summary(args)
+    if args.subcommand == 'metrics':
+        return run_metrics(args)
     parser.print_help()
     return 1
 
