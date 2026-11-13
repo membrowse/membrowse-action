@@ -627,6 +627,32 @@ def _build_metadata_result(
     }
 
 
+def _github_event_commit() -> tuple:
+    """(event_name, event, commit_sha) for the running GitHub Actions job.
+
+    commit_sha is the commit the job is about, which is not always
+    GITHUB_SHA: for pull_request events that is a temporary merge commit,
+    and for workflow_run events it is the default branch tip rather than the
+    commit the triggering run built. Both carry the real one as head_sha.
+    """
+    event_name = os.environ.get('GITHUB_EVENT_NAME', '')
+    commit_sha = os.environ.get('GITHUB_SHA', '')
+    event = _parse_github_event(
+        event_name, os.environ.get('GITHUB_EVENT_PATH', ''))
+    if event_name in ('pull_request', 'workflow_run') and event.head_sha:
+        commit_sha = event.head_sha
+    return event_name, event, commit_sha
+
+
+def detect_github_commit_sha() -> str:
+    """The commit a GitHub Actions job reports on ('' outside GitHub Actions).
+
+    The same commit detect_github_metadata reports, without the git and API
+    work that collects the rest of the metadata.
+    """
+    return _github_event_commit()[2]
+
+
 def detect_github_metadata() -> Dict[str, Any]:
     """
     Detect Git metadata from GitHub Actions environment.
@@ -656,19 +682,7 @@ def detect_github_metadata() -> Dict[str, Any]:
     # commit the upload will actually report rather than from git HEAD.
     metadata = detect_git_metadata(include_ancestry=False, default_branch_lookup=False)
 
-    # Get GitHub environment variables
-    event_name = os.environ.get('GITHUB_EVENT_NAME', '')
-    commit_sha = os.environ.get('GITHUB_SHA', '')
-    event_path = os.environ.get('GITHUB_EVENT_PATH', '')
-
-    event = _parse_github_event(event_name, event_path)
-
-    # For pull_request events, use the PR head SHA instead of the merge commit SHA
-    # GITHUB_SHA points to a temporary merge commit in PR events, not the actual commit.
-    # For workflow_run events GITHUB_SHA is the default branch tip, not the
-    # commit the triggering run built; the payload's head_sha is.
-    if event_name in ('pull_request', 'workflow_run') and event.head_sha:
-        commit_sha = event.head_sha
+    event_name, event, commit_sha = _github_event_commit()
 
     # Ancestry first: its fetch is what makes the reported commit local when
     # the checkout does not have it (a pull_request checkout at fetch-depth 1
