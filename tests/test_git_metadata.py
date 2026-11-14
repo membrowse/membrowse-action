@@ -698,6 +698,41 @@ class TestAncestryInMetadata:
         assert 'forced' not in metadata
         assert metadata['commit_hash'] == head
 
+    def test_forced_push_that_rewrites_history_bases_on_the_parent(self):
+        """After a squash and force-push, 'before' is the replaced tip. It is not
+        an ancestor, so basing on it would keep the dropped commit in the chain."""
+        head, replaced, parent = self._sha(90), self._sha(91), self._sha(92)
+        metadata = self._run(
+            'push', {'before': replaced, 'after': head, 'forced': True},
+            {'GITHUB_SHA': head}, self._git({head: '\n'.join([head, parent])}))
+        assert metadata['base_commit_hash'] == parent
+        assert metadata['forced'] is True
+
+    def test_forced_push_without_ancestry_bases_on_the_git_parent(self):
+        """Test forced push without ancestry bases on the git parent."""
+        head, replaced, parent = self._sha(93), self._sha(94), self._sha(95)
+
+        def git(cmd, **_):
+            if cmd == ['rev-parse', f'{head}~1']:
+                return parent
+            if 'symbolic-ref' in cmd or 'for-each-ref' in cmd:
+                return 'main'
+            return None
+
+        metadata = self._run(
+            'push', {'before': replaced, 'after': head, 'forced': True},
+            {'GITHUB_SHA': head}, git)
+        assert metadata['base_commit_hash'] == parent
+
+    def test_forced_push_onto_a_descendant_still_bases_on_before(self):
+        """A forced push that only adds commits keeps 'before' in the ancestry,
+        so it still bridges over the unbuilt intermediates."""
+        head, middle, before = self._sha(96), self._sha(97), self._sha(98)
+        metadata = self._run(
+            'push', {'before': before, 'after': head, 'forced': True},
+            {'GITHUB_SHA': head}, self._git({head: '\n'.join([head, middle, before])}))
+        assert metadata['base_commit_hash'] == before
+
     def test_normal_push_carries_no_forced_flag(self):
         """Absent, not false: old cores ignore unknown keys either way."""
         head, before = self._sha(72), self._sha(73)
