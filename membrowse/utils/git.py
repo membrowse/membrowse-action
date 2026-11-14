@@ -707,7 +707,16 @@ def detect_github_metadata() -> Dict[str, Any]:
     # 'before' (branch creation / first push) is not a real commit, so skip it
     # and let the git parent stand. Guard against malformed event payloads by
     # only accepting a well-formed 40-hex SHA.
-    if event_name in ('pull_request', 'push', 'workflow_run') \
+    #
+    # A forced push can rewrite history, and then 'before' is the replaced tip,
+    # not an ancestor: basing on it would keep the dropped commit in the chain.
+    # A normal push is a fast-forward, so its 'before' is always an ancestor.
+    if event_name == 'push' and event.forced and _is_full_sha1(event.base_sha) \
+            and event.base_sha.lower() not in (metadata.get('ancestry') or []):
+        parent = _first_parent(commit_sha, metadata.get('ancestry')) if commit_sha else None
+        if parent:
+            metadata['base_commit_hash'] = parent
+    elif event_name in ('pull_request', 'push', 'workflow_run') \
             and _is_full_sha1(event.base_sha) and event.base_sha != _ZERO_SHA:
         metadata['base_commit_hash'] = event.base_sha
     elif event_name == 'workflow_run' and commit_sha:
