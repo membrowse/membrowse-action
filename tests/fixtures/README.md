@@ -32,6 +32,15 @@ fixtures/
     └── arduino-mega2560/         # avr-gcc 5.4, no debug info
 └── wolfssl/cortex-m4-min-ecc/    # 258f06e524, gcc-arm-cortex-m4-min-ecc target of
                                   # .github/membrowse-targets.json (gcc 13.2, -flto, no -g)
+└── esp-idf/                      # app.elf (debug stripped), linker scripts, compiled partition
+    │                             # table, image.json: size and segment table of the real .bin
+    ├── hello-esp32/              # ESP-IDF 6.0.3 examples/get-started/hello_world, default table
+    ├── hello-esp32s3/            #   S3: extern_ram_seg (PSRAM) over the constants window
+    ├── hello-esp32c6/            #   C6: irom_seg/drom_seg share one window, 32 KB MMU pages
+    ├── hello-esp32p4/            #   P4: app descriptor above the code window
+    ├── simple-ota-esp32/         # examples/system/ota/simple_ota_example: factory + 2 OTA slots
+    └── diybms-controller-pio/    # stuartpittaway/diyBMSv4ESP32 ESPController, PlatformIO,
+                                  # Arduino-ESP32 2.0 (IDF 4.4), custom two-slot OTA table
 └── trice/f030_inst_uart/         # rokath/trice ed7f4858c9, examples/F030_inst_uart with TCOBS framing,
                                   # xPack arm-none-eabi gcc 15.2.1, -Og -flto -g -gdwarf-2
 ```

@@ -13,7 +13,10 @@ from ..utils.git import (
 )
 from ..api.client import MemBrowseClient
 from ..auth.strategy import determine_auth_strategy
-from .report import generate_report, upload_report, DEFAULT_API_URL, _parse_linker_definitions
+from .report import (
+    generate_report, upload_report, DEFAULT_API_URL, _parse_linker_definitions,
+    _validate_partition_input)
+from ..analysis.esp_partition import EspPartitionError
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -273,6 +276,26 @@ examples:
              "this script's LENGTH values. Applied to every commit built during "
              'onboarding. Omit when the binary fits — --ld-scripts is already '
              'the real limit.'
+    )
+    parser.add_argument(
+        '--partition-table',
+        dest='partition_table',
+        default=None,
+        metavar='PATH',
+        help='ESP-IDF only: the build\'s compiled partition table '
+             '(partitions.bin), read after each commit\'s build. Flash is '
+             'measured against the app slot: the MMU window regions of the '
+             'linker scripts are replaced by one "app_partition" region. A '
+             'commit whose build has no partition table, or whose ELF is not '
+             'an ESP-IDF app, is uploaded as a failed build.'
+    )
+    parser.add_argument(
+        '--partition-name',
+        dest='partition_name',
+        default=None,
+        metavar='NAME',
+        help='App partition to measure against with --partition-table '
+             '(e.g. ota_0). Default: the smallest app partition.'
     )
 
     return parser
@@ -610,18 +633,28 @@ def _build_and_generate_report(commit, args, linker_variables):
 
     # Case 3: Build succeeded - generate report
     logger.debug("%s: Generating memory report...", log_prefix)
-    report = generate_report(
-        elf_path=args.elf_path,
-        ld_scripts=args.ld_scripts,
-        skip_line_program=False,
-        linker_variables=linker_variables,
-        map_file=getattr(args, 'map_file', None),
-        limits_ld=getattr(args, 'limits', None),
-        skip_sections=getattr(args, 'skip_sections', None),
-        source_root=getattr(args, 'source_root', None),
-        ld_include_dirs=getattr(args, 'ld_include_dirs', None),
-        exclude_alignment=getattr(args, 'exclude_alignment', False),
-    )
+    try:
+        report = generate_report(
+            elf_path=args.elf_path,
+            ld_scripts=args.ld_scripts,
+            skip_line_program=False,
+            linker_variables=linker_variables,
+            map_file=getattr(args, 'map_file', None),
+            limits_ld=getattr(args, 'limits', None),
+            skip_sections=getattr(args, 'skip_sections', None),
+            source_root=getattr(args, 'source_root', None),
+            ld_include_dirs=getattr(args, 'ld_include_dirs', None),
+            exclude_alignment=getattr(args, 'exclude_alignment', False),
+            partition_table=getattr(args, 'partition_table', None),
+            partition_name=getattr(args, 'partition_name', None),
+        )
+    except EspPartitionError as e:
+        # Per commit, not fatal: an old commit may predate the partition
+        # table or the ESP-IDF app descriptor. Falling back to the window
+        # regions would mix two layouts in the target's history.
+        logger.warning(
+            "%s: %s - treating as failed build", log_prefix, e)
+        return _create_empty_report(args.elf_path), True
 
     # Case 3b: Build succeeded but report has empty memory_layout
     # (e.g. linker script parsing failed for this commit).
@@ -1115,6 +1148,13 @@ def run_onboard(args: argparse.Namespace) -> int:  # pylint: disable=too-many-lo
         return 1
     if not use_explicit_commits and args.num_commits is None:
         logger.error("Either num_commits or --commits is required")
+        return 1
+    partition_error = _validate_partition_input(
+        getattr(args, 'partition_table', None),
+        getattr(args, 'partition_name', None),
+        args.ld_scripts.split() if args.ld_scripts else [])
+    if partition_error:
+        logger.error("%s", partition_error)
         return 1
 
     if getattr(args, 'dry_run', False):
