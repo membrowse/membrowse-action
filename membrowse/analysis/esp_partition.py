@@ -42,9 +42,15 @@ _CHECKSUM_ALIGN = 16
 _DIGEST_LEN = 32            # SHA-256 appended by ESP-IDF builds
 _FLASH_SEG_TAIL_MIN = 0x24  # see ImageParams.esp32_tail_pad
 _SIGNATURE_SECTOR_LEN = 4096  # Secure Boot V2 signature sector
-# Linked into the app when CONFIG_SECURE_SIGNED_APPS selects the Secure Boot
-# V2 scheme (the app verifies OTA images with it); absent otherwise.
-_SBV2_VERIFY_SYMBOL = 'esp_secure_boot_verify_sbv2_signature_block'
+# Defined in ESP-IDF's secure_boot_v2/secure_boot_signatures_app.c, which is
+# compiled only when CONFIG_SECURE_SIGNED_APPS selects the Secure Boot V2
+# scheme (RSA or ECDSA V2). --gc-sections keeps only the ones something calls:
+# the verifier is called from the OTA path alone, and an app without OTA is
+# still signed when it lacks it. Either one marks a signed app.
+_SBV2_SYMBOLS = frozenset((
+    'esp_secure_boot_verify_sbv2_signature_block',
+    'esp_secure_boot_get_signature_blocks_for_running_app',
+))
 
 
 class EspPartitionError(ValueError):
@@ -180,11 +186,11 @@ def _image_sections(elffile) -> List[Tuple[str, int, int]]:
 
 def _is_signed_sbv2(elffile) -> bool:
     """Whether the app is signed with Secure Boot V2, judged by the
-    verification code ESP-IDF links into signed apps."""
+    signature code ESP-IDF links into signed apps (any of _SBV2_SYMBOLS)."""
     symtab = elffile.get_section_by_name('.symtab')
     if symtab is None:
         return False
-    return any(sym.name == _SBV2_VERIFY_SYMBOL for sym in symtab.iter_symbols())
+    return any(sym.name in _SBV2_SYMBOLS for sym in symtab.iter_symbols())
 
 
 def image_params(elffile) -> ImageParams:
