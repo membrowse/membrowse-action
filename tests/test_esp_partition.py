@@ -481,6 +481,26 @@ class TestSignedBuild(unittest.TestCase):
                     signed = image_params(ELFFile(f)).signed_sbv2
                 self.assertEqual(signed, name == 'signed-esp32c3')
 
+    def test_signing_is_detected_without_the_verifier(self):
+        """A signed app without OTA has the verifier dropped by
+        --gc-sections; the other function from the same file still marks
+        it as signed."""
+        verifier = 'esp_secure_boot_verify_sbv2_signature_block'
+        with open(os.path.join(ESP_FIXTURES, 'signed-esp32c3', 'app.elf'), 'rb') as f:
+            elf = ELFFile(f)
+            symtab = elf.get_section_by_name('.symtab')
+            real_iter = symtab.iter_symbols
+
+            def without_verifier():
+                return (s for s in real_iter() if s.name != verifier)
+
+            with patch.object(symtab, 'iter_symbols', without_verifier):
+                self.assertNotIn(verifier, {s.name for s in symtab.iter_symbols()})
+                with patch.object(elf, 'get_section_by_name',
+                                  lambda name: symtab if name == '.symtab'
+                                  else ELFFile.get_section_by_name(elf, name)):
+                    self.assertTrue(image_params(elf).signed_sbv2)
+
     def test_padding_and_signature_entries(self):
         """The padding entry is the .bin's address-0 segment; the signature
         sector is the last 4 KB of the image."""
