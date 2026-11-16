@@ -1,0 +1,40 @@
+{
+ "bin_size": 1445888,
+ "segments": [
+  {
+   "load_address": 1007747104,
+   "length": 213084,
+   "file_offset": 32
+  },
+  {
+   "load_address": 1070152192,
+   "length": 15096,
+   "file_offset": 213124
+  },
+  {
+   "load_address": 1077411840,
+   "length": 33940,
+   "file_offset": 228228
+  },
+  {
+   "load_address": 1107296288,
+   "length": 1104576,
+   "file_offset": 262176
+  },
+  {
+   "load_address": 1077445780,
+   "length": 45972,
+   "file_offset": 1366760
+  },
+  {
+   "load_address": 1342177280,
+   "length": 36,
+   "file_offset": 1412740
+  },
+  {
+   "load_address": 0,
+   "length": 28960,
+   "file_offset": 1412784
+  }
+ ]
+}

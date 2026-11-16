@@ -39,8 +39,10 @@ fixtures/
     ├── hello-esp32c6/            #   C6: irom_seg/drom_seg share one window, 32 KB MMU pages
     ├── hello-esp32p4/            #   P4: app descriptor above the code window
     ├── simple-ota-esp32/         # examples/system/ota/simple_ota_example: factory + 2 OTA slots
-    └── diybms-controller-pio/    # stuartpittaway/diyBMSv4ESP32 ESPController, PlatformIO,
-                                  # Arduino-ESP32 2.0 (IDF 4.4), custom two-slot OTA table
+    ├── diybms-controller-pio/    # stuartpittaway/diyBMSv4ESP32 ESPController, PlatformIO,
+    │                             # Arduino-ESP32 2.0 (IDF 4.4), custom two-slot OTA table
+    └── signed-esp32c3/           # muse-gadget-sdk 5905300 (Apache-2.0), c3-oled-042 board,
+                                  # ESP-IDF 6.0.3, signed app (Secure Boot V2 padding + signature)
 └── trice/f030_inst_uart/         # rokath/trice ed7f4858c9, examples/F030_inst_uart with TCOBS framing,
                                   # xPack arm-none-eabi gcc 15.2.1, -Og -flto -g -gdwarf-2
 ```

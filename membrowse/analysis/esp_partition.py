@@ -13,7 +13,7 @@ When the build's partition table is given, :func:`apply_app_partition`
 replaces the window regions with one ``app_partition`` region: its limit is
 the smallest app slot in the table, and its contents are the app image laid
 out the way esptool writes it, so ``used_size`` equals the size of the
-``.bin`` that is flashed.
+``.bin`` that is flashed (signed, when the app is signed).
 """
 
 import logging
@@ -28,6 +28,8 @@ logger = logging.getLogger(__name__)
 APP_PARTITION_REGION = 'app_partition'
 OVERHEAD_SECTION = 'esp_image_overhead'
 APP_DESC_SECTION = '.flash.appdesc'
+SIGNING_PAD_SECTION = 'esp_signing_padding'
+SIGNATURE_SECTION = 'esp_signature_sector'
 
 _ENTRY = struct.Struct('<2sBBII16sI')
 _ENTRY_MAGIC = b'\xaa\x50'
@@ -39,6 +41,10 @@ _SEG_HEADER_LEN = 8         # load address + length before each segment
 _CHECKSUM_ALIGN = 16
 _DIGEST_LEN = 32            # SHA-256 appended by ESP-IDF builds
 _FLASH_SEG_TAIL_MIN = 0x24  # see ImageParams.esp32_tail_pad
+_SIGNATURE_SECTOR_LEN = 4096  # Secure Boot V2 signature sector
+# Linked into the app when CONFIG_SECURE_SIGNED_APPS selects the Secure Boot
+# V2 scheme (the app verifies OTA images with it); absent otherwise.
+_SBV2_VERIFY_SYMBOL = 'esp_secure_boot_verify_sbv2_signature_block'
 
 
 class EspPartitionError(ValueError):
@@ -107,10 +113,12 @@ def select_app_partition(partitions: List[Partition],
 @dataclass
 class _Chunk:
     """A run of image bytes: ``length`` bytes of the ELF's address space from
-    ``vaddr`` (None for padding) written at ``file_offset`` in the image."""
+    ``vaddr`` (None for padding) written at ``file_offset`` in the image.
+    ``name`` labels padding reported as its own entry (signing)."""
     vaddr: Optional[int]
     length: int
     file_offset: int
+    name: Optional[str] = None
 
 
 @dataclass
@@ -133,6 +141,10 @@ class ImageParams:
     # Address of .flash.appdesc: its segment is written first, so the
     # bootloader finds the app descriptor at offset 0x20.
     app_desc_addr: Optional[int] = None
+    # Signed with Secure Boot V2: esptool pads the image (``--secure-pad-v2``)
+    # so it ends on an MMU page boundary, and signing appends a 4 KB
+    # signature sector.
+    signed_sbv2: bool = False
 
 
 # Section types esptool copies into the image (it skips NOBITS, notes, ...).
@@ -156,8 +168,18 @@ def _image_sections(elffile) -> List[Tuple[str, int, int]]:
     return sorted(result, key=lambda s: s[1])
 
 
+def _is_signed_sbv2(elffile) -> bool:
+    """Whether the app is signed with Secure Boot V2, judged by the
+    verification code ESP-IDF links into signed apps."""
+    symtab = elffile.get_section_by_name('.symtab')
+    if symtab is None:
+        return False
+    return any(sym.name == _SBV2_VERIFY_SYMBOL for sym in symtab.iter_symbols())
+
+
 def image_params(elffile) -> ImageParams:
-    """Read the layout settings from the ELF's app descriptor."""
+    """Read the layout settings from the ELF's app descriptor, and whether
+    the app is signed."""
     desc = elffile.get_section_by_name(APP_DESC_SECTION)
     page_size = 0x10000
     data = desc.data()
@@ -169,7 +191,8 @@ def image_params(elffile) -> ImageParams:
     return ImageParams(
         mmu_page_size=page_size,
         esp32_tail_pad=_ESP32_DROM[0] <= addr < _ESP32_DROM[1],
-        app_desc_addr=addr)
+        app_desc_addr=addr,
+        signed_sbv2=_is_signed_sbv2(elffile))
 
 
 def _merge_segments(sections, is_flash) -> List[_Segment]:
@@ -223,7 +246,9 @@ def layout_image(sections, is_flash,
     chips: flash-mapped segments at the offsets their MMU pages need (the
     app descriptor's first), the gaps before them filled with RAM segments,
     the remaining RAM segments after, then the checksum byte and the SHA-256
-    digest. Secure boot padding (added when signing) is not modelled.
+    digest. A Secure Boot V2 signed image gets esptool's padding segment
+    before the checksum, so it ends on a page boundary, and the signature
+    sector after the digest. Secure Boot V1 (ESP32 only) is not modelled.
 
     Returns the data chunks and the total image size.
     """
@@ -232,10 +257,10 @@ def layout_image(sections, is_flash,
     chunks: List[_Chunk] = []
     pos = _IMAGE_HEADER_LEN
 
-    def write(vaddr, length):
+    def write(vaddr, length, name=None):
         nonlocal pos
         pos += _SEG_HEADER_LEN
-        chunks.append(_Chunk(vaddr, length, pos))
+        chunks.append(_Chunk(vaddr, length, pos, name))
         pos += length
 
     while flash_segs:
@@ -263,20 +288,34 @@ def layout_image(sections, is_flash,
     for ram in ram_segs:
         write(ram.addr, ram.length)
 
+    if params.signed_sbv2:
+        # esptool's secure_pad "2": a zero segment sized so that the 16-byte
+        # checksum block and the digest end exactly on a page boundary.
+        align_past = (pos + _SEG_HEADER_LEN) % align
+        write(None, (align - align_past - _CHECKSUM_ALIGN - _DIGEST_LEN) % align,
+              SIGNING_PAD_SECTION)
+
     pos += (_CHECKSUM_ALIGN - 1) - (pos % _CHECKSUM_ALIGN) + 1  # checksum byte
     pos += _DIGEST_LEN
+    if params.signed_sbv2:
+        chunks.append(_Chunk(None, _SIGNATURE_SECTOR_LEN, pos, SIGNATURE_SECTION))
+        pos += _SIGNATURE_SECTOR_LEN
     return chunks, pos
 
 
 def _section_entries(sections, chunks, base: int,
                      section_types: Dict[str, str]) -> List[Dict]:
-    """Place each section's bytes at their physical address in the partition.
+    """Place each section's bytes at their physical address in the partition,
+    and the signing padding and signature sector when the image is signed.
 
     A section whose bytes the image splits (a RAM segment cut to fill the gap
     before a flash segment) gets one entry per piece.
     """
     entries = []
     for chunk in chunks:
+        if chunk.name and chunk.length:
+            entries.append(_entry(chunk.name, base + chunk.file_offset,
+                                  chunk.length, 'unknown'))
         if chunk.vaddr is None:
             continue
         chunk_end = chunk.vaddr + chunk.length
@@ -392,7 +431,8 @@ def apply_app_partition(memory_regions: Dict[str, MemoryRegion],
         return any(r.address <= addr < r.address + r.limit_size
                    for r in windows.values())
 
-    chunks, image_size = layout_image(sections, is_flash, image_params(elffile))
+    params = image_params(elffile)
+    chunks, image_size = layout_image(sections, is_flash, params)
     entries = _section_entries(sections, chunks, partition.offset, section_types)
     overhead = _overhead_entry(entries, partition.offset, image_size)
     if overhead:
@@ -408,9 +448,10 @@ def apply_app_partition(memory_regions: Dict[str, MemoryRegion],
         sections=entries,
     )
     logger.info(
-        "ESP-IDF app image: %d bytes in partition '%s' (0x%x, %d bytes); "
+        "ESP-IDF app image: %d bytes%s in partition '%s' (0x%x, %d bytes); "
         "replaced flash window region(s): %s",
-        image_size, partition.name, partition.offset, partition.size,
+        image_size, ' (signed, Secure Boot V2)' if params.signed_sbv2 else '',
+        partition.name, partition.offset, partition.size,
         ', '.join(sorted(removed)))
     if image_size > partition.size:
         logger.warning(

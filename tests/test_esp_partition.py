@@ -19,8 +19,9 @@ from unittest.mock import patch
 from elftools.elf.elffile import ELFFile
 
 from membrowse.analysis.esp_partition import (
-    APP_PARTITION_REGION, OVERHEAD_SECTION, EspPartitionError, Partition,
-    image_params, layout_image, parse_partition_table, select_app_partition)
+    APP_PARTITION_REGION, OVERHEAD_SECTION, SIGNATURE_SECTION, SIGNING_PAD_SECTION,
+    EspPartitionError, ImageParams, Partition, image_params, layout_image,
+    parse_partition_table, select_app_partition)
 from membrowse.commands.onboard import _build_and_generate_report
 from membrowse.commands.report import _validate_partition_input, generate_report
 
@@ -157,6 +158,26 @@ class TestLayoutImage(unittest.TestCase):
         self.assertEqual(len(flash), 1)
         self.assertEqual(flash[0].length, 0x104 + 0x2C)
 
+    def test_signed_image_ends_on_a_page_then_the_signature_sector(self):
+        """Secure Boot V2: a padding segment makes the image (with its
+        checksum and digest) end on a page boundary; the 4 KB signature
+        sector follows."""
+        sections = [('.flash.text', 0x400D0020, 0x3000),
+                    ('.dram0.data', 0x3FFB0000, 0x123)]
+        _, unsigned = layout_image(sections, _esp32_flash)
+        for page in (0x10000, 0x8000):
+            with self.subTest(page=page):
+                chunks, size = layout_image(
+                    sections, _esp32_flash,
+                    ImageParams(mmu_page_size=page, signed_sbv2=True))
+                self.assertEqual((size - 4096) % page, 0)
+                self.assertGreater(size - 4096, unsigned)
+                pad, sig = chunks[-2], chunks[-1]
+                self.assertEqual((pad.name, sig.name),
+                                 (SIGNING_PAD_SECTION, SIGNATURE_SECTION))
+                self.assertEqual(pad.file_offset + pad.length + 16 + 32, size - 4096)
+                self.assertEqual((sig.file_offset, sig.length), (size - 4096, 4096))
+
 
 class TestValidatePartitionInput(unittest.TestCase):
     """CLI checks for --partition-table / --partition-name."""
@@ -241,6 +262,9 @@ ESP_TARGETS = {
     # PlatformIO, Arduino-ESP32 2.0 (IDF 4.4), custom two-slot OTA table
     'diybms-controller-pio': (['memory.ld'], 'partitions.bin',
                               {'iram0_2_seg', 'drom0_0_seg'}),
+    # muse-gadget-sdk, ESP-IDF 6.0.3, signed app (Secure Boot V2 scheme)
+    'signed-esp32c3': (['memory.ld', 'sections.ld'], 'partition-table.bin',
+                       {'iram0_2_seg', 'drom0_0_seg'}),
 }
 
 
@@ -280,7 +304,7 @@ class TestRealBuilds(unittest.TestCase):
             with self.subTest(name):
                 region = _esp_report(name)['memory_layout'][APP_PARTITION_REGION]
                 starts = {s['address'] for s in region['sections']
-                          if s['name'] != OVERHEAD_SECTION}
+                          if s['name'] not in (OVERHEAD_SECTION, SIGNING_PAD_SECTION)}
                 for seg in _image(name)['segments']:
                     if seg['load_address'] == 0:
                         continue  # zero padding segment
@@ -353,6 +377,39 @@ class TestRealBuilds(unittest.TestCase):
         self.assertTrue({'.iram0.text', '.dram0.data', '.flash.text',
                          '.flash.rodata'} <= names)
         self.assertNotIn('.flash.rodata_noload', names)  # NOBITS: not in the image
+
+
+class TestSignedBuild(unittest.TestCase):
+    """A signed app's .bin carries esptool's signing padding and the
+    signature sector; both count against the partition."""
+
+    def test_signing_is_detected_from_the_elf(self):
+        """Only the signed build links the Secure Boot V2 verifier."""
+        for name in ESP_TARGETS:
+            with self.subTest(name):
+                with open(os.path.join(ESP_FIXTURES, name, 'app.elf'), 'rb') as f:
+                    signed = image_params(ELFFile(f)).signed_sbv2
+                self.assertEqual(signed, name == 'signed-esp32c3')
+
+    def test_padding_and_signature_entries(self):
+        """The padding entry is the .bin's address-0 segment; the signature
+        sector is the last 4 KB of the image."""
+        region = _esp_report('signed-esp32c3')['memory_layout'][APP_PARTITION_REGION]
+        by_name = {s['name']: s for s in region['sections']}
+        pad_seg = _image('signed-esp32c3')['segments'][-1]
+        self.assertEqual(pad_seg['load_address'], 0)
+        pad = by_name[SIGNING_PAD_SECTION]
+        self.assertEqual((pad['address'], pad['size']),
+                         (region['address'] + pad_seg['file_offset'], pad_seg['length']))
+        sig = by_name[SIGNATURE_SECTION]
+        self.assertEqual((sig['size'], sig['end_address']),
+                         (4096, region['address'] + region['used_size']))
+
+    def test_unsigned_builds_have_no_signing_entries(self):
+        """No padding or signature entries without signing."""
+        names = {s['name'] for s in _esp_report('hello-esp32s3')['memory_layout']
+                 [APP_PARTITION_REGION]['sections']}
+        self.assertFalse(names & {SIGNING_PAD_SECTION, SIGNATURE_SECTION})
 
 
 class TestConstants(unittest.TestCase):
