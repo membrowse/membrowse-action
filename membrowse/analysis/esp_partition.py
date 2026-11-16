@@ -94,8 +94,11 @@ def select_app_partition(partitions: List[Partition],
     """Return the app slot to measure against.
 
     By default the smallest app partition (``factory``, ``ota_N``, ``test``),
-    since the image must fit any slot it can be flashed to. ``name`` picks a
-    slot explicitly.
+    since the image must fit any slot it can be flashed to (ESP-IDF's
+    ``check_sizes.py`` rule). ``name`` picks a slot explicitly. Tables whose
+    app slots differ in size often keep a small slot for a separate app
+    (meshtastic's ``flashApp`` OTA loader next to a 2.3 MB ``app``); the
+    smallest is then the wrong limit, so that case is logged.
     """
     apps = [p for p in partitions if p.type == _TYPE_APP]
     if name:
@@ -107,7 +110,14 @@ def select_app_partition(partitions: List[Partition],
             f"(app partitions: {', '.join(p.name for p in apps) or 'none'})")
     if not apps:
         raise EspPartitionError("The partition table has no app partition")
-    return min(apps, key=lambda p: (p.size, p.offset))
+    smallest = min(apps, key=lambda p: (p.size, p.offset))
+    if len({p.size for p in apps}) > 1:
+        logger.warning(
+            "The app partitions differ in size (%s); measuring against the "
+            "smallest, '%s'. If the firmware is flashed to another slot, set "
+            "partition_name (--partition-name) to it.",
+            ', '.join(f"{p.name} {p.size}" for p in apps), smallest.name)
+    return smallest
 
 
 @dataclass
@@ -371,6 +381,12 @@ def _is_writable(region: MemoryRegion) -> bool:
     return 'W' in (region.type or '').upper()
 
 
+def _is_placeholder(section_name: str) -> bool:
+    """An ESP-IDF NOLOAD section that reserves the addresses of a flash
+    window (named ``*dummy``)."""
+    return section_name.endswith('dummy')
+
+
 def _drop_windows(memory_regions: Dict[str, MemoryRegion],
                   windows: Dict[str, MemoryRegion], image_names) -> List[str]:
     """Take the flash windows out of the layout. Returns the removed names.
@@ -378,10 +394,13 @@ def _drop_windows(memory_regions: Dict[str, MemoryRegion],
     Read-only window regions are removed. A writable region over a window
     (PSRAM, ``extern_ram_seg`` on the S3) is kept for the RAM sections in it,
     without the flash sections; RAM sections the mapper put in a removed
-    twin region move to it.
+    twin region move to it. Placeholder sections that only reserve the
+    window's addresses (``.flash_rodata_dummy``, ``.ext_ram.dummy`` on the
+    S3) are dropped: they take no flash and no PSRAM.
     """
     def is_flash_entry(entry):
-        return entry['name'] in image_names or entry['name'].startswith('.flash.')
+        return (entry['name'] in image_names or entry['name'].startswith('.flash.')
+                or _is_placeholder(entry['name']))
 
     kept = {(r.address, r.limit_size): r for r in windows.values() if _is_writable(r)}
     removed = []

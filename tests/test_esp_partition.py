@@ -108,6 +108,21 @@ class TestSelectAppPartition(unittest.TestCase):
         with self.assertRaisesRegex(EspPartitionError, "No app partition named 'app9'"):
             select_app_partition(self.PARTS, 'app9')
 
+    def test_uneven_slots_are_logged(self):
+        """A small second app slot (meshtastic's flashApp OTA loader) is
+        still the default, but the choice is logged with the way out."""
+        parts = [Partition('app', 0, 0x10, 0x10000, 0x250000),
+                 Partition('flashApp', 0, 0x11, 0x260000, 0xA0000)]
+        with self.assertLogs('membrowse.analysis.esp_partition', 'WARNING') as logs:
+            self.assertEqual(select_app_partition(parts).name, 'flashApp')
+        self.assertIn('partition_name', logs.output[0])
+
+    def test_even_slots_are_not_logged(self):
+        """Two equal OTA slots: no warning."""
+        parts = [self.PARTS[2], self.PARTS[3]]
+        with self.assertNoLogs('membrowse.analysis.esp_partition', 'WARNING'):
+            select_app_partition(parts)
+
     def test_no_app_partition(self):
         """A table without app partitions is an error."""
         with self.assertRaisesRegex(EspPartitionError, 'no app partition'):
@@ -351,6 +366,20 @@ class TestRealBuilds(unittest.TestCase):
         self.assertIn('extern_ram_seg', layout)
         self.assertFalse(any(s['name'].startswith('.flash.')
                              for s in layout['extern_ram_seg']['sections']))
+
+    def test_address_placeholders_are_dropped_from_psram(self):
+        """.flash_rodata_dummy and .ext_ram.dummy only reserve the window's
+        addresses: not PSRAM use. DRAM's .dram0.dummy (the IRAM share of the
+        shared SRAM) is not a window section and stays."""
+        layout = _esp_report('hello-esp32s3')['memory_layout']
+        before = _esp_report('hello-esp32s3', partition=False)['memory_layout']
+        self.assertIn('.ext_ram.dummy',
+                      {s['name'] for s in before['drom0_0_seg']['sections']})
+        names = {s['name'] for s in layout['extern_ram_seg']['sections']}
+        self.assertFalse(names & {'.flash_rodata_dummy', '.ext_ram.dummy'})
+        self.assertEqual(layout['extern_ram_seg']['used_size'], 0)
+        self.assertIn('.dram0.dummy',
+                      {s['name'] for s in layout['dram0_0_seg']['sections']})
 
     def test_mmu_page_size_from_the_app_descriptor(self):
         """The C6 build has 2 MB flash and 32 KB MMU pages: its code segment
