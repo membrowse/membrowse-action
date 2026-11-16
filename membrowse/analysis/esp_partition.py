@@ -313,8 +313,7 @@ def layout_image(sections, is_flash,
     return chunks, pos
 
 
-def _section_entries(sections, chunks, base: int,
-                     section_types: Dict[str, str]) -> List[Dict]:
+def _section_entries(sections, chunks, base: int) -> List[Dict]:
     """Place each section's bytes at their physical address in the partition,
     and the signing padding and signature sector when the image is signed.
 
@@ -335,7 +334,7 @@ def _section_entries(sections, chunks, base: int,
             if start < end:
                 entries.append(_entry(
                     name, base + chunk.file_offset + (start - chunk.vaddr),
-                    end - start, section_types.get(name, 'unknown')))
+                    end - start, 'unknown'))
     return entries
 
 
@@ -417,9 +416,41 @@ def _drop_windows(memory_regions: Dict[str, MemoryRegion],
     return removed
 
 
+def _apply_report_sizes(entries: List[Dict],
+                        reported: Dict[str, Tuple[int, str]]) -> List[Dict]:
+    """Make the entries follow the report's sections: drop sections the
+    report skipped (``--skip-section``) and trim the padding it excluded
+    (``--exclude-alignment``) off the end of each section.
+
+    The layout itself is worked out from the whole ELF, since the file
+    offsets depend on every byte, so the remaining entries keep their real
+    addresses.
+    """
+    kept = []
+    for entry in sorted(entries, key=lambda e: e['address'], reverse=True):
+        name = entry['name']
+        if name in (OVERHEAD_SECTION, SIGNING_PAD_SECTION, SIGNATURE_SECTION):
+            kept.append(entry)
+            continue
+        if name not in reported:
+            continue  # skipped
+        size, sec_type = reported[name]
+        entry['type'] = sec_type
+        # Bytes of this section still placed in lower-addressed pieces.
+        lower = sum(e['size'] for e in entries
+                    if e['name'] == name and e['address'] < entry['address'])
+        keep = min(entry['size'], max(0, size - lower))
+        if keep == 0:
+            continue
+        if keep < entry['size']:
+            entry.update(size=keep, end_address=entry['address'] + keep)
+        kept.append(entry)
+    return kept
+
+
 def apply_app_partition(memory_regions: Dict[str, MemoryRegion],
                         elffile,
-                        section_types: Dict[str, str],
+                        report_sections,
                         partition: Partition) -> None:
     """Replace the ESP-IDF flash window regions with an ``app_partition``
     region measured against ``partition``.
@@ -429,6 +460,10 @@ def apply_app_partition(memory_regions: Dict[str, MemoryRegion],
     Sections in those windows are flash-mapped; everything else in the
     image (IRAM code, ``.data`` initial values, RTC data) is copied from
     flash to RAM at boot but still takes space in the partition.
+
+    ``report_sections`` are the report's sections (``MemorySection``), after
+    ``--skip-section`` and ``--exclude-alignment``: skipped sections and
+    excluded padding don't count in the partition either.
 
     Raises:
         EspPartitionError: If the ELF is not an ESP-IDF app or no window
@@ -452,11 +487,17 @@ def apply_app_partition(memory_regions: Dict[str, MemoryRegion],
 
     params = image_params(elffile)
     chunks, image_size = layout_image(sections, is_flash, params)
-    entries = _section_entries(sections, chunks, partition.offset, section_types)
+    entries = _section_entries(sections, chunks, partition.offset)
     overhead = _overhead_entry(entries, partition.offset, image_size)
     if overhead:
         entries.append(overhead)
+    entries = _apply_report_sizes(
+        entries, {s.name: (s.size, s.type) for s in report_sections})
     entries.sort(key=lambda e: e['address'])
+    not_counted = image_size - sum(e['size'] for e in entries)
+    if not_counted:
+        logger.info("app_partition: %d bytes of the image not counted "
+                    "(--skip-section / --exclude-alignment)", not_counted)
 
     removed = _drop_windows(memory_regions, windows,
                             {name for name, _addr, _size in sections})

@@ -255,8 +255,8 @@ class ReportGenerator:  # pylint: disable=too-few-public-methods,too-many-instan
         if self.app_partition is None:
             return
         apply_app_partition(
-            memory_regions, self.elf_analyzer.elffile,
-            {s.name: s.type for s in sections}, self.app_partition)
+            memory_regions, self.elf_analyzer.elffile, sections,
+            self.app_partition)
 
     def _apply_section_skips(self, sections, symbols):
         """Remove sections (and symbols inside them) whose names appear in

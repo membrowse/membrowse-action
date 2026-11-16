@@ -20,8 +20,8 @@ from elftools.elf.elffile import ELFFile
 
 from membrowse.analysis.esp_partition import (
     APP_PARTITION_REGION, OVERHEAD_SECTION, SIGNATURE_SECTION, SIGNING_PAD_SECTION,
-    EspPartitionError, ImageParams, Partition, image_params, layout_image,
-    parse_partition_table, select_app_partition)
+    EspPartitionError, ImageParams, Partition, _apply_report_sizes, image_params,
+    layout_image, parse_partition_table, select_app_partition)
 from membrowse.commands.onboard import _build_and_generate_report
 from membrowse.commands.report import _validate_partition_input, generate_report
 
@@ -120,8 +120,9 @@ class TestSelectAppPartition(unittest.TestCase):
     def test_even_slots_are_not_logged(self):
         """Two equal OTA slots: no warning."""
         parts = [self.PARTS[2], self.PARTS[3]]
-        with self.assertNoLogs('membrowse.analysis.esp_partition', 'WARNING'):
+        with patch('membrowse.analysis.esp_partition.logger') as log:
             select_app_partition(parts)
+        log.warning.assert_not_called()  # assertNoLogs needs Python 3.10
 
     def test_no_app_partition(self):
         """A table without app partitions is an error."""
@@ -283,7 +284,7 @@ ESP_TARGETS = {
 }
 
 
-def _esp_report(name, partition=True, partition_name=None):
+def _esp_report(name, partition=True, partition_name=None, **kwargs):
     scripts, table, _ = ESP_TARGETS[name]
     base = os.path.join(ESP_FIXTURES, name)
     return generate_report(
@@ -291,7 +292,7 @@ def _esp_report(name, partition=True, partition_name=None):
         ' '.join(os.path.join(base, s) for s in scripts),
         skip_line_program=True,
         partition_table=os.path.join(base, table) if partition else None,
-        partition_name=partition_name)
+        partition_name=partition_name, **kwargs)
 
 
 def _image(name):
@@ -406,6 +407,46 @@ class TestRealBuilds(unittest.TestCase):
         self.assertTrue({'.iram0.text', '.dram0.data', '.flash.text',
                          '.flash.rodata'} <= names)
         self.assertNotIn('.flash.rodata_noload', names)  # NOBITS: not in the image
+
+
+class TestReportOptions(unittest.TestCase):
+    """--skip-section and --exclude-alignment apply to app_partition too:
+    the layout comes from the whole ELF, the counted bytes from the
+    report's sections."""
+
+    def test_skipped_section_is_not_counted(self):
+        """Skipping .dram0.data drops its bytes from the partition; the
+        other entries keep their addresses."""
+        full = _esp_report('hello-esp32')['memory_layout'][APP_PARTITION_REGION]
+        skipped = _esp_report('hello-esp32', skip_sections=['.dram0.data'])[
+            'memory_layout'][APP_PARTITION_REGION]
+        data = sum(s['size'] for s in full['sections'] if s['name'] == '.dram0.data')
+        self.assertGreater(data, 0)
+        self.assertEqual(skipped['used_size'], full['used_size'] - data)
+        self.assertEqual(
+            {(s['name'], s['address'], s['size']) for s in full['sections']
+             if s['name'] != '.dram0.data'},
+            {(s['name'], s['address'], s['size']) for s in skipped['sections']})
+
+    def test_excluded_padding_is_trimmed_from_the_end(self):
+        """A section split in two pieces loses its excluded padding from
+        the higher-addressed piece; overhead and signing entries stay."""
+        entries = [
+            {'name': '.iram0.text', 'address': 0x100, 'size': 0x40,
+             'type': 'unknown', 'end_address': 0x140},
+            {'name': '.iram0.text', 'address': 0x400, 'size': 0x20,
+             'type': 'unknown', 'end_address': 0x420},
+            {'name': OVERHEAD_SECTION, 'address': 0, 'size': 0x18,
+             'type': 'unknown', 'end_address': 0x18},
+            {'name': '.skipped', 'address': 0x200, 'size': 0x10,
+             'type': 'unknown', 'end_address': 0x210},
+        ]
+        kept = _apply_report_sizes(entries, {'.iram0.text': (0x50, 'text')})
+        by_addr = {e['address']: e for e in kept}
+        self.assertEqual(sorted(by_addr), [0, 0x100, 0x400])
+        self.assertEqual((by_addr[0x100]['size'], by_addr[0x400]['size']), (0x40, 0x10))
+        self.assertEqual(by_addr[0x400]['end_address'], 0x410)
+        self.assertEqual(by_addr[0x100]['type'], 'text')
 
 
 class TestSignedBuild(unittest.TestCase):
