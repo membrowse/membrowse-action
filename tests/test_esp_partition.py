@@ -428,6 +428,26 @@ class TestReportOptions(unittest.TestCase):
              if s['name'] != '.dram0.data'},
             {(s['name'], s['address'], s['size']) for s in skipped['sections']})
 
+    def test_skipping_flash_sections_keeps_the_windows(self):
+        """Skipping the only section of a window (.flash.text), or every
+        .flash.* section, still replaces both windows and keeps the layout:
+        the windows are found from the unfiltered ELF."""
+        full = _esp_report('hello-esp32')['memory_layout']
+        region = full[APP_PARTITION_REGION]
+        flash = sorted({s['name'] for s in region['sections']
+                        if s['name'].startswith('.flash.')})
+        for skip in (['.flash.text'], flash):
+            with self.subTest(skip=skip):
+                layout = _esp_report('hello-esp32', skip_sections=skip)['memory_layout']
+                self.assertEqual(set(layout), set(full))
+                skipped = layout[APP_PARTITION_REGION]
+                dropped = sum(s['size'] for s in region['sections'] if s['name'] in skip)
+                self.assertEqual(skipped['used_size'], region['used_size'] - dropped)
+                self.assertEqual(
+                    {(s['name'], s['address']) for s in region['sections']
+                     if s['name'] not in skip},
+                    {(s['name'], s['address']) for s in skipped['sections']})
+
     def test_excluded_padding_is_trimmed_from_the_end(self):
         """A section split in two pieces loses its excluded padding from
         the higher-addressed piece; overhead and signing entries stay."""

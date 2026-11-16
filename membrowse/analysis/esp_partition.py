@@ -359,16 +359,21 @@ def _entry(name: str, address: int, size: int, sec_type: str) -> Dict:
 
 def _flash_windows(memory_regions: Dict[str, MemoryRegion],
                    sections) -> Dict[str, MemoryRegion]:
-    """The regions covering the MMU flash windows: those the image's
-    ``.flash.*`` sections were mapped to, plus any region declared over the
-    same address range. On C5, C6 and P4 ``irom_seg`` and ``drom_seg`` share
-    one window and only one of them receives the sections; on the S3,
-    ``extern_ram_seg`` (PSRAM) is declared over the constants window.
+    """The regions covering the MMU flash windows: those containing the
+    address of one of the ELF's ``.flash.*`` image sections, plus any region
+    declared over the same address range. On C5, C6 and P4 ``irom_seg`` and
+    ``drom_seg`` share one window; on the S3, ``extern_ram_seg`` (PSRAM) is
+    declared over the constants window.
+
+    ``sections`` are the unfiltered image sections, not the report's, so a
+    window is still found when ``--skip-section`` removed all of its
+    sections from the report.
     """
-    flash_names = {name for name, _addr, _size in sections
-                   if name.startswith('.flash.')}
+    flash_addrs = [addr for name, addr, _size in sections
+                   if name.startswith('.flash.')]
     mapped = {name for name, region in memory_regions.items()
-              if any(s['name'] in flash_names for s in region.sections)}
+              if any(region.address <= addr < region.address + region.limit_size
+                     for addr in flash_addrs)}
     ranges = {(memory_regions[n].address, memory_regions[n].limit_size)
               for n in mapped}
     return {name: region for name, region in memory_regions.items()
