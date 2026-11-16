@@ -307,6 +307,7 @@ class TestRealBuilds(unittest.TestCase):
         are 0x1A9000 each and the factory one comes first."""
         hello = _esp_report('hello-esp32')['memory_layout'][APP_PARTITION_REGION]
         self.assertEqual((hello['address'], hello['limit_size']), (0x10000, 0x100000))
+        self.assertEqual(hello['type'], 'R')
         ota = _esp_report('simple-ota-esp32')['memory_layout'][APP_PARTITION_REGION]
         self.assertEqual((ota['address'], ota['limit_size']), (0x20000, 0x1A9000))
 

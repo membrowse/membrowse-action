@@ -404,7 +404,7 @@ def apply_app_partition(memory_regions: Dict[str, MemoryRegion],
     memory_regions[APP_PARTITION_REGION] = MemoryRegion(
         address=partition.offset,
         limit_size=partition.size,
-        type='FLASH',
+        type='R',
         sections=entries,
     )
     logger.info(
