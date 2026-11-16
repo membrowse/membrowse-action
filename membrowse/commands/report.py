@@ -22,6 +22,8 @@ from ..analysis.defaults import (
     map_sections_to_default_regions
 )
 from ..analysis.mapper import MemoryMapper
+from ..analysis.esp_partition import (
+    EspPartitionError, parse_partition_table, select_app_partition)
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -462,6 +464,27 @@ examples:
              'binary fits — the primary ld_scripts are already the real limit.'
     )
 
+    perf_group.add_argument(
+        '--partition-table',
+        default=None,
+        metavar='PATH',
+        help='ESP-IDF only: the build\'s compiled partition table '
+             '(partitions.bin; PlatformIO: .pio/build/<env>/partitions.bin, '
+             'idf.py: build/partition_table/partition-table.bin). Flash is '
+             'then measured against the app slot instead of the MMU windows '
+             'of the linker scripts: the window regions are replaced by one '
+             '"app_partition" region holding the app image as esptool lays '
+             'it out. Changes the target\'s regions, so set it from a '
+             'target\'s first report on.'
+    )
+    perf_group.add_argument(
+        '--partition-name',
+        default=None,
+        metavar='NAME',
+        help='App partition to measure against with --partition-table '
+             '(e.g. ota_0). Default: the smallest app partition.'
+    )
+
     # Alert handling
     alert_group = parser.add_argument_group('alert options')
     alert_group.add_argument(
@@ -567,7 +590,7 @@ def _apply_default_regions(generator: ReportGenerator, report: dict) -> None:
     }
 
 
-def generate_report(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+def generate_report(  # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals
     elf_path: str,
     ld_scripts: Optional[str] = None,
     skip_line_program: bool = False,
@@ -578,6 +601,8 @@ def generate_report(  # pylint: disable=too-many-arguments,too-many-positional-a
     source_root: Optional[str] = None,
     ld_include_dirs: Optional[List[str]] = None,
     exclude_alignment: bool = False,
+    partition_table: Optional[str] = None,
+    partition_name: Optional[str] = None,
 ) -> dict:
     """
     Generate a memory footprint report from ELF and optionally linker scripts.
@@ -611,11 +636,19 @@ def generate_report(  # pylint: disable=too-many-arguments,too-many-positional-a
             statements at the end of sections off their sizes. Exact with
             a GNU LD or LLD ``map_file``, estimated from ELF symbols
             otherwise.
+        partition_table: Path to an ESP-IDF build's compiled partition table
+            (``partitions.bin``). Flash is then measured against the app
+            slot: the linker scripts' flash window regions are replaced by
+            one ``app_partition`` region. Requires the ESP-IDF linker scripts.
+        partition_name: App slot to measure against (default: the smallest
+            app partition). Only used with ``partition_table``.
 
     Returns:
         dict: Memory analysis report (JSON-serializable)
 
     Raises:
+        EspPartitionError: If the partition table is missing or unusable,
+            or the ELF is not an ESP-IDF app (a ValueError)
         ValueError: If file paths are invalid or parsing fails
     """
     # Validate ELF file exists
@@ -634,6 +667,15 @@ def generate_report(  # pylint: disable=too-many-arguments,too-many-positional-a
         limits_ld, memory_regions_data, elf_path, linker_variables, ld_include_dirs
     )
 
+    app_partition = None
+    if partition_table:
+        if not memory_regions_data:
+            raise EspPartitionError(
+                "--partition-table needs the ESP-IDF linker scripts "
+                "(memory.ld): no memory regions were parsed")
+        app_partition = select_app_partition(
+            parse_partition_table(partition_table), partition_name)
+
     # Generate JSON report
     logger.debug("Generating memory report...")
     try:
@@ -646,6 +688,7 @@ def generate_report(  # pylint: disable=too-many-arguments,too-many-positional-a
             skip_sections=skip_sections,
             source_root=source_root,
             exclude_alignment=exclude_alignment,
+            app_partition=app_partition,
         )
         report = generator.generate_report()
 
@@ -660,6 +703,8 @@ def generate_report(  # pylint: disable=too-many-arguments,too-many-positional-a
                 )
             _apply_default_regions(generator, report)
 
+    except EspPartitionError:
+        raise
     except Exception as e:  # pylint: disable=broad-exception-caught
         logger.error("Failed to generate memory report: %s", e)
         raise ValueError(f"Failed to generate memory report: {e}") from e
@@ -1063,6 +1108,19 @@ def _handle_upload_and_alerts(
         return 1
 
 
+def _validate_partition_input(
+    partition_table: Optional[str], partition_name: Optional[str],
+    ld_script_paths: list[str]
+) -> Optional[str]:
+    """Validate --partition-table/--partition-name, returning an error
+    message or None if valid."""
+    if partition_name and not partition_table:
+        return "--partition-name requires --partition-table"
+    if partition_table and not ld_script_paths:
+        return "--partition-table requires the ESP-IDF linker scripts (memory.ld)"
+    return None
+
+
 def _validate_limits_input(
     limits_path: Optional[str], ld_script_paths: list[str]
 ) -> Optional[str]:
@@ -1102,10 +1160,14 @@ def _validate_args(args: argparse.Namespace) -> Optional[str]:
         if not is_valid:
             return error_message
 
-        limits_error = _validate_limits_input(
-            getattr(args, 'limits', None), ld_script_paths)
-        if limits_error:
-            return limits_error
+        for error in (
+                _validate_limits_input(
+                    getattr(args, 'limits', None), ld_script_paths),
+                _validate_partition_input(
+                    getattr(args, 'partition_table', None),
+                    getattr(args, 'partition_name', None), ld_script_paths)):
+            if error:
+                return error
 
     return None
 
@@ -1165,6 +1227,8 @@ def run_report(args: argparse.Namespace) -> int:
                 source_root=getattr(args, 'source_root', None),
                 ld_include_dirs=getattr(args, 'ld_include_dirs', None),
                 exclude_alignment=getattr(args, 'exclude_alignment', False),
+                partition_table=getattr(args, 'partition_table', None),
+                partition_name=getattr(args, 'partition_name', None),
             )
         except ValueError as e:
             logger.error("Failed to generate report: %s", e)

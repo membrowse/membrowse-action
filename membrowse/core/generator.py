@@ -13,6 +13,8 @@ from .models import MemoryRegion, MemoryReport
 from .analyzer import ELFAnalyzer
 from ..analysis.mapper import MemoryMapper
 from ..analysis.alignment import exclude_padding
+from ..analysis.esp_partition import (
+    EspPartitionError, Partition, apply_app_partition)
 from .exceptions import ELFAnalysisError
 
 # Set up logger
@@ -62,7 +64,8 @@ class ReportGenerator:  # pylint: disable=too-few-public-methods,too-many-instan
                  real_limits: Optional[Dict[str, int]] = None,
                  skip_sections: Optional[List[str]] = None,
                  source_root: Optional[str] = None,
-                 exclude_alignment: bool = False):
+                 exclude_alignment: bool = False,
+                 app_partition: Optional[Partition] = None):
         """Initialize the report generator.
 
         Args:
@@ -93,6 +96,11 @@ class ReportGenerator:  # pylint: disable=too-few-public-methods,too-many-instan
                 computed. Read from the map file when ``map_file_path`` is a
                 GNU LD or LLD map (none for IAR), estimated from ELF symbols
                 otherwise. Only padding at the end of a section is taken.
+            app_partition: ESP-IDF app slot (from the build's partition
+                table) to measure flash against. The flash window regions of
+                the ESP-IDF linker scripts are replaced by one
+                ``app_partition`` region holding the app image as esptool
+                lays it out. None keeps the window regions.
         """
         self.elf_analyzer = ELFAnalyzer(
             elf_path, skip_line_program=skip_line_program,
@@ -104,6 +112,7 @@ class ReportGenerator:  # pylint: disable=too-few-public-methods,too-many-instan
         self.real_limits = real_limits or {}
         self.skip_sections = set(skip_sections) if skip_sections else set()
         self.exclude_alignment = exclude_alignment
+        self.app_partition = app_partition
         self._alignment_padding: Optional[Dict[str, int]] = None
 
     def generate_report(self) -> MemoryReport:  # pylint: disable=too-many-locals
@@ -187,6 +196,8 @@ class ReportGenerator:  # pylint: disable=too-few-public-methods,too-many-instan
                                 len(still_unmapped),
                                 ', '.join(s.name for s in still_unmapped))
 
+                self._replace_flash_windows(memory_regions, sections)
+
                 # Swap attribution limit_size for the real limit (from a
                 # separate limits linker script) before computing utilization.
                 # Attribution used the broader range to classify overflow
@@ -232,9 +243,20 @@ class ReportGenerator:  # pylint: disable=too-few-public-methods,too-many-instan
 
             return report
 
+        except EspPartitionError:
+            raise
         except Exception as e:
             raise ELFAnalysisError(
                 f"Failed to generate memory report: {e}") from e
+
+    def _replace_flash_windows(self, memory_regions, sections) -> None:
+        """With an ESP-IDF app partition, replace the flash window regions
+        with the ``app_partition`` region (no-op otherwise)."""
+        if self.app_partition is None:
+            return
+        apply_app_partition(
+            memory_regions, self.elf_analyzer.elffile, sections,
+            self.app_partition)
 
     def _apply_section_skips(self, sections, symbols):
         """Remove sections (and symbols inside them) whose names appear in

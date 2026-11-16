@@ -1,0 +1,35 @@
+{
+ "bin_size": 122240,
+ "segments": [
+  {
+   "load_address": 1061158944,
+   "length": 26932,
+   "file_offset": 32
+  },
+  {
+   "load_address": 1073414144,
+   "length": 10156,
+   "file_offset": 26972
+  },
+  {
+   "load_address": 1074266112,
+   "length": 28424,
+   "file_offset": 37136
+  },
+  {
+   "load_address": 1074593824,
+   "length": 42764,
+   "file_offset": 65568
+  },
+  {
+   "load_address": 1074294536,
+   "length": 13812,
+   "file_offset": 108340
+  },
+  {
+   "load_address": 1342177280,
+   "length": 40,
+   "file_offset": 122160
+  }
+ ]
+}
