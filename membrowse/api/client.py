@@ -13,7 +13,7 @@ import os
 import random
 import time
 from importlib.metadata import version
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any
 
 import requests
 
@@ -143,31 +143,6 @@ class MemBrowseClient:
                 'metadata': _metrics_metadata(target_name, commit_sha),
                 'metrics': metrics,
             })
-
-    def delete_metrics(self, target_name: str, commit_sha: str,
-                       names: Optional[List[str]] = None) -> Dict[str, Any]:
-        """
-        Remove benchmark metrics from a commit of a target.
-
-        Args:
-            target_name: Target the metrics belong to
-            commit_sha: Full commit SHA
-            names: Metric names to remove; None removes every metric of the
-                commit
-
-        Returns:
-            Dict containing the parsed API response
-
-        Raises:
-            requests.exceptions.RequestException: If the request fails
-        """
-        payload: Dict[str, Any] = {
-            'metadata': _metrics_metadata(target_name, commit_sha)}
-        if names is not None:
-            payload['names'] = names
-        return self._request_with_retry(
-            'DELETE', f"{self.api_base_url}/metrics", log_context=commit_sha,
-            json=payload)
 
     def _request_with_retry(
         self,

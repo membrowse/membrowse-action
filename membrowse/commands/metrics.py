@@ -85,12 +85,6 @@ examples:
   membrowse metrics -m Latency "$LATENCY_US" us --commit-sha "$SHA" \\
       --target-name stm32f4 --api-key "$MEMBROWSE_API_KEY"
 
-  # Remove one metric, or all of them, from a commit
-  membrowse metrics --delete "Boot time" \\
-      --target-name stm32f4 --api-key "$MEMBROWSE_API_KEY"
-  membrowse metrics --delete --all \\
-      --target-name stm32f4 --api-key "$MEMBROWSE_API_KEY"
-
 metric format:
   -m NAME VALUE [UNIT]   name, number and optional unit as separate
                          arguments; repeat -m for each metric.
@@ -117,8 +111,7 @@ file format (--file, '-' reads standard input):
         'metrics',
         nargs='*',
         metavar='NAME=VALUE',
-        help='Metric as NAME=VALUE or "NAME=VALUE UNIT" '
-             '(with --delete: the metric NAMEs to remove)',
+        help='Metric as NAME=VALUE or "NAME=VALUE UNIT"',
     )
     parser.add_argument(
         '-m', '--metric',
@@ -162,16 +155,6 @@ file format (--file, '-' reads standard input):
              '(the pull request head, not the merge commit)',
     )
 
-    parser.add_argument(
-        '--delete',
-        action='store_true',
-        help='Remove the named metrics from the commit instead of uploading',
-    )
-    parser.add_argument(
-        '--all',
-        action='store_true',
-        help='With --delete: remove every metric of the commit',
-    )
     parser.add_argument(
         '--json',
         action='store_true',
@@ -387,39 +370,17 @@ def run_metrics(args) -> int:
         Exit code (0 for success, 1 for error)
     """
     try:
-        if args.all and not args.delete:
-            raise MetricsError('--all is only valid with --delete')
-
-        if args.delete:
-            if args.file or args.metric_options:
-                raise MetricsError(
-                    '--file and -m/--metric cannot be used with --delete')
-            if args.all and args.metrics:
-                raise MetricsError('Give metric names or --all, not both')
-            if not args.all and not args.metrics:
-                raise MetricsError(
-                    'Name the metrics to remove, or pass --all to remove '
-                    'every metric of the commit')
-            names = None if args.all else [_check_name(n) for n in args.metrics]
-        else:
-            metrics = collect_metrics(
-                args.metrics, args.file, args.metric_options)
+        metrics = collect_metrics(args.metrics, args.file, args.metric_options)
 
         commit_sha = resolve_commit_sha(args.commit_sha, args.github)
         client = MemBrowseClient(
             AuthContext(auth_type=AuthType.API_KEY, api_key=args.api_key),
             args.api_url)
 
-        if args.delete:
-            response = client.delete_metrics(args.target_name, commit_sha, names)
-            removed = _api_data(response).get('removed', 0)
-            message = (f"Removed {removed} metric(s) from {args.target_name} "
-                       f"at {commit_sha[:10]}")
-        else:
-            response = client.upload_metrics(args.target_name, commit_sha, metrics)
-            stored = _api_data(response).get('metrics_stored') or sorted(metrics)
-            message = (f"Uploaded {len(stored)} metric(s) for {args.target_name} "
-                       f"at {commit_sha[:10]}: {', '.join(stored)}")
+        response = client.upload_metrics(args.target_name, commit_sha, metrics)
+        stored = _api_data(response).get('metrics_stored') or sorted(metrics)
+        message = (f"Uploaded {len(stored)} metric(s) for {args.target_name} "
+                   f"at {commit_sha[:10]}: {', '.join(stored)}")
 
         print(json.dumps(response, indent=2) if args.json else message)
         return 0

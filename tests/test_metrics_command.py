@@ -261,36 +261,13 @@ class TestRunMetrics(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(json.loads(output), payload)
 
-    def test_delete_named_and_all(self):
-        """Delete named and all."""
-        code, request, output = self._run(
-            ['--delete', 'Boot time', 'CoreMark', '--commit-sha', SHA] + BASE,
-            _response({'success': True, 'data': {'removed': 2}}))
-        self.assertEqual(code, 0)
-        (method, url), kwargs = request.call_args
-        self.assertEqual(method, 'DELETE')
-        self.assertTrue(url.endswith('/metrics'))
-        self.assertEqual(kwargs['json']['names'], ['Boot time', 'CoreMark'])
-        self.assertIn('Removed 2 metric(s)', output)
-
-        code, request, _ = self._run(
-            ['--delete', '--all', '--commit-sha', SHA] + BASE,
-            _response({'success': True, 'data': {'removed': 5}}))
-        self.assertEqual(code, 0)
-        self.assertNotIn('names', request.call_args[1]['json'])
-
     def test_usage_errors_send_nothing(self):
         """Usage errors send nothing."""
         for argv in (
                 ['--commit-sha', SHA],                       # no metrics
                 ['A=fast', '--commit-sha', SHA],              # not a number
                 ['A=1', '--commit-sha', 'abc123'],            # short SHA
-                ['--delete', '--commit-sha', SHA],            # nothing named
-                ['--delete', '--all', 'A', '--commit-sha', SHA],
-                ['A=1', '--all', '--commit-sha', SHA],        # --all without --delete
-                ['-m', 'A', '--commit-sha', SHA],              # -m without a value
-                ['--delete', 'A', '-m', 'B', '1', '--commit-sha', SHA],
-                ['--delete', 'A', '--file', 'x.json', '--commit-sha', SHA]):
+                ['-m', 'A', '--commit-sha', SHA]):             # -m without a value
             code, request, _ = self._run(argv + BASE)
             self.assertEqual(code, 1, argv)
             request.assert_not_called()
