@@ -17,8 +17,9 @@ from typing import Any, Dict, List, Optional
 import requests
 
 from ..api.client import MemBrowseClient
-from ..auth.strategy import AuthContext, AuthType
+from ..auth.strategy import determine_auth_strategy
 from ..utils.git import detect_github_commit_sha, run_git_command
+from ..utils.github import is_pull_request_event
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +82,10 @@ examples:
   membrowse metrics --file bench.json --github \\
       --target-name stm32f4 --api-key "$MEMBROWSE_API_KEY"
 
+  # Tokenless, in a pull request to a public repository (fork PRs get no
+  # secrets, so the key is empty or left out)
+  membrowse metrics --file bench.json --github --target-name stm32f4
+
   # For a specific commit
   membrowse metrics -m Latency "$LATENCY_US" us --commit-sha "$SHA" \\
       --target-name stm32f4 --api-key "$MEMBROWSE_API_KEY"
@@ -134,8 +139,11 @@ file format (--file, '-' reads standard input):
     )
     parser.add_argument(
         '--api-key',
-        required=True,
-        help='MemBrowse project API key',
+        nargs='?', default=None, const='',
+        help='MemBrowse project API key. With --github it can be left out or '
+             'empty in a pull request to a public repository (fork or '
+             'Dependabot PRs, which get no secrets): the metrics are then '
+             'uploaded tokenless',
     )
     parser.add_argument(
         '--api-url',
@@ -362,6 +370,22 @@ def _api_data(response: Dict[str, Any]) -> Dict[str, Any]:
     return response.get('data') or {}
 
 
+def _auth_context(args):
+    """API-key auth, or tokenless for a public-repo PR under --github.
+
+    Like `report --upload`: GitHub resolves secrets to "" in fork and
+    Dependabot PRs, so an empty key counts as none.
+    """
+    api_key = (args.api_key or '').strip()
+    if not api_key and not (args.github and is_pull_request_event()):
+        raise MetricsError(
+            '--api-key is required, except with --github in a pull request '
+            'to a public repository, where the metrics are uploaded tokenless')
+    if not api_key:
+        logger.info("Pull request without an API key - uploading metrics tokenless")
+    return determine_auth_strategy(api_key, auto_detect_fork=args.github)
+
+
 def run_metrics(args) -> int:
     """
     Run metrics subcommand.
@@ -373,9 +397,7 @@ def run_metrics(args) -> int:
         metrics = collect_metrics(args.metrics, args.file, args.metric_options)
 
         commit_sha = resolve_commit_sha(args.commit_sha, args.github)
-        client = MemBrowseClient(
-            AuthContext(auth_type=AuthType.API_KEY, api_key=args.api_key),
-            args.api_url)
+        client = MemBrowseClient(_auth_context(args), args.api_url)
 
         response = client.upload_metrics(args.target_name, commit_sha, metrics)
         stored = _api_data(response).get('metrics_stored') or sorted(metrics)

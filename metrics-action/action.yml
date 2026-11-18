@@ -7,8 +7,12 @@ inputs:
     description: 'Target the metrics belong to, like esp32 or stm32f4. It must already have a memory report on MemBrowse.'
     required: true
   api_key:
-    description: 'MemBrowse project API key'
-    required: true
+    description: |
+      MemBrowse project API key. Pull requests to a public repository can
+      leave it out or empty (fork and Dependabot PRs get no secrets): the
+      metrics are then uploaded tokenless, as long as `commit` is not set.
+    required: false
+    default: ''
   metrics:
     description: |
       Metrics, one per line, as NAME=VALUE or NAME=VALUE UNIT. Blank lines

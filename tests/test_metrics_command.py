@@ -293,6 +293,74 @@ class TestRunMetrics(unittest.TestCase):
                 'Offset': expected,
             }, value)
 
+    def _pr_event(self, private=False):
+        """A pull_request event file from a fork of a (public) repository."""
+        event = tempfile.NamedTemporaryFile(
+            'w', suffix='.json', delete=False, encoding='utf-8')
+        json.dump({'pull_request': {
+            'number': 7,
+            'user': {'login': 'contributor'},
+            'head': {'sha': 'b' * 40, 'ref': 'feature',
+                     'repo': {'full_name': 'contributor/repo'}},
+            'base': {'repo': {'full_name': 'org/repo', 'private': private}},
+        }}, event)
+        event.close()
+        self.addCleanup(os.unlink, event.name)
+        return {'GITHUB_EVENT_NAME': 'pull_request', 'GITHUB_SHA': 'e' * 40,
+                'GITHUB_EVENT_PATH': event.name}
+
+    def test_tokenless_in_a_public_pull_request(self):
+        """Without a key, --github in a public-repo PR uploads tokenless."""
+        for key_args in ([], ['--api-key'], ['--api-key', ''], ['--api-key', '  ']):
+            with patch.dict(os.environ, self._pr_event()):
+                code, request, _ = self._run(
+                    ['A=1', '--github', '--target-name', 'stm32f4'] + key_args)
+            self.assertEqual(code, 0, key_args)
+            metadata = request.call_args[1]['json']['metadata']
+            self.assertEqual(metadata['git'], {'commit_hash': 'b' * 40})
+            self.assertEqual(metadata['github_context'], {
+                'pr_number': 7, 'fork_repository': 'contributor/repo',
+                'repository': 'org/repo', 'commit_sha': 'b' * 40,
+                'pr_author': 'contributor', 'branch_name': 'feature'})
+
+    def test_tokenless_sends_the_tokenless_header(self):
+        """The session carries X-Auth-Type and no Authorization header."""
+        sessions = []
+
+        def record(session, *_args, **_kwargs):
+            sessions.append(session)
+            return _response({'success': True, 'data': {}})
+
+        args = create_parser().parse_args(
+            ['metrics', 'A=1', '--github', '--target-name', 'stm32f4'])
+        with patch.dict(os.environ, self._pr_event()), \
+                patch('requests.Session.request', autospec=True, side_effect=record), \
+                patch('sys.stdout', new_callable=io.StringIO):
+            self.assertEqual(run_metrics(args), 0)
+        headers = sessions[0].headers
+        self.assertEqual(headers['X-Auth-Type'], 'github-tokenless')
+        self.assertNotIn('Authorization', headers)
+
+    def test_api_key_wins_in_a_pull_request(self):
+        """A key in a PR is used as usual, with no github_context."""
+        with patch.dict(os.environ, self._pr_event()):
+            code, request, _ = self._run(['A=1', '--github'] + BASE)
+        self.assertEqual(code, 0)
+        self.assertNotIn('github_context', request.call_args[1]['json']['metadata'])
+
+    def test_key_still_required_outside_a_public_pull_request(self):
+        """No key and no public-repo PR under --github: nothing is sent."""
+        push = {'GITHUB_EVENT_NAME': 'push', 'GITHUB_SHA': 'e' * 40,
+                'GITHUB_EVENT_PATH': ''}
+        for env, argv in ((push, ['--github']),
+                          (self._pr_event(private=True), ['--github']),
+                          (self._pr_event(), ['--commit-sha', SHA])):
+            with patch.dict(os.environ, env):
+                code, request, _ = self._run(
+                    ['A=1', '--target-name', 'stm32f4'] + argv)
+            self.assertEqual(code, 1, argv)
+            request.assert_not_called()
+
     def test_dash_options_are_still_options(self):
         """Widening the number rule leaves real flags alone."""
         with self.assertRaises(SystemExit), patch('sys.stderr', new_callable=io.StringIO):

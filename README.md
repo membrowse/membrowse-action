@@ -188,7 +188,7 @@ membrowse metrics --file bench.json \
     --target-name stm32f4 --api-key "$MEMBROWSE_API_KEY"
 ```
 
-`bench.json` is an array of `{"name": "CoreMark", "unit": "score", "value": 389.5}` entries (`unit` is optional), the same array [github-action-benchmark](https://github.com/benchmark-action/github-action-benchmark) takes for custom tools. Run `membrowse metrics --help` for commit selection (`--commit-sha`, `--github`).
+`bench.json` is an array of `{"name": "CoreMark", "unit": "score", "value": 389.5}` entries (`unit` is optional), the same array [github-action-benchmark](https://github.com/benchmark-action/github-action-benchmark) takes for custom tools. Run `membrowse metrics --help` for commit selection (`--commit-sha`, `--github`). Like memory reports, pull requests to a public repository can upload metrics without an API key (fork and Dependabot PRs get no secrets); the platform keeps them apart from the metrics your own CI uploads.
 
 ### Set it up with Claude Code
 

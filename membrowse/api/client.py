@@ -137,12 +137,12 @@ class MemBrowseClient:
         Raises:
             requests.exceptions.RequestException: If the request fails
         """
+        metadata = _metrics_metadata(target_name, commit_sha)
+        # github_context for a tokenless upload from a pull request
+        metadata.update(self.auth_context.get_metadata_additions())
         return self._request_with_retry(
             'POST', f"{self.api_base_url}/metrics", log_context=commit_sha,
-            json={
-                'metadata': _metrics_metadata(target_name, commit_sha),
-                'metrics': metrics,
-            })
+            json={'metadata': metadata, 'metrics': metrics})
 
     def _request_with_retry(
         self,
