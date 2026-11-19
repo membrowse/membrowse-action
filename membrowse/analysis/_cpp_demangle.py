@@ -12,6 +12,8 @@ Extends ``itanium_demangler`` with productions it does not support:
   variable's initializer)
 * array types        with a non-numeric or missing bound (``AT__c``, ``A_Kc``)
 * pointer-to-member  substitution numbering (``M <class> <member type>``)
+* external names     ``L _Z <encoding> E`` with nested names and ``S<n>_``
+  (``&Class::method`` template arguments)
 
 The upstream library raises ``NotImplementedError`` for the first three in
 ``_parse_name``. We install a wrapper that tries the original first and, on
@@ -760,6 +762,29 @@ def _patched_parse_type(cursor):  # pylint: disable=too-many-return-statements
 
 
 _itd._parse_type = _patched_parse_type
+
+
+# --- External names in expressions --------------------------------------------
+
+_orig_parse_expr_primary = _itd._parse_expr_primary
+
+
+def _patched_parse_expr_primary(cursor):
+    """``L _Z <encoding> E`` — parsed on the enclosing cursor.
+
+    Upstream cuts the text at the first ``E`` and parses it with a fresh
+    cursor, so a nested name (``L_ZN1A1mEvE``) is truncated and any
+    ``S<n>_`` inside it (``&Class::method`` as a template argument, where
+    the class is an earlier argument) has nothing to resolve to. The
+    encoding shares the enclosing substitution table, as in libiberty.
+    """
+    if cursor._raw.startswith('L_Z', cursor._pos):
+        cursor._pos += 3
+        return _parse_encoding_until_e(cursor)
+    return _orig_parse_expr_primary(cursor)
+
+
+_itd._parse_expr_primary = _patched_parse_expr_primary
 
 
 # --- Encoding-name substitutions ----------------------------------------------
