@@ -96,6 +96,31 @@ class TestCppDemanglingGaps(unittest.TestCase):
             "SaIS5_EE17_M_realloc_appendIJRA_KcEEEvDpOT_",
             "std::vector", "_M_realloc_append")
 
+    # A template parameter inside an expression (array bound, X...E) is not
+    # a substitution candidate; registering it shifts every later S<n>_.
+    # Symbols from g++; the argument lists match c++filt's.
+
+    def test_array_bound_template_param_not_substitutable(self):
+        # c++filt: void f<16>(char (&) [16], double*, double*)
+        self.assert_demangles(
+            "_Z1fILi16EEvRAT__cPdS2_", "(&)[(int)16], double*, double*)")
+
+    def test_array_bound_expression_not_substitutable(self):
+        # c++filt: void h<16>(char (&) [(16)+(1)], double*, double*)
+        self.assert_demangles(
+            "_Z1hILi16EEvRAplT_Li1E_cPdS2_", "], double*, double*)")
+
+    def test_template_arg_expression_not_substitutable(self):
+        # c++filt: void g<1>(A<(1)+(1)>, double*, double*)
+        self.assert_demangles(
+            "_Z1gILi1EEv1AIXplT_Li1EEEPdS2_", ">, double*, double*)")
+
+    def test_array_bound_and_element_template_params(self):
+        # c++filt: void m<char, 16>(char (&) [16], char*, double*, double*)
+        self.assert_demangles(
+            "_Z1mIcLi16EEvRAT0__T_PS0_PdS4_",
+            "char(&)[(int)16], char*, double*, double*)")
+
     # -- Pointer-to-member-function type (M <class> <function type>) -------
 
     def test_pointer_to_member_function_in_template_args(self):

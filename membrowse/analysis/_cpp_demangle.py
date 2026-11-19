@@ -418,21 +418,26 @@ def _flatten(node):
     return list(node.value) if node.kind == 'qual_name' else [node]
 
 
-def _parse_template_param(cursor):
+def _parse_template_param(cursor, is_type=True):
     """``T [<n>] _ [<template-args>]``.
 
     Parsed here rather than via upstream ``_parse_name``, which consumes a
     following ``I`` without parsing the template args after a ``T_``.
+
+    Only a template parameter used as a type is a substitution candidate.
+    Inside an expression (an array bound ``AT__c``, ``XplT_Li1EE``) it is
+    not, and registering it would shift every later ``S<n>_``.
     """
     cursor.accept('T')
     seq_id = _itd._parse_seq_id(cursor)
     if seq_id is None:
         return None
     node = _itd.Node('tpl_param', seq_id)
-    cursor.add_subst(node)
+    if is_type:
+        cursor.add_subst(node)
     if cursor._raw.startswith('I', cursor._pos):
         node = _with_template_args(cursor, node)
-        if node is not None:
+        if node is not None and is_type:
             cursor.add_subst(node)
     return node
 
@@ -649,7 +654,7 @@ def _parse_expression(cursor):
     if raw[pos] == 'L':
         return _itd._parse_expr_primary(cursor)
     if raw[pos] == 'T':
-        return _parse_template_param(cursor)
+        return _parse_template_param(cursor, is_type=False)
     if raw[pos].isdigit() or raw.startswith(('on', 'dn'), pos):
         return _parse_base_unresolved_name(cursor)
     # Prefix increment/decrement ('pp_') must win over postfix ('pp').
