@@ -133,6 +133,39 @@ class TestCppDemanglingGaps(unittest.TestCase):
             "PS3_EEE10_M_managerERSt9_Any_dataRKSA_St18_Manager_operation",
             "std::_Function_handler", "pxx2::ReceiverButton", "_M_manager")
 
+    # -- Address of a member function as template argument ---------------
+    # X ad L_Z <encoding> E E, where the member's class is a substitution
+    # (S<n>_) of an earlier template argument, as in a callback stub
+    # stub<Class, &Class::method>. The address of a plain function
+    # (_Z1fIXadL_Z1gvEEEvv) already demangles; the substitution inside the
+    # nested encoding is what fails.
+
+    def test_member_function_address_template_arg_minimal(self):
+        # c++filt: void f<A, &A::m>()
+        self.assert_demangles("_Z1fI1AXadL_ZNS0_1mEvEEEvv", "f<", "A::m")
+
+    def test_member_callback_stub(self):
+        # c++filt: void Callback<void, hw::Irq>::stub<
+        #          drv::chip::Sensor<(unsigned char)5, (unsigned char)7>,
+        #          &drv::chip::Sensor<(unsigned char)5, (unsigned char)7>::
+        #          onIrq>(void*, hw::Irq)
+        self.assert_demangles(
+            "_ZN8CallbackIvJN2hw3IrqEEE4stubIN3drv4chip6SensorILh5ELh7EEEX"
+            "adL_ZNS7_5onIrqES1_EEEEvPvS1_",
+            "Callback<", "stub<", "drv::chip::Sensor", "onIrq")
+
+    def test_member_callback_stub_several_args(self):
+        # c++filt: void Callback<void, drv::chip::IComm::Event const,
+        #          unsigned char const, unsigned short const>::stub<
+        #          drv::chip::Sensor<(unsigned char)5, (unsigned char)7>,
+        #          &drv::chip::Sensor<(unsigned char)5, (unsigned char)7>::
+        #          onEvent>(void*, drv::chip::IComm::Event, unsigned char,
+        #          unsigned short)
+        self.assert_demangles(
+            "_ZN8CallbackIvJKN3drv4chip5IComm5EventEKhKtEE4stubINS1_6Sensor"
+            "ILh5ELh7EEEXadL_ZNSA_7onEventES3_htEEEEvPvS3_ht",
+            "Callback<", "stub<", "drv::chip::Sensor", "onEvent")
+
 
 if __name__ == '__main__':
     unittest.main()
