@@ -7,6 +7,11 @@ Extends ``itanium_demangler`` with productions it does not support:
 * unnamed types      ``Ut [<n>] _``
 * expressions        ``X <expression> E``          (e.g. SFINAE template args)
 * decltype           ``Dt <expression> E`` / ``DT <expression> E``
+* GCC ctor/dtor      ``C4``/``C5``/``D4``/``D5`` (unified and comdat variants)
+* data-member prefix ``<prefix> <source-name> M <closure>`` (lambdas in a
+  variable's initializer)
+* array types        with a non-numeric or missing bound (``AT__c``, ``A_Kc``)
+* pointer-to-member  substitution numbering (``M <class> <member type>``)
 
 The upstream library raises ``NotImplementedError`` for the first three in
 ``_parse_name``. We install a wrapper that tries the original first and, on
@@ -216,7 +221,37 @@ def _patched_add_subst(cursor, node):
 _orig_add_subst = _itd._Cursor.add_subst
 
 
+# GCC's C4/D4 ("unified": complete and base variants are identical, common
+# at -Os) and C5/D5 (comdat group names). Rendered like the complete variant.
+_EXTRA_CTOR_DTOR_RE = re.compile(r"([CD])[45]")
+
+
+def _parse_name_extension(cursor, is_nested):
+    """Name productions upstream returns ``None`` for (not ``NotImplementedError``).
+
+    Returns ``(True, node)`` when one was handled, ``(False, None)`` otherwise.
+    """
+    raw, pos = cursor._raw, cursor._pos
+    match = _EXTRA_CTOR_DTOR_RE.match(raw, pos)
+    if match:
+        cursor._pos = match.end()
+        kind = 'ctor' if match.group(1) == 'C' else 'dtor'
+        node = _itd.Node(kind, 'complete')
+        return True, _apply_post_name_suffixes(cursor, node, is_nested)
+    if is_nested and raw.startswith('M', pos):
+        # <data-member-prefix> ::= <prefix> <source-name> M — the entity
+        # (typically a closure) is scoped to the variable just parsed, which
+        # the nested-name loop has already appended and registered.
+        cursor._pos += 1
+        return True, _itd._parse_name(cursor, is_nested=True)
+    return False, None
+
+
 def _patched_parse_name(cursor, is_nested=False):
+    handled, node = _parse_name_extension(cursor, is_nested)
+    if handled:
+        cursor._at_encoding_name = False
+        return node
     at_encoding_name = getattr(cursor, '_at_encoding_name', False)
     cursor._at_encoding_name = False
     snap = _snapshot(cursor)
@@ -383,21 +418,26 @@ def _flatten(node):
     return list(node.value) if node.kind == 'qual_name' else [node]
 
 
-def _parse_template_param(cursor):
+def _parse_template_param(cursor, is_type=True):
     """``T [<n>] _ [<template-args>]``.
 
     Parsed here rather than via upstream ``_parse_name``, which consumes a
     following ``I`` without parsing the template args after a ``T_``.
+
+    Only a template parameter used as a type is a substitution candidate.
+    Inside an expression (an array bound ``AT__c``, ``XplT_Li1EE``) it is
+    not, and registering it would shift every later ``S<n>_``.
     """
     cursor.accept('T')
     seq_id = _itd._parse_seq_id(cursor)
     if seq_id is None:
         return None
     node = _itd.Node('tpl_param', seq_id)
-    cursor.add_subst(node)
+    if is_type:
+        cursor.add_subst(node)
     if cursor._raw.startswith('I', cursor._pos):
         node = _with_template_args(cursor, node)
-        if node is not None:
+        if node is not None and is_type:
             cursor.add_subst(node)
     return node
 
@@ -614,7 +654,7 @@ def _parse_expression(cursor):
     if raw[pos] == 'L':
         return _itd._parse_expr_primary(cursor)
     if raw[pos] == 'T':
-        return _parse_template_param(cursor)
+        return _parse_template_param(cursor, is_type=False)
     if raw[pos].isdigit() or raw.startswith(('on', 'dn'), pos):
         return _parse_base_unresolved_name(cursor)
     # Prefix increment/decrement ('pp_') must win over postfix ('pp').
@@ -629,8 +669,73 @@ def _parse_expression(cursor):
 _orig_parse_type = _itd._parse_type
 
 
-def _patched_parse_type(cursor):
+def _parse_array_type(cursor):
+    """``A <number> _ <type>`` | ``A [<expression>] _ <type>``.
+
+    Upstream accepts only a numeric bound (rendered as ``(int)N``); GCC also
+    emits a template-parameter bound (``AT__c``) and an unknown bound
+    (``A_Kc`` for ``char const[]``).
+    """
+    if _peek_digit(cursor):
+        dimension = ExprNode('text', str(_itd._parse_number(cursor)), ())
+    elif cursor._raw.startswith('_', cursor._pos):
+        dimension = ExprNode('text', '', ())
+    else:
+        dimension = _parse_expression(cursor)
+        if dimension is None:
+            return None
+    if not cursor.accept('_'):
+        return None
+    elem_ty = _itd._parse_type(cursor)
+    if elem_ty is None:
+        return None
+    node = _itd.ArrayNode('array', dimension, elem_ty)
+    cursor.add_subst(node)
+    return node
+
+
+def _parse_pointer_to_member_type(cursor):
+    """``M <class type> <member type>``.
+
+    Upstream registers neither the pointer-to-member type nor, when it
+    equals an earlier plain function type, the member function type, so
+    every later ``S<n>_`` resolves two entries off. Per the ABI a non-static
+    member function type is a distinct substitution candidate from a
+    similar-looking free function type, so it is registered even if equal.
+    """
+    cls_ty = _itd._parse_type(cursor)
+    if cls_ty is None:
+        return None
+    substs_before = len(cursor._substs)
+    member_ty = _itd._parse_type(cursor)
+    if member_ty is None:
+        return None
+    if member_ty.kind == 'func' and len(cursor._substs) == substs_before:
+        cursor._substs[len(cursor._substs)] = member_ty
+    kind = 'method' if member_ty.kind == 'func' else 'data'
+    node = _itd.MemberNode(kind, cls_ty, member_ty)
+    cursor.add_subst(node)
+    return node
+
+
+def _member_node_map(self, f):
+    """Upstream maps only kinds 'data'/'func', so template parameters inside
+    a pointer-to-member-function ('method') were never expanded."""
+    return self._replace(cls_ty=f(self.cls_ty) if self.cls_ty else None,
+                         member_ty=f(self.member_ty) if self.member_ty else None)
+
+
+_itd.MemberNode.map = _member_node_map
+
+
+def _patched_parse_type(cursor):  # pylint: disable=too-many-return-statements
     raw, pos = cursor._raw, cursor._pos
+    if raw.startswith('A', pos):
+        cursor._pos += 1
+        return _parse_array_type(cursor)
+    if raw.startswith('M', pos):
+        cursor._pos += 1
+        return _parse_pointer_to_member_type(cursor)
     if raw.startswith('I', pos):
         # Old-style argument pack ``I <template-arg>* E`` (GCC < 4.7 form of
         # ``J...E``). Upstream parses it as template args and registers it as
