@@ -62,9 +62,11 @@ def find_existing_comment(pr_number: str, marker: str) -> Optional[int]:
         The comment ID if found, None otherwise
     """
     try:
-        # Use gh api to list PR comments
+        # List every page of PR comments: without --paginate gh returns only
+        # the first 30, so on a busy PR the marker comment would be missed.
         result = subprocess.run(
-            ['gh', 'api', f'repos/{{owner}}/{{repo}}/issues/{pr_number}/comments',
+            ['gh', 'api', '--paginate',
+             f'repos/{{owner}}/{{repo}}/issues/{pr_number}/comments?per_page=100',
              '--jq', '.[] | {id, body}'],
             check=True,
             capture_output=True,
@@ -138,7 +140,8 @@ def create_comment(body: str, pr_number: Optional[str] = None) -> None:
 def create_or_update_comment(
     body: str,
     pr_number: str,
-    marker: str
+    marker: str,
+    create_if_missing: bool = True,
 ) -> None:
     """
     Create a new comment or update an existing one if it contains the marker.
@@ -147,6 +150,8 @@ def create_or_update_comment(
         body: The markdown content for the comment
         pr_number: The PR number
         marker: The unique marker string to identify existing comments
+        create_if_missing: When False, an existing comment is still updated
+            but no new comment is created.
 
     Raises:
         subprocess.CalledProcessError: If gh command fails
@@ -160,9 +165,11 @@ def create_or_update_comment(
     if existing_comment_id:
         logger.debug("Updating existing comment %d", existing_comment_id)
         update_comment(existing_comment_id, body)
-    else:
+    elif create_if_missing:
         logger.debug("Creating new comment")
         create_comment(body, pr_num)
+    else:
+        logger.info("No memory changes and no existing comment; not commenting")
 
 
 def build_memory_change_row(region: dict) -> Optional[dict]:

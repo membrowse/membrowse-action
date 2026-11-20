@@ -26,6 +26,10 @@ inputs:
     description: 'Append the "Catch memory regressions in CI with MemBrowse" footer to the comment (true/false)'
     required: false
     default: 'true'
+  skip_unchanged:
+    description: 'Do not create a comment when no target has memory changes or budget alerts (true/false). An existing MemBrowse comment on the PR is still updated, so it never goes stale.'
+    required: false
+    default: 'false'
   verbose:
     description: 'Set logging level: DEBUG, INFO, or WARNING (default: WARNING)'
     required: false
@@ -110,6 +114,7 @@ runs:
         INPUT_API_URL: ${{ inputs.api_url }}
         INPUT_COMMENT_TEMPLATE: ${{ inputs.comment_template }}
         INPUT_FOOTER: ${{ inputs.footer }}
+        INPUT_SKIP_UNCHANGED: ${{ inputs.skip_unchanged }}
         EVENT_PR_NUMBER: ${{ github.event.pull_request.number }}
       run: |
         # Global args (before subcommand)
@@ -131,6 +136,11 @@ runs:
         case "${INPUT_FOOTER,,}" in
           false|0|no|off)
             COMMON_ARGS+=(--no-footer)
+            ;;
+        esac
+        case "${INPUT_SKIP_UNCHANGED,,}" in
+          true|1|yes|on)
+            COMMON_ARGS+=(--skip-unchanged)
             ;;
         esac
 
