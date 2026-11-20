@@ -56,6 +56,14 @@ def _wrap_comment_body(
     return f"{header}\n{body.rstrip()}\n{footer_text}"
 
 
+def _has_memory_changes(context: dict) -> bool:
+    """True if any target in a template context changed a region or has budget alerts."""
+    return any(
+        target.get('has_changes') or target.get('has_alerts')
+        for target in context.get('targets', [])
+    )
+
+
 def _extract_pr_number(results: list[dict]) -> str:
     """
     Extract PR number from results.
@@ -81,6 +89,7 @@ def post_combined_pr_comment(
     results: list[dict],
     template_path: Optional[str] = None,
     footer: bool = True,
+    skip_unchanged: bool = False,
 ) -> None:
     """
     Post a single PR comment with combined memory analysis results from multiple targets.
@@ -91,6 +100,8 @@ def post_combined_pr_comment(
         template_path: Optional path to custom Jinja2 template file. If None, uses
             the default template format.
         footer: Whether to append the MemBrowse footer.
+        skip_unchanged: Do not create a comment when no target has memory changes
+            or budget alerts; an existing comment is still updated.
     """
     if not is_gh_cli_available():
         logger.warning("GitHub CLI (gh) not available, skipping PR comment")
@@ -114,7 +125,10 @@ def post_combined_pr_comment(
         raise
 
     try:
-        create_or_update_comment(comment_body, pr_number, COMMENT_MARKER)
+        create_or_update_comment(
+            comment_body, pr_number, COMMENT_MARKER,
+            create_if_missing=not skip_unchanged or _has_memory_changes(context),
+        )
         logger.debug("Posted combined PR comment for %d targets", len(results))
     except subprocess.CalledProcessError as e:
         handle_comment_error(e, "PR comment")
@@ -260,6 +274,7 @@ def post_summary_comment(
     pr_number: Optional[str] = None,
     template_path: Optional[str] = None,
     footer: bool = True,
+    skip_unchanged: bool = False,
 ) -> None:
     """
     Post a PR comment from a saved /summary API response JSON file.
@@ -273,6 +288,8 @@ def post_summary_comment(
         pr_number: PR number override (auto-extracted from JSON if None)
         template_path: Custom Jinja2 template path, or None for default
         footer: Whether to append the MemBrowse footer
+        skip_unchanged: Do not create a comment when no target has memory
+            changes or budget alerts; an existing comment is still updated
     """
     with open(summary_json_path, 'r', encoding='utf-8') as f:
         response = json.load(f)
@@ -307,7 +324,10 @@ def post_summary_comment(
         return
 
     try:
-        create_or_update_comment(body, pr_number, COMMENT_MARKER)
+        create_or_update_comment(
+            body, pr_number, COMMENT_MARKER,
+            create_if_missing=not skip_unchanged or _has_memory_changes(context),
+        )
         logger.debug("Posted summary PR comment")
     except subprocess.CalledProcessError as e:
         handle_comment_error(e, "PR comment")
@@ -363,6 +383,13 @@ def main():
         action='store_false',
         help='Omit the MemBrowse footer from the comment'
     )
+    parser.add_argument(
+        '--skip-unchanged',
+        dest='skip_unchanged',
+        action='store_true',
+        help='Do not create a comment when no target has memory changes or budget '
+             'alerts; an existing MemBrowse comment is still updated'
+    )
     args = parser.parse_args()
 
     # Summary JSON mode: extract PR number, render, and post in one step
@@ -373,6 +400,7 @@ def main():
                 pr_number=args.pr_number,
                 template_path=args.template_path,
                 footer=args.footer,
+                skip_unchanged=args.skip_unchanged,
             )
         except (json.JSONDecodeError, IOError, ValueError) as e:
             logger.error("Failed to post summary comment: %s", e)
@@ -432,7 +460,8 @@ def _handle_file_mode(parser, args):
     # Post combined PR comment with optional custom template
     try:
         post_combined_pr_comment(
-            results, template_path=args.template_path, footer=args.footer
+            results, template_path=args.template_path, footer=args.footer,
+            skip_unchanged=args.skip_unchanged,
         )
     except (FileNotFoundError, Jinja2TemplateError) as e:
         logger.error("Failed to generate comment: %s", e)
