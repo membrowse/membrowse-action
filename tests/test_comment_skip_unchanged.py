@@ -196,6 +196,15 @@ def test_min_change_wins_over_skip_unchanged(tmp_path):
     assert not gh.created
 
 
+@pytest.mark.parametrize('delta', [55, -55])
+def test_min_change_percent_boundary(delta):
+    """A change of exactly the percentage reaches it despite float rounding."""
+    region = {'delta': delta, 'old': {'used_size': 10_000}}
+    # pylint: disable=protected-access
+    assert github_comment._region_reaches(region, ChangeThreshold(0.55, percent=True))
+    assert not github_comment._region_reaches(region, ChangeThreshold(0.56, percent=True))
+
+
 def test_min_change_from_nothing():
     """A region growing from zero bytes passes any percentage."""
     region = {'delta': 4, 'old': {'used_size': 0}}
