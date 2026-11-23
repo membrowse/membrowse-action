@@ -30,6 +30,10 @@ inputs:
     description: 'Do not create a comment when no target has memory changes or budget alerts (true/false). An existing MemBrowse comment on the PR is still updated, so it never goes stale.'
     required: false
     default: 'false'
+  min_change:
+    description: 'Only create a comment when some memory region of some target changed by at least this much: bytes (e.g. "512", "2KB", "1MB") or percent of the region''s previous usage (e.g. "0.5%"). Budget alerts always create a comment, and an existing MemBrowse comment is still updated. Implies skip_unchanged. Empty (default) means no threshold.'
+    required: false
+    default: ''
   verbose:
     description: 'Set logging level: DEBUG, INFO, or WARNING (default: WARNING)'
     required: false
@@ -115,6 +119,7 @@ runs:
         INPUT_COMMENT_TEMPLATE: ${{ inputs.comment_template }}
         INPUT_FOOTER: ${{ inputs.footer }}
         INPUT_SKIP_UNCHANGED: ${{ inputs.skip_unchanged }}
+        INPUT_MIN_CHANGE: ${{ inputs.min_change }}
         EVENT_PR_NUMBER: ${{ github.event.pull_request.number }}
       run: |
         # Global args (before subcommand)
@@ -143,6 +148,9 @@ runs:
             COMMON_ARGS+=(--skip-unchanged)
             ;;
         esac
+        if [ -n "$INPUT_MIN_CHANGE" ]; then
+          COMMON_ARGS+=(--min-change "$INPUT_MIN_CHANGE")
+        fi
 
         # Summary mode: api_key + commit
         if [ -n "$INPUT_API_KEY" ] && [ -n "$INPUT_COMMIT" ]; then
