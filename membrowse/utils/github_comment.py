@@ -24,6 +24,7 @@ from .github_common import (
     handle_comment_error,
     configure_logging,
 )
+from .github_review import ReviewReason, handle_review_error, sync_review
 
 logger = logging.getLogger(__name__)
 
@@ -145,6 +146,54 @@ def _should_create(context: dict, threshold: Optional[ChangeThreshold]) -> bool:
     return False
 
 
+def review_reasons(
+    context: dict, threshold: Optional[ChangeThreshold] = None,
+) -> list[ReviewReason]:
+    """
+    Why a PR should get a change request: every budget alert, and, with a
+    threshold, every region that grew by at least it. Shrinking never counts.
+    """
+    reasons = []
+    for target in context.get('targets', []):
+        name = target.get('name', 'Unknown')
+        for alert in target.get('alerts', []):
+            reasons.append(ReviewReason(
+                f"{name}/{alert['region']}",
+                f"**{name}** {alert['region']}: {alert['usage']:,} bytes exceeds budget "
+                f"*{alert['budget_name']}* ({alert['limit']:,} bytes) by "
+                f"{alert['exceeded']:,} bytes",
+            ))
+        if threshold is None:
+            continue
+        for region in target.get('regions', []):
+            if region.get('delta', 0) > 0 and _region_reaches(region, threshold):
+                reasons.append(ReviewReason(
+                    f"{name}/{region.get('name', 'Unknown')}",
+                    f"**{name}** {region.get('name', 'Unknown')} grew by "
+                    f"{region['delta_str']} bytes ({region['delta_pct_str']}), "
+                    f"at least the {threshold} threshold",
+                ))
+    return reasons
+
+
+def _update_review(
+    context: dict,
+    pr_number: str,
+    min_change: Union[ChangeThreshold, str, None],
+    commit_sha: Optional[str] = None,
+) -> None:
+    """Request changes on, or clear the request from, a PR (request_changes)."""
+    try:
+        sync_review(
+            pr_number,
+            review_reasons(context, _resolve_threshold(False, min_change)),
+            commit_sha=commit_sha,
+            dashboard_url=context.get('dashboard_url') or None,
+        )
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, ValueError) as e:
+        handle_review_error(e)
+
+
 def _extract_pr_number(results: list[dict]) -> str:
     """
     Extract PR number from results.
@@ -166,12 +215,13 @@ def _extract_pr_number(results: list[dict]) -> str:
     raise ValueError("No PR number found in results")
 
 
-def post_combined_pr_comment(
+def post_combined_pr_comment(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     results: list[dict],
     template_path: Optional[str] = None,
     footer: bool = True,
     skip_unchanged: bool = False,
     min_change: Union[ChangeThreshold, str, None] = None,
+    request_changes: bool = False,
 ) -> None:
     """
     Post a single PR comment with combined memory analysis results from multiple targets.
@@ -187,6 +237,9 @@ def post_combined_pr_comment(
         min_change: Do not create a comment unless some region changed by at
             least this much (ChangeThreshold or a parse_min_change string) or a
             budget alert fired; implies skip_unchanged.
+        request_changes: Also request changes on the PR (a review) while a
+            budget alert fires or, with min_change, a region grows by at least
+            it, and dismiss that request once neither holds.
     """
     threshold = _resolve_threshold(skip_unchanged, min_change)
     if not is_gh_cli_available():
@@ -220,6 +273,9 @@ def post_combined_pr_comment(
         handle_comment_error(e, "PR comment")
     except Exception as e:  # pylint: disable=broad-exception-caught
         handle_comment_error(e, "PR comment")
+
+    if request_changes:
+        _update_review(context, pr_number, min_change)
 
 
 def post_pr_comment_from_body(body: str, pr_number: str, footer: bool = True) -> None:
@@ -362,6 +418,8 @@ def post_summary_comment(  # pylint: disable=too-many-arguments,too-many-positio
     footer: bool = True,
     skip_unchanged: bool = False,
     min_change: Union[ChangeThreshold, str, None] = None,
+    request_changes: bool = False,
+    commit_sha: Optional[str] = None,
 ) -> None:
     """
     Post a PR comment from a saved /summary API response JSON file.
@@ -380,6 +438,11 @@ def post_summary_comment(  # pylint: disable=too-many-arguments,too-many-positio
         min_change: Do not create a comment unless some region changed by at
             least this much (ChangeThreshold or a parse_min_change string) or a
             budget alert fired; implies skip_unchanged
+        request_changes: Also request changes on the PR (a review) while a
+            budget alert fires or, with min_change, a region grows by at least
+            it, and dismiss that request once neither holds
+        commit_sha: The commit summarized; with request_changes, the review
+            is left alone when the PR's head has moved past it
     """
     threshold = _resolve_threshold(skip_unchanged, min_change)
     with open(summary_json_path, 'r', encoding='utf-8') as f:
@@ -424,6 +487,9 @@ def post_summary_comment(  # pylint: disable=too-many-arguments,too-many-positio
         handle_comment_error(e, "PR comment")
     except Exception as e:  # pylint: disable=broad-exception-caught
         handle_comment_error(e, "PR comment")
+
+    if request_changes:
+        _update_review(context, pr_number, min_change, commit_sha)
 
 
 def _min_change_arg(text: str) -> Optional[ChangeThreshold]:
@@ -500,6 +566,20 @@ def main():
              'previous usage (0.5%%). Budget alerts always create a comment; an '
              'existing MemBrowse comment is still updated. Implies --skip-unchanged'
     )
+    parser.add_argument(
+        '--request-changes',
+        dest='request_changes',
+        action='store_true',
+        help='Also submit a "Request changes" review while a budget alert fires or, '
+             'with --min-change, a region grows by at least that much; the review is '
+             'dismissed once memory is back within the limits'
+    )
+    parser.add_argument(
+        '--commit-sha',
+        dest='commit_sha',
+        help='Commit the summary is for; with --request-changes, the review is left '
+             'alone when the PR has a newer head'
+    )
     args = parser.parse_args()
 
     # Summary JSON mode: extract PR number, render, and post in one step
@@ -512,6 +592,8 @@ def main():
                 footer=args.footer,
                 skip_unchanged=args.skip_unchanged,
                 min_change=args.min_change,
+                request_changes=args.request_changes,
+                commit_sha=args.commit_sha,
             )
         except (json.JSONDecodeError, IOError, ValueError) as e:
             logger.error("Failed to post summary comment: %s", e)
@@ -573,6 +655,7 @@ def _handle_file_mode(parser, args):
         post_combined_pr_comment(
             results, template_path=args.template_path, footer=args.footer,
             skip_unchanged=args.skip_unchanged, min_change=args.min_change,
+            request_changes=args.request_changes,
         )
     except (FileNotFoundError, Jinja2TemplateError) as e:
         logger.error("Failed to generate comment: %s", e)

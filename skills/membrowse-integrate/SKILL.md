@@ -845,6 +845,7 @@ After the integration is working, mention these optional features the user can e
 - **Skip unchanged commits**: Use the `identical` input with a paths-filter action to skip MemBrowse analysis on commits that don't touch source code (e.g., docs-only changes).
 - **Custom PR comment template**: Use `comment_template` in the comment action to customize the PR comment format with a Jinja2 template.
 - **Quiet PRs**: Set `skip_unchanged: true` in the comment action to post no comment on PRs that change no memory region and trigger no budget alert. An existing MemBrowse comment is still updated. To also ignore small changes, set `min_change` to a threshold in bytes (`512`, `2KB`) or percent of the region's previous usage (`0.5%`): a comment is created only when some region changed by at least that much or a budget alert fired.
+- **Request changes instead of failing CI**: Set `request_changes: true` in the comment action to also submit a "Request changes" review while a budget alert fires or, when `min_change` is set, some region grows by at least `min_change`. CI stays green. The action updates the review on later pushes and dismisses it once memory is back within the limits. A maintainer who accepts the increase dismisses the review (the reason stays in the PR timeline), and the action does not ask again for the same regions. The comment job needs `permissions: pull-requests: write`. For fork PRs, use Pattern C (the `workflow_run` comment workflow): in a `pull_request` workflow, the token of a fork PR is read-only.
 
 ## Troubleshooting Reference
 

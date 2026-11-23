@@ -34,6 +34,10 @@ inputs:
     description: 'Only create a comment when some memory region of some target changed by at least this much: bytes (e.g. "512", "2KB", "1MB") or percent of the region''s previous usage (e.g. "0.5%"). Budget alerts always create a comment, and an existing MemBrowse comment is still updated. Implies skip_unchanged. Empty (default) means no threshold.'
     required: false
     default: ''
+  request_changes:
+    description: 'Also submit a "Request changes" review on the PR while a budget alert fires or, when min_change is set, a memory region grows by at least min_change. CI is not failed. The review is updated on later pushes and dismissed by the action once memory is back within the limits; a maintainer who accepts the increase dismisses it, and the same regions are not flagged again. Needs "pull-requests: write"; for PRs from forks, run this action from a workflow_run workflow (true/false).'
+    required: false
+    default: 'false'
   verbose:
     description: 'Set logging level: DEBUG, INFO, or WARNING (default: WARNING)'
     required: false
@@ -120,6 +124,7 @@ runs:
         INPUT_FOOTER: ${{ inputs.footer }}
         INPUT_SKIP_UNCHANGED: ${{ inputs.skip_unchanged }}
         INPUT_MIN_CHANGE: ${{ inputs.min_change }}
+        INPUT_REQUEST_CHANGES: ${{ inputs.request_changes }}
         EVENT_PR_NUMBER: ${{ github.event.pull_request.number }}
       run: |
         # Global args (before subcommand)
@@ -151,6 +156,11 @@ runs:
         if [ -n "$INPUT_MIN_CHANGE" ]; then
           COMMON_ARGS+=(--min-change "$INPUT_MIN_CHANGE")
         fi
+        case "${INPUT_REQUEST_CHANGES,,}" in
+          true|1|yes|on)
+            COMMON_ARGS+=(--request-changes)
+            ;;
+        esac
 
         # Summary mode: api_key + commit
         if [ -n "$INPUT_API_KEY" ] && [ -n "$INPUT_COMMIT" ]; then
@@ -169,7 +179,7 @@ runs:
 
           # Post comment: extracts pr_number from JSON if not provided,
           # renders template, and posts in one step
-          COMMENT_ARGS=(--summary-json /tmp/membrowse-summary.json "${COMMON_ARGS[@]}")
+          COMMENT_ARGS=(--summary-json /tmp/membrowse-summary.json --commit-sha "$INPUT_COMMIT" "${COMMON_ARGS[@]}")
           if [ -n "$PR_NUMBER" ]; then
             COMMENT_ARGS+=(--pr-number "$PR_NUMBER")
           fi
