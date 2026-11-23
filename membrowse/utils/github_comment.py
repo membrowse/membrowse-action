@@ -3,10 +3,11 @@
 import argparse
 import json
 import logging
+import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import NamedTuple, Optional, Union
 
 from jinja2 import TemplateError as Jinja2TemplateError
 
@@ -56,12 +57,88 @@ def _wrap_comment_body(
     return f"{header}\n{body.rstrip()}\n{footer_text}"
 
 
-def _has_memory_changes(context: dict) -> bool:
-    """True if any target in a template context changed a region or has budget alerts."""
+class ChangeThreshold(NamedTuple):
+    """The smallest region change that makes a new PR comment worth posting:
+    ``value`` bytes, or ``value`` percent of the region's previous usage."""
+    value: float
+    percent: bool = False
+
+    def __str__(self) -> str:
+        return f"{self.value:g}%" if self.percent else f"{self.value:g} bytes"
+
+
+# Any change at all: what skip_unchanged has always meant.
+ANY_CHANGE = ChangeThreshold(1)
+
+_UNITS = {'': 1, 'b': 1, 'k': 1024, 'kb': 1024, 'kib': 1024,
+          'm': 1024 ** 2, 'mb': 1024 ** 2, 'mib': 1024 ** 2}
+_THRESHOLD_RE = re.compile(r'^\s*(\d+(?:\.\d+)?)\s*(%|[a-z]*)\s*$', re.IGNORECASE)
+
+
+def parse_min_change(text: str) -> ChangeThreshold:
+    """
+    Parse a --min-change value: bytes ("512", "512B", "2KB", "1.5MB"; KB and
+    MB are 1024-based) or a percentage of a region's previous usage ("0.5%").
+
+    Raises:
+        ValueError: If the value is not a non-negative number with a known unit.
+    """
+    match = _THRESHOLD_RE.match(text or '')
+    unit = match.group(2).lower() if match else None
+    if unit is None or (unit != '%' and unit not in _UNITS):
+        raise ValueError(
+            f"Invalid minimum change {text!r}: expected bytes (e.g. 512, 2KB, 1MB) "
+            "or a percentage (e.g. 0.5%)"
+        )
+    value = float(match.group(1))
+    if unit == '%':
+        return ChangeThreshold(value, percent=True)
+    return ChangeThreshold(value * _UNITS[unit])
+
+
+def _resolve_threshold(
+    skip_unchanged: bool,
+    min_change: Union[ChangeThreshold, str, None],
+) -> Optional[ChangeThreshold]:
+    """The threshold a new comment must reach, or None to always comment.
+    min_change wins over skip_unchanged, which means any change at all."""
+    if isinstance(min_change, str):
+        min_change = parse_min_change(min_change) if min_change.strip() else None
+    if min_change is not None:
+        return min_change
+    return ANY_CHANGE if skip_unchanged else None
+
+
+def _region_reaches(region: dict, threshold: ChangeThreshold) -> bool:
+    """True if one changed region (from enrich_regions) moved by at least threshold."""
+    delta = abs(region.get('delta', 0))
+    if not threshold.percent:
+        return delta >= threshold.value
+    old_used = (region.get('old') or {}).get('used_size') or 0
+    if old_used <= 0:
+        # Growing from nothing is an infinite relative change.
+        return delta > 0
+    return delta / old_used * 100 >= threshold.value
+
+
+def _has_memory_changes(context: dict, threshold: ChangeThreshold = ANY_CHANGE) -> bool:
+    """True if any target in a template context has budget alerts, or changed
+    a region by at least threshold (by default, changed a region at all)."""
     return any(
-        target.get('has_changes') or target.get('has_alerts')
+        target.get('has_alerts')
+        or (threshold == ANY_CHANGE and target.get('has_changes'))
+        or any(_region_reaches(region, threshold) for region in target.get('regions', []))
         for target in context.get('targets', [])
     )
+
+
+def _should_create(context: dict, threshold: Optional[ChangeThreshold]) -> bool:
+    """Whether a new comment may be created (an existing one is always updated)."""
+    if threshold is None or _has_memory_changes(context, threshold):
+        return True
+    logger.info("No region changed by at least %s and no budget alerts; "
+                "not creating a PR comment", threshold)
+    return False
 
 
 def _extract_pr_number(results: list[dict]) -> str:
@@ -90,6 +167,7 @@ def post_combined_pr_comment(
     template_path: Optional[str] = None,
     footer: bool = True,
     skip_unchanged: bool = False,
+    min_change: Union[ChangeThreshold, str, None] = None,
 ) -> None:
     """
     Post a single PR comment with combined memory analysis results from multiple targets.
@@ -102,7 +180,11 @@ def post_combined_pr_comment(
         footer: Whether to append the MemBrowse footer.
         skip_unchanged: Do not create a comment when no target has memory changes
             or budget alerts; an existing comment is still updated.
+        min_change: Do not create a comment unless some region changed by at
+            least this much (ChangeThreshold or a parse_min_change string) or a
+            budget alert fired; implies skip_unchanged.
     """
+    threshold = _resolve_threshold(skip_unchanged, min_change)
     if not is_gh_cli_available():
         logger.warning("GitHub CLI (gh) not available, skipping PR comment")
         return
@@ -127,7 +209,7 @@ def post_combined_pr_comment(
     try:
         create_or_update_comment(
             comment_body, pr_number, COMMENT_MARKER,
-            create_if_missing=not skip_unchanged or _has_memory_changes(context),
+            create_if_missing=_should_create(context, threshold),
         )
         logger.debug("Posted combined PR comment for %d targets", len(results))
     except subprocess.CalledProcessError as e:
@@ -269,12 +351,13 @@ def _render_comment_body(
     return _render_template(str(default_template), context, footer)
 
 
-def post_summary_comment(
+def post_summary_comment(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     summary_json_path: str,
     pr_number: Optional[str] = None,
     template_path: Optional[str] = None,
     footer: bool = True,
     skip_unchanged: bool = False,
+    min_change: Union[ChangeThreshold, str, None] = None,
 ) -> None:
     """
     Post a PR comment from a saved /summary API response JSON file.
@@ -290,7 +373,11 @@ def post_summary_comment(
         footer: Whether to append the MemBrowse footer
         skip_unchanged: Do not create a comment when no target has memory
             changes or budget alerts; an existing comment is still updated
+        min_change: Do not create a comment unless some region changed by at
+            least this much (ChangeThreshold or a parse_min_change string) or a
+            budget alert fired; implies skip_unchanged
     """
+    threshold = _resolve_threshold(skip_unchanged, min_change)
     with open(summary_json_path, 'r', encoding='utf-8') as f:
         response = json.load(f)
 
@@ -326,13 +413,23 @@ def post_summary_comment(
     try:
         create_or_update_comment(
             body, pr_number, COMMENT_MARKER,
-            create_if_missing=not skip_unchanged or _has_memory_changes(context),
+            create_if_missing=_should_create(context, threshold),
         )
         logger.debug("Posted summary PR comment")
     except subprocess.CalledProcessError as e:
         handle_comment_error(e, "PR comment")
     except Exception as e:  # pylint: disable=broad-exception-caught
         handle_comment_error(e, "PR comment")
+
+
+def _min_change_arg(text: str) -> Optional[ChangeThreshold]:
+    """argparse type for --min-change; an empty value means no threshold."""
+    if not text.strip():
+        return None
+    try:
+        return parse_min_change(text)
+    except ValueError as e:
+        raise argparse.ArgumentTypeError(str(e)) from e
 
 
 def main():
@@ -390,6 +487,15 @@ def main():
         help='Do not create a comment when no target has memory changes or budget '
              'alerts; an existing MemBrowse comment is still updated'
     )
+    parser.add_argument(
+        '--min-change',
+        dest='min_change',
+        type=_min_change_arg,
+        help='Do not create a comment unless some region of some target changed by '
+             'at least this much: bytes (512, 2KB, 1MB) or percent of the region\'s '
+             'previous usage (0.5%%). Budget alerts always create a comment; an '
+             'existing MemBrowse comment is still updated. Implies --skip-unchanged'
+    )
     args = parser.parse_args()
 
     # Summary JSON mode: extract PR number, render, and post in one step
@@ -401,6 +507,7 @@ def main():
                 template_path=args.template_path,
                 footer=args.footer,
                 skip_unchanged=args.skip_unchanged,
+                min_change=args.min_change,
             )
         except (json.JSONDecodeError, IOError, ValueError) as e:
             logger.error("Failed to post summary comment: %s", e)
@@ -461,7 +568,7 @@ def _handle_file_mode(parser, args):
     try:
         post_combined_pr_comment(
             results, template_path=args.template_path, footer=args.footer,
-            skip_unchanged=args.skip_unchanged,
+            skip_unchanged=args.skip_unchanged, min_change=args.min_change,
         )
     except (FileNotFoundError, Jinja2TemplateError) as e:
         logger.error("Failed to generate comment: %s", e)

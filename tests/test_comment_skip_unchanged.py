@@ -2,12 +2,15 @@
 
 import json
 import subprocess
+import sys
 from unittest import mock
 
 import pytest
 
 from membrowse.utils import github_comment, github_common
-from membrowse.utils.github_comment import COMMENT_MARKER, post_summary_comment
+from membrowse.utils.github_comment import (
+    COMMENT_MARKER, ChangeThreshold, parse_min_change, post_summary_comment,
+)
 
 
 def _summary(modified_regions=None, alerts=None) -> dict:
@@ -118,3 +121,98 @@ def test_combined_comment_skip_unchanged():
             mock.patch.object(github_common.subprocess, 'run', gh):
         github_comment.post_combined_pr_comment(results, skip_unchanged=True)
     assert not gh.created
+
+
+SMALL = _summary([{
+    'name': 'FLASH', 'used_size': 10_100, 'limit_size': 65_536,
+    'old': {'used_size': 10_000},
+}])  # +100 bytes, +1%
+SHRANK = _summary([{
+    'name': 'RAM', 'used_size': 7_000, 'limit_size': 65_536,
+    'old': {'used_size': 10_000},
+}])  # -3,000 bytes, -30%
+SMALL_WITH_ALERT = _summary(
+    SMALL['data']['targets'][0]['changes_summary']['changes']['regions']['modified'],
+    alerts={'budgets': [{
+        'budget_name': 'flash', 'exceeded_regions': ['FLASH'],
+        'current_usage': {'FLASH': 10_100}, 'limits': {'FLASH': 10_050},
+        'exceeded_by': {'FLASH': 50},
+    }]},
+)
+
+
+@pytest.mark.parametrize('text, expected', [
+    ('512', ChangeThreshold(512)),
+    ('512B', ChangeThreshold(512)),
+    (' 2KB ', ChangeThreshold(2048)),
+    ('2kib', ChangeThreshold(2048)),
+    ('1.5K', ChangeThreshold(1536)),
+    ('1MB', ChangeThreshold(1024 ** 2)),
+    ('0.5%', ChangeThreshold(0.5, percent=True)),
+    ('10 %', ChangeThreshold(10, percent=True)),
+])
+def test_parse_min_change(text, expected):
+    """Bytes with an optional 1024-based unit, or a percentage."""
+    assert parse_min_change(text) == expected
+
+
+@pytest.mark.parametrize('text', ['', 'abc', '-5', '5GB', '1.2.3', '%', '5 % %'])
+def test_parse_min_change_rejects(text):
+    """Anything else is an error rather than silently no threshold."""
+    with pytest.raises(ValueError):
+        parse_min_change(text)
+
+
+@pytest.mark.parametrize('response, min_change, created', [
+    (SMALL, '100', True),        # exactly at the threshold
+    (SMALL, '101', False),
+    (SMALL, '1%', True),
+    (SMALL, '1.5%', False),
+    (SHRANK, '2KB', True),       # shrinking counts too
+    (SHRANK, '25%', True),
+    (SHRANK, '4KB', False),
+    (UNCHANGED, '0', False),     # nothing changed at all
+    (SMALL_WITH_ALERT, '1MB', True),  # alerts always comment
+    (SMALL, '', True),           # empty: no threshold, always comment
+])
+def test_min_change(tmp_path, response, min_change, created):
+    """A new comment needs a region change of at least min_change."""
+    gh = FakeGh()
+    _post(tmp_path, response, gh, min_change=min_change)
+    assert gh.created is created
+
+
+def test_min_change_still_updates_existing(tmp_path):
+    """Below the threshold an existing comment is still updated."""
+    gh = FakeGh(existing_comment_id=99)
+    _post(tmp_path, SMALL, gh, min_change='1KB')
+    assert gh.updated and not gh.created
+
+
+def test_min_change_wins_over_skip_unchanged(tmp_path):
+    """With both set, the threshold decides."""
+    gh = FakeGh()
+    _post(tmp_path, SMALL, gh, skip_unchanged=True, min_change='1KB')
+    assert not gh.created
+
+
+def test_min_change_from_nothing():
+    """A region growing from zero bytes passes any percentage."""
+    region = {'delta': 4, 'old': {'used_size': 0}}
+    # pylint: disable=protected-access
+    assert github_comment._region_reaches(region, ChangeThreshold(1000, percent=True))
+
+
+def test_min_change_cli(tmp_path):
+    """--min-change reaches post_summary_comment parsed; bad values exit."""
+    path = tmp_path / 'summary.json'
+    path.write_text(json.dumps(SMALL), encoding='utf-8')
+    argv = ['github_comment', '--summary-json', str(path), '--min-change', '2KB']
+    with mock.patch.object(sys, 'argv', argv), \
+            mock.patch.object(github_comment, 'post_summary_comment') as post:
+        github_comment.main()
+    assert post.call_args.kwargs['min_change'] == ChangeThreshold(2048)
+
+    argv[-1] = 'lots'
+    with mock.patch.object(sys, 'argv', argv), pytest.raises(SystemExit):
+        github_comment.main()
