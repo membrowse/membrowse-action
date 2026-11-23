@@ -3,6 +3,7 @@
 import argparse
 import json
 import logging
+import math
 import re
 import subprocess
 import sys
@@ -118,7 +119,10 @@ def _region_reaches(region: dict, threshold: ChangeThreshold) -> bool:
     if old_used <= 0:
         # Growing from nothing is an infinite relative change.
         return delta > 0
-    return delta / old_used * 100 >= threshold.value
+    percent = delta / old_used * 100
+    # Inclusive even when float rounding lands just below the threshold:
+    # 55 / 10000 * 100 is 0.5499999999999999, which must still reach 0.55%.
+    return percent >= threshold.value or math.isclose(percent, threshold.value, rel_tol=1e-9)
 
 
 def _has_memory_changes(context: dict, threshold: ChangeThreshold = ANY_CHANGE) -> bool:
