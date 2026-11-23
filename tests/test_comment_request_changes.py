@@ -199,6 +199,29 @@ def test_new_region_asks_again(tmp_path):
     assert len(gh.requested) == 1
 
 
+def test_new_request_leaves_out_accepted_regions(tmp_path):
+    """A new request names only the regions nobody accepted yet."""
+    both = _summary([_region('FLASH', 10_000, 12_048)],
+                    alerts=OVER_BUDGET['data']['targets'][0]['alerts'])
+    gh = FakeGh([_review(5, 'DISMISSED', ['stm32/FLASH'])])
+    _post(tmp_path, both, gh, min_change='1KB')
+    [body] = gh.requested
+    # pylint: disable=protected-access
+    assert github_review._review_keys(body) == {'stm32/RAM'}
+    assert 'FLASH' not in body.split('-->', 2)[2]
+
+
+def test_accepted_region_does_not_keep_review_open(tmp_path):
+    """FLASH accepted, RAM flagged then fixed while FLASH is still over: the
+    active review is dismissed rather than kept open for FLASH alone."""
+    gh = FakeGh([_review(5, 'DISMISSED', ['stm32/FLASH']),
+                 _review(6, 'CHANGES_REQUESTED', ['stm32/RAM'])])
+    _post(tmp_path, GREW, gh, min_change='1KB')
+    assert gh.dismissed == [6] and not gh.requested
+    [(review_id, body)] = gh.edited
+    assert review_id == 6 and 'already accepted' in body
+
+
 def test_resolved_then_regressed_asks_again(tmp_path):
     """The action's own dismissal (keys cleared) does not count as accepted."""
     resolved = _review(5, 'DISMISSED', ['stm32/FLASH'])

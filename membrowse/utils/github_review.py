@@ -9,10 +9,12 @@ reason in the PR's timeline.
 One MemBrowse review is kept per PR, found by a marker in its body:
 
 - still over a limit and a review is active: its text is updated;
-- over a limit and no review is active: a new one is submitted, unless a
-  maintainer already dismissed a review that named the same regions (they
-  accepted the increase, so later pushes do not ask again);
+- over a limit and no review is active: a new one is submitted;
 - back within the limits: the active review is dismissed by the action.
+
+Regions named in a review a maintainer dismissed are accepted: they are left
+out of every later review, and a review left with nothing else to ask about
+is dismissed by the action too.
 
 The review body also records which target/region pairs it named, so the
 action can tell a maintainer's dismissal (keys kept) from its own (keys
@@ -34,6 +36,8 @@ _KEYS_RE = re.compile(r'<!-- membrowse-review-keys: (.*?) -->')
 _SHA_RE = re.compile(r'[0-9a-fA-F]{7,40}')
 
 RESOLVED_MESSAGE = "Memory is back within the configured limits."
+ACCEPTED_MESSAGE = ("The remaining memory increases were already accepted by a maintainer; "
+                    "nothing left to review.")
 
 _PERMISSION_HINT = (
     "Requesting changes needs 'permissions: pull-requests: write' on the job. "
@@ -121,10 +125,10 @@ def build_review_body(reasons: list[ReviewReason], dashboard_url: Optional[str] 
     return '\n'.join(lines) + '\n'
 
 
-def _resolved_body(body: str) -> str:
+def _resolved_body(body: str, message: str = RESOLVED_MESSAGE) -> str:
     """A review body with its keys cleared, so that the action's own dismissal
     is not mistaken for a maintainer accepting the increase."""
-    return _KEYS_RE.sub(_keys_marker(()), body) + f"\n**Resolved:** {RESOLVED_MESSAGE}\n"
+    return _KEYS_RE.sub(_keys_marker(()), body) + f"\n**Resolved:** {message}\n"
 
 
 def sync_review(
@@ -165,35 +169,38 @@ def sync_review(
     active = [review for review in reviews if review.state == 'CHANGES_REQUESTED']
     base = f'repos/{{owner}}/{{repo}}/pulls/{pr_num}/reviews'
 
-    if not reasons:
+    # Regions a maintainer accepted by dismissing a request that named them
+    # are left out, so one accepted increase never keeps a review open.
+    accepted = set().union(*(_review_keys(review.body) for review in reviews
+                             if review.state == 'DISMISSED'))
+    pending = [reason for reason in reasons if reason.key not in accepted]
+    if len(pending) < len(reasons):
+        logger.info("A maintainer already accepted %s; not flagging again",
+                    ', '.join(sorted({r.key for r in reasons} & accepted)))
+
+    if not pending:
+        message = RESOLVED_MESSAGE if not reasons else ACCEPTED_MESSAGE
         for review in active:
-            logger.info("Memory is within limits; dismissing MemBrowse review %d", review.review_id)
+            logger.info("Nothing left to review; dismissing MemBrowse review %d",
+                        review.review_id)
             _gh(['--method', 'PUT', f'{base}/{review.review_id}',
-                 '-f', f'body={_resolved_body(review.body)}'])
+                 '-f', f'body={_resolved_body(review.body, message)}'])
             _gh(['--method', 'PUT', f'{base}/{review.review_id}/dismissals',
-                 '-f', f'message={RESOLVED_MESSAGE}', '-f', 'event=DISMISS'])
+                 '-f', f'message={message}', '-f', 'event=DISMISS'])
         return
 
-    body = build_review_body(reasons, dashboard_url)
+    body = build_review_body(pending, dashboard_url)
     if active:
         logger.info("Updating MemBrowse change request %d", active[-1].review_id)
         _gh(['--method', 'PUT', f'{base}/{active[-1].review_id}', '-f', f'body={body}'])
         return
 
-    dismissed = set().union(*(_review_keys(review.body) for review in reviews
-                               if review.state == 'DISMISSED'))
-    keys = {reason.key for reason in reasons}
-    if keys <= dismissed:
-        logger.info("A maintainer already dismissed the MemBrowse change request for %s; "
-                    "not requesting changes again", ', '.join(sorted(keys)))
-        return
-
-    logger.info("Requesting changes on PR #%s: %s", pr_num, ', '.join(sorted(keys)))
+    logger.info("Requesting changes on PR #%s: %s", pr_num,
+                ', '.join(sorted(reason.key for reason in pending)))
     args = ['--method', 'POST', base, '-f', 'event=REQUEST_CHANGES', '-f', f'body={body}']
     if commit_sha:
         args += ['-f', f'commit_id={commit_sha}']
     _gh(args)
-
 
 def handle_review_error(error: Exception) -> None:
     """Log a failed review call as a warning; the comment is unaffected."""
